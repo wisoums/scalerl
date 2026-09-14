@@ -16,6 +16,23 @@ Common autoscalers react to metrics such as CPU utilization or use forecasts to 
 
 ScaleRL models those delayed consequences and evaluates learned policies against strong non-RL baselines.
 
+## Why reinforcement learning?
+
+RL is used here as a **hypothesis to evaluate**, not because autoscaling must be solved with RL.
+
+Autoscaling has several properties that make RL a reasonable direction to test: decisions are repeated over time, actions affect future system states, replica startup introduces delayed consequences, service quality and infrastructure cost conflict, and there is no dataset containing a known optimal scaling action for every possible system state.
+
+Other ML paradigms still have useful roles:
+
+- **Supervised learning / forecasting** can predict future demand, but prediction alone does not decide how to trade future latency, cost, SLA risk, and scaling churn. A predictive controller is therefore included as a baseline.
+- **Unsupervised learning** can discover workload regimes or anomalies, but does not directly learn a sequential control policy for the project objective.
+- **Contextual bandits** optimize actions without fully modeling how those actions change later states; autoscaling actions can change capacity and queueing several control intervals into the future.
+- **Classical control and model predictive control** are strong alternatives when system dynamics are known and modelable. They are not treated as obsolete; an MPC baseline is a possible extension.
+
+The project will reject the RL hypothesis if well-tuned simpler controllers provide an equal or better cost/service trade-off on held-out workloads.
+
+See [`docs/WHY_RL.md`](docs/WHY_RL.md) for the full paradigm-selection argument and falsifiable hypothesis.
+
 ## Planned controllers
 
 | Controller | Role |
@@ -66,11 +83,13 @@ Cloud simulator ---> Metrics / state
 Evaluation harness ---> latency | SLA | cost | churn
 ```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REWARD_DESIGN.md`](docs/REWARD_DESIGN.md), and [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for the current design.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REWARD_DESIGN.md`](docs/REWARD_DESIGN.md), [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md), and [`docs/WHY_RL.md`](docs/WHY_RL.md) for the current design.
 
 ## Roadmap
 
-Development proceeds from simulation and deterministic baselines to deep RL, rigorous benchmarking, and finally a production-inspired shadow-mode demo. See [`ROADMAP.md`](ROADMAP.md).
+The target for the portfolio-ready v1.0 release is **October 31, 2026**. The critical path is the simulator, strong baselines, DQN/PPO, held-out multi-seed benchmarking, and a concise demo/results package. Production-inspired serving and advanced failure scenarios are secondary to completing rigorous ML evaluation.
+
+See [`ROADMAP.md`](ROADMAP.md) for the dated execution plan and scope boundaries.
 
 ## Development
 
