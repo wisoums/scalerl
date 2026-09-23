@@ -2,12 +2,19 @@
 
 import random
 from collections import Counter
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 import pytest
 
-from scalerl.controllers import Controller, RandomController, StaticController, run_episode
+from scalerl.controllers import (
+    Controller,
+    RandomController,
+    StaticController,
+    decision_info,
+    run_episode,
+)
 from scalerl.environment import (
     AutoscalingEnv,
     ReplicaConfig,
@@ -77,6 +84,50 @@ def test_controllers_drive_a_complete_episode_through_the_shared_runner(
     assert all(env.action_space.contains(action) for action in requested_actions(infos))
     assert [info["tick"] for info in infos] == list(range(env.episode_ticks))
     assert {"p95_latency_seconds", "infrastructure_cost", "reward"} <= infos[-1].keys()
+
+
+class ActiveTargetController:
+    """Scales up while *active* replicas are below target, ignoring pending ones."""
+
+    def __init__(self, target: int) -> None:
+        self.target = target
+        self.seen: list[dict[str, Any]] = []
+
+    def reset(self, seed: int | None = None) -> None:
+        self.seen = []
+
+    def act(self, observation: np.ndarray, info: Mapping[str, Any]) -> int:
+        self.seen.append(dict(info))
+        return SCALE_UP if info["active_replicas"] < self.target else HOLD
+
+
+def test_controllers_see_replica_counts_at_decision_time() -> None:
+    env = make_env(initial_replicas=2, startup_delay_seconds=30)  # activates after one tick
+    controller = ActiveTargetController(target=3)
+
+    infos = run_episode(env, controller)
+
+    # The replica requested on tick 0 activates at the end of that tick, so the
+    # next decision already sees it and does not request a redundant scale-up.
+    assert requested_actions(infos)[:3] == [SCALE_UP, HOLD, HOLD]
+    assert (controller.seen[1]["active_replicas"], controller.seen[1]["pending_replicas"]) == (3, 0)
+    # Returned infos stay raw: tick 0 was served with the new replica still pending.
+    assert (infos[0]["active_replicas"], infos[0]["pending_replicas"]) == (2, 1)
+    # Tick metrics are passed through unchanged.
+    assert controller.seen[1]["processed_requests"] == infos[0]["processed_requests"]
+
+
+def test_decision_info_matches_the_observation_every_tick() -> None:
+    env = make_env(startup_delay_seconds=90)
+    max_replicas = env.config.replicas.max_replicas
+    observation, info = env.reset(seed=0)
+    controller = RandomController(seed=3)
+
+    for _ in range(TICKS):
+        current = decision_info(env, info)
+        assert current["active_replicas"] == round(observation[4] * max_replicas)
+        assert current["pending_replicas"] == round(observation[7:].sum() * max_replicas)
+        observation, _, _, _, info = env.step(controller.act(observation, current))
 
 
 # --- random -----------------------------------------------------------------

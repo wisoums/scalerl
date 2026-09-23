@@ -12,7 +12,8 @@ from scalerl.environment.gym_env import AutoscalingEnv, Observation
 class Controller(Protocol):
     """Chooses one ``AutoscalingEnv`` action (0 down, 1 hold, 2 up) per tick.
 
-    ``info`` is the dict returned by the latest ``reset()`` or ``step()``.
+    ``info`` is the latest ``reset()``/``step()`` info with replica counts
+    replaced by the current, decision-time counts (see :func:`decision_info`).
     Rule-based controllers may read raw values from it; learned-policy
     adapters can use only the observation.
     """
@@ -26,12 +27,22 @@ class Controller(Protocol):
         ...
 
 
+def decision_info(env: AutoscalingEnv, info: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``info`` with replica counts as of now rather than as of the last tick.
+
+    A step's ``info`` reports the replicas that served that tick; pending
+    replicas may have activated at its end. Tick metrics are left unchanged.
+    """
+    return {**info, **env.replica_counts}
+
+
 def run_episode(
     env: AutoscalingEnv, controller: Controller, *, seed: int | None = None
 ) -> list[dict[str, Any]]:
-    """Run one full episode and return the ``info`` dict of every step.
+    """Run one full episode and return the raw ``info`` dict of every step.
 
-    The same ``seed`` resets both the environment and the controller.
+    The same ``seed`` resets both the environment and the controller. The
+    controller sees :func:`decision_info`; the returned infos are unmodified.
     """
     observation, info = env.reset(seed=seed)
     controller.reset(seed=seed)
@@ -39,7 +50,7 @@ def run_episode(
     infos = []
     done = False
     while not done:
-        action = controller.act(observation, info)
+        action = controller.act(observation, decision_info(env, info))
         observation, _, terminated, truncated, info = env.step(action)
         infos.append(info)
         done = terminated or truncated
