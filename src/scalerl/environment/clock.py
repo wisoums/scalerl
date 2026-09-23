@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 
 class SimulationClock:
     """Track simulated time in fixed-size control intervals.
@@ -11,10 +13,11 @@ class SimulationClock:
     """
 
     def __init__(self, tick_seconds: float) -> None:
-        if tick_seconds <= 0:
-            raise ValueError("tick_seconds must be greater than zero")
+        tick_seconds = float(tick_seconds)
+        if not math.isfinite(tick_seconds) or tick_seconds <= 0:
+            raise ValueError("tick_seconds must be finite and greater than zero")
 
-        self._tick_seconds = float(tick_seconds)
+        self._tick_seconds = tick_seconds
         self._step_count = 0
 
     @property

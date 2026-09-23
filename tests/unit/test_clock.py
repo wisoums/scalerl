@@ -44,9 +44,9 @@ def test_reset_returns_clock_to_zero_without_changing_tick_duration() -> None:
     assert clock.tick_seconds == 15
 
 
-@pytest.mark.parametrize("tick_seconds", [0, -1, -0.5])
-def test_tick_duration_must_be_positive(tick_seconds: float) -> None:
-    with pytest.raises(ValueError, match="tick_seconds must be greater than zero"):
+@pytest.mark.parametrize("tick_seconds", [0, -1, -0.5, float("nan"), float("inf"), float("-inf")])
+def test_tick_duration_must_be_finite_and_positive(tick_seconds: float) -> None:
+    with pytest.raises(ValueError, match="tick_seconds must be finite and greater than zero"):
         SimulationClock(tick_seconds=tick_seconds)
 
 
