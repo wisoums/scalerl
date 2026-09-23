@@ -27,6 +27,8 @@ class RequestQueue:
 
     def __init__(self, replicas: ReplicaConfig, timing: TimingConfig) -> None:
         self._requests_per_replica = replicas.service_capacity_rps * timing.control_interval_seconds
+        if not math.isfinite(self._requests_per_replica):
+            raise ValueError("per-replica capacity per tick overflows; reduce capacity or interval")
         self._control_interval_seconds = timing.control_interval_seconds
         self._queue_depth = 0.0
 
@@ -53,6 +55,9 @@ class RequestQueue:
         arrived = request_rate * self._control_interval_seconds
         capacity = active_replicas * self._requests_per_replica
         work = self._queue_depth + arrived
+        # Finite inputs can still overflow; fail before mutating the queue.
+        if not (math.isfinite(work) and math.isfinite(capacity)):
+            raise ValueError("request volume overflows; request_rate or replicas too large")
         processed = min(work, capacity)
         self._queue_depth = work - processed
 

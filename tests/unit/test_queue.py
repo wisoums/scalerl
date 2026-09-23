@@ -177,3 +177,38 @@ def test_active_replicas_must_be_an_integer(replicas: object) -> None:
 
     with pytest.raises(TypeError, match="active_replicas must be an integer"):
         queue.step(request_rate=10, active_replicas=replicas)  # type: ignore[arg-type]
+
+
+def test_overflowing_per_replica_capacity_is_rejected_at_construction() -> None:
+    with pytest.raises(ValueError, match="per-replica capacity per tick overflows"):
+        make_queue(service_capacity_rps=1e308, control_interval_seconds=30)
+
+
+def test_overflowing_arrivals_are_rejected_without_changing_state() -> None:
+    queue = make_queue(control_interval_seconds=30)
+    queue.step(request_rate=10, active_replicas=0)
+
+    with pytest.raises(ValueError, match="request volume overflows"):
+        queue.step(request_rate=1e308, active_replicas=0)
+
+    assert queue.queue_depth == 300.0
+
+
+def test_overflowing_backlog_is_rejected_without_changing_state() -> None:
+    queue = make_queue(control_interval_seconds=30)
+    queue.step(request_rate=5e306, active_replicas=0)  # 1.5e308 queued, still finite
+    depth = queue.queue_depth
+
+    with pytest.raises(ValueError, match="request volume overflows"):
+        queue.step(request_rate=5e306, active_replicas=0)
+
+    assert queue.queue_depth == depth
+
+
+def test_overflowing_total_capacity_is_rejected_without_changing_state() -> None:
+    queue = make_queue(service_capacity_rps=1e300, control_interval_seconds=10)
+
+    with pytest.raises(ValueError, match="request volume overflows"):
+        queue.step(request_rate=1, active_replicas=10**8)
+
+    assert queue.queue_depth == 0.0
