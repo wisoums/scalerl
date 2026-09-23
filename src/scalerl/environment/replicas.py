@@ -101,11 +101,34 @@ class ReplicaPool:
         self._active += len(remaining) - len(still_pending)
         self._pending_remaining_seconds = still_pending
 
+    def pending_by_ticks_until_active(self, interval_seconds: float) -> tuple[int, ...]:
+        """Count pending replicas by how many ``advance(interval_seconds)`` calls activate them.
+
+        Entry ``i`` counts replicas that become active after ``i + 1`` advances.
+        The length is the number of advances a fresh replica needs (zero when
+        startup delay is zero), so it depends only on configuration.
+        """
+        interval_seconds = float(interval_seconds)
+        if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+            raise ValueError("interval_seconds must be finite and greater than zero")
+
+        delay = self._config.startup_delay_seconds
+        horizon = _advances_until_active(delay, interval_seconds) if delay > 0 else 0
+        counts = [0] * horizon
+        for seconds in self._pending_remaining_seconds:
+            counts[_advances_until_active(seconds, interval_seconds) - 1] += 1
+        return tuple(counts)
+
     def reset(self) -> None:
         """Return to ``initial_replicas`` active replicas with nothing pending or terminating."""
         self._active = self._config.initial_replicas
         self._pending_remaining_seconds = []
         self._terminating = 0
+
+
+def _advances_until_active(remaining_seconds: float, interval_seconds: float) -> int:
+    """Mirror :meth:`ReplicaPool.advance`: active once remaining time is within tolerance."""
+    return max(1, math.ceil((remaining_seconds - _TIME_TOLERANCE_SECONDS) / interval_seconds))
 
 
 def _check_count(count: int) -> None:
