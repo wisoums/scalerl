@@ -248,6 +248,14 @@ def test_invalid_replica_counts_are_rejected(
         compute_tick_metrics(result, config=config, **counts)
 
 
+def test_large_hourly_price_with_short_interval_stays_finite() -> None:
+    config = make_config(cost_per_hour=1e308, control_interval_seconds=10)
+
+    cost = measure(processed=0, queued=0, active=1, config=config).infrastructure_cost
+
+    assert cost == pytest.approx(1e308 / 360)
+
+
 def test_cost_overflow_is_rejected() -> None:
     config = make_config(cost_per_hour=1e308, control_interval_seconds=3600)
 

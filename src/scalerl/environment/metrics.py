@@ -78,7 +78,9 @@ def compute_tick_metrics(
     )
 
     billable = active_replicas + pending_replicas
-    cost = billable * config.replicas.cost_per_hour * interval / _SECONDS_PER_HOUR
+    # Scale the price to one tick first so large hourly prices don't overflow early.
+    cost_per_replica_tick = config.replicas.cost_per_hour * (interval / _SECONDS_PER_HOUR)
+    cost = billable * cost_per_replica_tick
 
     if not (math.isfinite(p95_latency) and math.isfinite(cost)):
         raise ValueError("tick metrics overflow; inputs are too large")
