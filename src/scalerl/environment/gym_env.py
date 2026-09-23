@@ -18,17 +18,22 @@ Each ``step`` runs one tick in this order:
 New replicas therefore serve no traffic until their startup delay has elapsed,
 unless the delay is zero.
 
-Observations (``Box([0, 1]^8)``) describe the state after the last completed
-tick; at reset there is no completed tick, so traffic features are zero:
+Observations (``Box([0, 1]^(7 + k))``) describe the state after the last
+completed tick; at reset there is no completed tick, so traffic features are zero:
 
 0. demand pressure: ``rate / (rate + max_replicas * service_capacity_rps)``
 1. utilization of active capacity
 2. queue pressure: ``queued / (queued + max-fleet capacity per tick)``
 3. latency pressure: ``p95 / (p95 + latency_target)``
 4. active replicas / ``max_replicas``
-5. pending replicas / ``max_replicas``
-6. tick cost / cost of ``max_replicas`` for one tick
-7. episode progress: completed ticks / episode ticks
+5. tick cost / cost of ``max_replicas`` for one tick
+6. episode progress: completed ticks / episode ticks
+7. ... 7 + k - 1: pending replicas that become active after 1 ... k more ticks,
+   each / ``max_replicas``
+
+``k = ceil(startup_delay_seconds / control_interval_seconds)`` (0 with no
+delay). Bucketing pending replicas by readiness keeps the observation Markov:
+equal pending counts with different remaining startup times look different.
 
 Episodes never terminate; they are truncated once the workload trace, which
 must span exactly one episode, is exhausted.
@@ -78,12 +83,15 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self.trace = trace
         self.reward_weights = reward_weights or RewardWeights()
 
-        self.action_space = spaces.Discrete(3)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(8,), dtype=np.float32)
-
         self._clock = SimulationClock(config.timing.control_interval_seconds)
         self._replay = WorkloadReplay(trace)
         self._pool = ReplicaPool(config.replicas)
+
+        pending_buckets = len(self._pending_buckets())
+        self.action_space = spaces.Discrete(3)
+        self.observation_space = spaces.Box(
+            low=0.0, high=1.0, shape=(7 + pending_buckets,), dtype=np.float32
+        )
         self._queue = RequestQueue(config.replicas, config.timing)
         self._max_service_rate = config.replicas.max_replicas * config.replicas.service_capacity_rps
         self._max_tick_capacity = max_tick_capacity_of(config)
@@ -207,12 +215,15 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
                 queued / (queued + self._max_tick_capacity),
                 latency_pressure,
                 self._pool.active_count / max_replicas,
-                self._pool.pending_count / max_replicas,
                 cost_fraction,
                 self._clock.step_count / self._episode_ticks,
+                *(count / max_replicas for count in self._pending_buckets()),
             ],
             dtype=np.float32,
         )
+
+    def _pending_buckets(self) -> tuple[int, ...]:
+        return self._pool.pending_by_ticks_until_active(self.config.timing.control_interval_seconds)
 
     def _replica_info(self) -> dict[str, int]:
         return {

@@ -214,6 +214,58 @@ def test_advance_requires_positive_finite_time(elapsed: float) -> None:
     assert counts(pool) == (2, 1, 0)
 
 
+# --- readiness --------------------------------------------------------------
+
+
+def test_pending_replicas_are_bucketed_by_advances_until_active() -> None:
+    pool = make_pool(startup_delay_seconds=90)
+    pool.scale_up()
+    pool.advance(30)
+    pool.scale_up(2)
+
+    assert pool.pending_by_ticks_until_active(30) == (0, 1, 2)
+
+    pool.advance(30)
+    assert pool.pending_by_ticks_until_active(30) == (1, 2, 0)
+
+
+def test_readiness_buckets_round_up_partial_intervals() -> None:
+    pool = make_pool(startup_delay_seconds=45)
+    pool.scale_up()
+
+    assert pool.pending_by_ticks_until_active(30) == (0, 1)
+    pool.advance(30)
+    assert pool.pending_by_ticks_until_active(30) == (1, 0)
+    pool.advance(30)
+    assert pool.active_count == 3
+
+
+def test_readiness_buckets_match_activation_under_float_rounding() -> None:
+    pool = make_pool(startup_delay_seconds=0.3)
+    pool.scale_up()
+    pool.advance(0.1)
+    pool.advance(0.1)
+
+    assert pool.pending_by_ticks_until_active(0.1) == (1, 0, 0)
+    pool.advance(0.1)
+    assert pool.active_count == 3
+
+
+def test_zero_startup_delay_has_no_readiness_buckets() -> None:
+    pool = make_pool(startup_delay_seconds=0)
+    pool.scale_up()
+
+    assert pool.pending_by_ticks_until_active(30) == ()
+
+
+@pytest.mark.parametrize("interval", [0, -1, float("nan"), float("inf")])
+def test_readiness_buckets_require_positive_finite_interval(interval: float) -> None:
+    pool = make_pool()
+
+    with pytest.raises(ValueError, match="interval_seconds must be finite"):
+        pool.pending_by_ticks_until_active(interval)
+
+
 # --- reset and determinism --------------------------------------------------
 
 

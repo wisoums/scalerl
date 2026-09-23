@@ -9,6 +9,7 @@ from gymnasium import spaces
 from gymnasium.utils.env_checker import check_env
 
 from scalerl.environment import (
+    MAX_REWARD_WEIGHT,
     AutoscalingEnv,
     ReplicaConfig,
     RewardWeights,
@@ -64,9 +65,10 @@ def test_spaces_are_discrete_actions_and_unit_box_observations() -> None:
 
     assert env.action_space == spaces.Discrete(3)
     assert isinstance(env.observation_space, spaces.Box)
-    assert env.observation_space.shape == (8,)
+    assert env.observation_space.shape == (7 + 2,)  # 60 s delay / 30 s ticks -> 2 buckets
     assert env.observation_space.dtype == np.float32
-    assert np.all(env.observation_space.low == 0) and np.all(env.observation_space.high == 1)
+    assert np.all(env.observation_space.low == 0)
+    assert np.all(env.observation_space.high == 1)
     assert env.episode_ticks == TICKS
 
 
@@ -77,18 +79,20 @@ def test_passes_gymnasium_env_checker() -> None:
 
 
 def test_mismatched_trace_interval_is_rejected() -> None:
+    config = make_config()
     trace = WorkloadTrace([5.0] * 10, control_interval_seconds=15)
 
     with pytest.raises(ValueError, match="does not match configured control interval"):
-        AutoscalingEnv(make_config(), trace)
+        AutoscalingEnv(config, trace)
 
 
 @pytest.mark.parametrize("length", [TICKS - 1, TICKS + 1])
 def test_trace_must_span_exactly_one_episode(length: int) -> None:
+    config = make_config()
     trace = WorkloadTrace([5.0] * length, control_interval_seconds=INTERVAL)
 
     with pytest.raises(ValueError, match="not truncated or resampled"):
-        AutoscalingEnv(make_config(), trace)
+        AutoscalingEnv(config, trace)
 
 
 def test_episode_must_be_whole_number_of_intervals() -> None:
@@ -110,7 +114,7 @@ def test_reset_returns_initial_observation_and_info() -> None:
     observation, info = env.reset(seed=0)
 
     assert observation in env.observation_space
-    np.testing.assert_array_equal(observation, [0, 0, 0, 0, 0.25, 0, 0, 0])
+    np.testing.assert_array_equal(observation, [0, 0, 0, 0, 0.25, 0, 0, 0, 0])
     assert info == {
         "tick": 0,
         "time_seconds": 0.0,
@@ -129,7 +133,7 @@ def test_reset_restores_every_component() -> None:
     observation, info = env.reset(seed=0)
 
     np.testing.assert_array_equal(observation, initial)
-    assert info["active_replicas"] == 1 and info["pending_replicas"] == 0
+    assert (info["active_replicas"], info["pending_replicas"]) == (1, 0)
     _, _, _, _, step_info = env.step(HOLD)
     assert step_info["tick"] == 0
     assert step_info["arrived_requests"] == 3000.0  # queue and replay restarted
@@ -137,8 +141,10 @@ def test_reset_restores_every_component() -> None:
 
 
 def test_step_before_reset_is_rejected() -> None:
+    env = make_env()
+
     with pytest.raises(RuntimeError, match="call reset"):
-        make_env().step(HOLD)
+        env.step(HOLD)
 
 
 # --- one step ---------------------------------------------------------------
@@ -176,9 +182,10 @@ def test_one_step_composes_workload_queue_metrics_and_reward() -> None:
         0.0,
         0.2 / (0.2 + 0.5),
         0.25,
-        0.0,
         0.25,  # 1 of 4 billable replicas
         1 / TICKS,
+        0.0,  # no pending replicas
+        0.0,
     ]
     np.testing.assert_allclose(observation, expected_observation, rtol=1e-6)
     assert observation in env.observation_space
@@ -258,6 +265,31 @@ def test_scale_up_serves_traffic_only_after_startup_delay() -> None:
     assert [t["processed_requests"] for t in ticks] == [300.0, 300.0, 600.0]
 
 
+def test_observation_distinguishes_pending_replicas_by_readiness() -> None:
+    # Same tick and pending count, but one replica is a tick closer to active.
+    early = make_env(startup_delay_seconds=90)  # 3 ticks of delay
+    late = make_env(startup_delay_seconds=90)
+    reset(early)
+    reset(late)
+    for early_action, late_action in [(SCALE_UP, HOLD), (HOLD, SCALE_UP)]:
+        early_observation = early.step(early_action)[0]
+        late_observation = late.step(late_action)[0]
+
+    np.testing.assert_allclose(early_observation[7:], [0.25, 0.0, 0.0])
+    np.testing.assert_allclose(late_observation[7:], [0.0, 0.25, 0.0])
+    # After one more tick, only the earlier request has become active.
+    assert early.step(HOLD)[0][4] == 0.5
+    assert late.step(HOLD)[0][4] == 0.25
+
+
+@pytest.mark.parametrize(("delay", "buckets"), [(0, 0), (30, 1), (45, 2), (90, 3)])
+def test_pending_bucket_count_follows_startup_delay(delay: float, buckets: int) -> None:
+    env = make_env(startup_delay_seconds=delay)
+
+    assert env.observation_space.shape == (7 + buckets,)
+    assert reset(env).shape == (7 + buckets,)
+
+
 def test_pending_replica_is_billed_but_does_not_serve() -> None:
     env = make_env(rates=[100.0] * TICKS)
     reset(env)
@@ -319,6 +351,29 @@ def test_reward_weights_are_validated_and_immutable() -> None:
         RewardWeights().sla = 5  # type: ignore[misc]
 
 
+def test_reward_weights_are_capped() -> None:
+    RewardWeights(latency=MAX_REWARD_WEIGHT)
+    with pytest.raises(ValueError):
+        RewardWeights(latency=MAX_REWARD_WEIGHT * 2)
+
+
+def test_maximum_reward_weights_keep_reward_finite() -> None:
+    weights = RewardWeights(
+        latency=MAX_REWARD_WEIGHT,
+        cost=MAX_REWARD_WEIGHT,
+        sla=MAX_REWARD_WEIGHT,
+        queue=MAX_REWARD_WEIGHT,
+        churn=MAX_REWARD_WEIGHT,
+    )
+    env = make_env(rates=[1000.0] * TICKS, reward_weights=weights)
+    reset(env)
+
+    reward = float(env.step(SCALE_UP)[1])
+
+    assert np.isfinite(reward)
+    assert -5 * MAX_REWARD_WEIGHT <= reward < 0
+
+
 def test_zero_price_config_has_zero_cost_penalty_and_observation() -> None:
     env = make_env(cost_per_hour=0.0)
     reset(env)
@@ -326,7 +381,7 @@ def test_zero_price_config_has_zero_cost_penalty_and_observation() -> None:
     observation, _, _, _, info = env.step(HOLD)
 
     assert info["reward_components"]["cost_penalty"] == 0.0
-    assert observation[6] == 0.0
+    assert observation[5] == 0.0
 
 
 # --- episode end ------------------------------------------------------------
@@ -340,7 +395,7 @@ def test_episode_is_truncated_when_trace_is_exhausted() -> None:
 
     assert [o[2] for o in outcomes] == [False] * TICKS
     assert [o[3] for o in outcomes] == [False] * (TICKS - 1) + [True]
-    assert outcomes[-1][0][7] == 1.0
+    assert outcomes[-1][0][6] == 1.0
     assert outcomes[-1][4]["time_seconds"] == INTERVAL * TICKS
 
 

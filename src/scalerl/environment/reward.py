@@ -23,17 +23,33 @@ from scalerl.environment.config import SimulatorConfig
 from scalerl.environment.metrics import TickMetrics
 from scalerl.environment.queue import QueueStepResult
 
+# Each penalty is at most its weight, so this cap keeps the five-term sum finite.
+MAX_REWARD_WEIGHT = 1e6
+
 
 class RewardWeights(BaseModel):
-    """Non-negative weights applied to each normalized penalty."""
+    """Non-negative weights, at most ``MAX_REWARD_WEIGHT``, applied to each penalty."""
 
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid", allow_inf_nan=False)
 
-    latency: float = Field(default=1.0, ge=0, description="Weight of the latency penalty.")
-    cost: float = Field(default=1.0, ge=0, description="Weight of the infrastructure-cost penalty.")
-    sla: float = Field(default=1.0, ge=0, description="Weight of the SLA-violation penalty.")
-    queue: float = Field(default=1.0, ge=0, description="Weight of the queue-backlog penalty.")
-    churn: float = Field(default=0.1, ge=0, description="Weight of the scaling-churn penalty.")
+    latency: float = Field(
+        default=1.0, ge=0, le=MAX_REWARD_WEIGHT, description="Weight of the latency penalty."
+    )
+    cost: float = Field(
+        default=1.0,
+        ge=0,
+        le=MAX_REWARD_WEIGHT,
+        description="Weight of the infrastructure-cost penalty.",
+    )
+    sla: float = Field(
+        default=1.0, ge=0, le=MAX_REWARD_WEIGHT, description="Weight of the SLA-violation penalty."
+    )
+    queue: float = Field(
+        default=1.0, ge=0, le=MAX_REWARD_WEIGHT, description="Weight of the queue-backlog penalty."
+    )
+    churn: float = Field(
+        default=0.1, ge=0, le=MAX_REWARD_WEIGHT, description="Weight of the scaling-churn penalty."
+    )
 
 
 @dataclass(frozen=True, slots=True)
