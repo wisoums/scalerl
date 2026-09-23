@@ -34,6 +34,9 @@ completed tick; at reset there is no completed tick, so traffic features are zer
 ``k = ceil(startup_delay_seconds / control_interval_seconds)`` (0 with no
 delay). Bucketing pending replicas by readiness keeps the observation Markov:
 equal pending counts with different remaining startup times look different.
+The shape is fixed for a given config, but changing startup delay or control
+interval can change it, so a trained policy only fits environments whose
+observation and action spaces match its training environment.
 
 Episodes never terminate; they are truncated once the workload trace, which
 must span exactly one episode, is exhausted.
