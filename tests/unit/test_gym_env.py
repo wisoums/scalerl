@@ -290,6 +290,24 @@ def test_pending_bucket_count_follows_startup_delay(delay: float, buckets: int) 
     assert reset(env).shape == (7 + buckets,)
 
 
+def test_replica_counts_reflect_state_after_lifecycle_advance() -> None:
+    env = make_env(startup_delay_seconds=30)  # activates after one tick
+    _, reset_info = env.reset(seed=0)
+    assert env.replica_counts == {
+        key: reset_info[key]
+        for key in ("active_replicas", "pending_replicas", "terminating_replicas")
+    }
+
+    info = env.step(SCALE_UP)[4]
+
+    assert (info["active_replicas"], info["pending_replicas"]) == (1, 1)  # served the tick
+    assert env.replica_counts == {
+        "active_replicas": 2,
+        "pending_replicas": 0,
+        "terminating_replicas": 0,
+    }
+
+
 def test_pending_replica_is_billed_but_does_not_serve() -> None:
     env = make_env(rates=[100.0] * TICKS)
     reset(env)

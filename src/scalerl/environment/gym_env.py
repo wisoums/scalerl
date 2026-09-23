@@ -119,7 +119,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._last_request_rate = 0.0
         self._last_metrics = None
         self._needs_reset = False
-        return self._observation(), self._replica_info() | {"tick": 0, "time_seconds": 0.0}
+        return self._observation(), self.replica_counts | {"tick": 0, "time_seconds": 0.0}
 
     def step(
         self, action: np.int64 | int
@@ -137,7 +137,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             applied = -self._pool.scale_down()
         else:
             applied = 0
-        tick_replicas = self._replica_info()
+        tick_replicas = self.replica_counts
 
         # 2-4. serve this tick's demand with the currently active replicas
         tick = self._clock.step_count
@@ -228,7 +228,13 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
     def _pending_buckets(self) -> tuple[int, ...]:
         return self._pool.pending_by_ticks_until_active(self.config.timing.control_interval_seconds)
 
-    def _replica_info(self) -> dict[str, int]:
+    @property
+    def replica_counts(self) -> dict[str, int]:
+        """Return current replica counts, i.e. the state the next action applies to.
+
+        ``info`` from ``step()`` reports the replicas that served that tick,
+        before pending replicas could activate at its end.
+        """
         return {
             "active_replicas": self._pool.active_count,
             "pending_replicas": self._pool.pending_count,
