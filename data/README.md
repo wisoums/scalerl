@@ -111,7 +111,7 @@ Processed slices are generated locally and never committed.
 
 ## Benchmark windows
 
-Azure windows are always written as exact values (`start_seconds`, `duration_seconds`, `control_interval_seconds`), never as labels like "Monday", because timestamps were modified. The frozen v1 train/validation/test windows live in [`benchmarks/v1/workloads.json`](../benchmarks/v1/workloads.json); see [`benchmarks/v1/README.md`](../benchmarks/v1/README.md) for the selection rule and the local validation command.
+Azure windows are always written as exact values (`start_seconds`, `duration_seconds`, `control_interval_seconds`), never as labels like "Monday", because timestamps were modified. The frozen v1 train/validation/test windows live in [`src/scalerl/benchmarks/v1/workloads.json`](../src/scalerl/benchmarks/v1/workloads.json); see [`benchmarks/v1/README.md`](../benchmarks/v1/README.md) for the selection rule and the local validation command.
 
 ## Train / validation / test separation
 

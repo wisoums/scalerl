@@ -2,7 +2,7 @@
 
 - **Version:** v1
 - **Frozen on:** 2026-09-24, before any DQN/PPO tuning
-- **Manifest:** [`workloads.json`](workloads.json), loaded with `scalerl.benchmarks.load_benchmark_manifest()`
+- **Manifest:** [`src/scalerl/benchmarks/v1/workloads.json`](../../src/scalerl/benchmarks/v1/workloads.json), shipped as package data and loaded with `scalerl.benchmarks.load_benchmark_manifest()` (also from an installed wheel)
 
 This benchmark freezes **which workloads belong to which split**. It does not fix controller, reward, or simulator hyperparameters.
 
@@ -89,7 +89,7 @@ python -m scalerl.benchmarks.validate_azure --azure-csv data/raw/<extracted file
     --summary-out benchmarks/v1/azure_characterization.json
 ```
 
-This checks that every Azure window has 120 ticks, the 30 s interval, finite non-negative rates, and at least one invocation, and reports mean, max, and standard deviation of RPS plus the coefficient of variation and peak/mean ratio. The optional summary contains only aggregate statistics and provenance, never raw events, and is safe to commit.
+All six windows are extracted in a single streamed pass over the CSV. This checks that every Azure window has 120 ticks, the 30 s interval, finite non-negative rates, and at least one invocation, and reports mean, max, and standard deviation of RPS plus the coefficient of variation and peak/mean ratio. The optional summary contains only aggregate statistics and provenance, never raw events, and is safe to commit.
 
 **Status: not yet run.** The frozen Azure windows have not been validated against the real dataset, so no Azure characterization is recorded here yet. Benchmark v1 is not final until this validation passes.
 

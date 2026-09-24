@@ -46,3 +46,4 @@ jobs:
           python -m venv /tmp/scalerl-wheel-smoke
           /tmp/scalerl-wheel-smoke/bin/pip install dist/*.whl
           /tmp/scalerl-wheel-smoke/bin/python -c "import scalerl"
+          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"

@@ -9,10 +9,11 @@ import pytest
 from pydantic import ValidationError
 
 from scalerl.benchmarks import (
-    V1_MANIFEST_PATH,
+    V1_MANIFEST,
     AzureWorkload,
     BenchmarkManifest,
     build_workload,
+    build_workloads,
     characterize_trace,
     load_benchmark_manifest,
     validate_azure_workloads,
@@ -23,7 +24,7 @@ from scalerl.environment import AutoscalingEnv, SimulatorConfig, TimingConfig
 from scalerl.workloads import WorkloadTrace, bursty_workload, load_azure_trace
 
 AZURE_FIXTURE = Path(__file__).parent.parent / "fixtures" / "azure_functions_2021_small.csv"
-RAW_MANIFEST: dict[str, Any] = json.loads(V1_MANIFEST_PATH.read_text())
+RAW_MANIFEST: dict[str, Any] = json.loads(V1_MANIFEST.read_text())
 
 EXPECTED_SPLITS = {
     "train": (
@@ -210,6 +211,12 @@ def test_every_workload_uses_the_v1_episode_contract(manifest: BenchmarkManifest
         assert trace.control_interval_seconds == 30.0
 
 
+def test_default_manifest_is_package_data() -> None:
+    # Loaded through importlib.resources, so it also resolves from an installed wheel.
+    assert Path(str(V1_MANIFEST)).parts[-4:] == ("scalerl", "benchmarks", "v1", "workloads.json")
+    assert load_benchmark_manifest() == load_benchmark_manifest(Path(str(V1_MANIFEST)))
+
+
 def test_missing_manifest_file_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="benchmark manifest not found"):
         load_benchmark_manifest(tmp_path / "missing.json")
@@ -362,6 +369,44 @@ def test_azure_workload_uses_the_existing_loader(manifest: BenchmarkManifest) ->
         duration_seconds=3600.0,
         control_interval_seconds=30.0,
     )
+
+
+def test_build_workloads_matches_individual_builds(manifest: BenchmarkManifest) -> None:
+    traces = build_workloads(manifest.workloads, azure_csv_path=AZURE_FIXTURE)
+
+    assert list(traces) == [entry.id for entry in manifest.workloads]
+    for entry in manifest.workloads:
+        assert traces[entry.id] == build_workload(entry, azure_csv_path=AZURE_FIXTURE)
+
+
+def test_build_workloads_needs_azure_path_only_for_azure_entries(
+    manifest: BenchmarkManifest,
+) -> None:
+    synthetic = [entry for entry in manifest.tuning if not isinstance(entry, AzureWorkload)]
+
+    assert len(build_workloads(synthetic)) == len(synthetic)
+    with pytest.raises(ValueError, match="pass azure_csv_path"):
+        build_workloads(manifest.tuning)
+
+
+def test_azure_validation_reads_the_csv_once(
+    manifest: BenchmarkManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scalerl.workloads.azure as azure_module
+
+    passes = []
+    real_read_chunks = azure_module._read_chunks
+
+    def counting_read_chunks(*args: Any, **kwargs: Any) -> Any:
+        passes.append(args)
+        return real_read_chunks(*args, **kwargs)
+
+    monkeypatch.setattr(azure_module, "_read_chunks", counting_read_chunks)
+
+    reports = validate_azure_workloads(manifest, AZURE_FIXTURE)
+
+    assert len(reports) == 6
+    assert len(passes) == 1
 
 
 def fixture_backed_azure_entry() -> AzureWorkload:

@@ -13,6 +13,9 @@ so moving a workload between splits requires renaming it deliberately.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from importlib.resources import files
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
@@ -20,10 +23,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scalerl.workloads import (
     AZURE_FUNCTIONS_2021,
+    AzureWindow,
     WorkloadTrace,
     bursty_workload,
     diurnal_workload,
     load_azure_trace,
+    load_azure_traces,
     ramp_workload,
     spike_workload,
     steady_workload,
@@ -34,8 +39,8 @@ Split = Literal["train", "validation", "test"]
 V1_DURATION_SECONDS = 3600.0
 V1_CONTROL_INTERVAL_SECONDS = 30.0
 
-# Resolves inside a source checkout; installed wheels do not ship benchmarks/.
-V1_MANIFEST_PATH = Path(__file__).resolve().parents[3] / "benchmarks" / "v1" / "workloads.json"
+# Shipped as package data, so it resolves in source checkouts and installed wheels.
+V1_MANIFEST: Traversable = files("scalerl.benchmarks").joinpath("v1", "workloads.json")
 
 _SPLIT_ID_TOKENS: dict[str, str] = {"train": "train", "validation": "val", "test": "test"}
 _SOURCE_ID_PREFIXES: dict[str, str] = {"synthetic": "syn", "azure": "azure"}
@@ -216,8 +221,10 @@ class BenchmarkManifest(_Strict):
         return tuple(entry for entry in self.workloads if entry.split == split)
 
 
-def load_benchmark_manifest(path: str | Path = V1_MANIFEST_PATH) -> BenchmarkManifest:
-    """Load and validate a benchmark manifest (the committed v1 manifest by default)."""
+def load_benchmark_manifest(path: str | Path | None = None) -> BenchmarkManifest:
+    """Load and validate a benchmark manifest; the packaged v1 manifest by default."""
+    if path is None:
+        return BenchmarkManifest.model_validate_json(V1_MANIFEST.read_text())
     manifest_path = Path(path)
     if not manifest_path.is_file():
         raise FileNotFoundError(f"benchmark manifest not found: {manifest_path}")
@@ -260,3 +267,37 @@ def build_workload(
     if isinstance(entry, SpikeWorkload):
         return spike_workload(**parameters)
     return bursty_workload(**parameters)
+
+
+def build_workloads(
+    entries: Iterable[WorkloadEntry], *, azure_csv_path: str | Path | None = None
+) -> dict[str, WorkloadTrace]:
+    """Build several workloads, keyed by id in ``entries`` order.
+
+    All Azure entries are binned in a single pass over ``azure_csv_path``
+    instead of re-reading the large trace once per window.
+    """
+    entries = tuple(entries)
+    azure = [entry for entry in entries if isinstance(entry, AzureWorkload)]
+    azure_traces: dict[str, WorkloadTrace] = {}
+    if azure:
+        if azure_csv_path is None:
+            raise ValueError(
+                f"{azure[0].id} is an Azure workload; pass azure_csv_path to the extracted "
+                f"{AZURE_FUNCTIONS_2021} CSV (see data/README.md)"
+            )
+        windows = [
+            AzureWindow(
+                entry.parameters.start_seconds,
+                entry.duration_seconds,
+                entry.control_interval_seconds,
+            )
+            for entry in azure
+        ]
+        traces = load_azure_traces(azure_csv_path, windows)
+        azure_traces = {entry.id: trace for entry, trace in zip(azure, traces, strict=True)}
+
+    return {
+        entry.id: azure_traces[entry.id] if entry.id in azure_traces else build_workload(entry)
+        for entry in entries
+    }
