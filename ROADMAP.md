@@ -32,15 +32,16 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - #43 Azure Functions Invocation Trace 2021 loader
 - #18 freeze explicit training, validation, and held-out test suite **before deep-RL tuning**
 
-### MLOps
+### MLOps + early visualization
 
 - #17 MLflow experiment tracking/run contract
+- **#37 Scenario Lab City View foundation immediately after #17**
 - #44 reproducible Docker training + MLflow/PostgreSQL/MinIO stack
 - #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
 ### Exit condition
 
-A fair tuned threshold baseline exists; synthetic and selected Azure workloads use the same `WorkloadTrace`; the final test suite is frozen; MLflow, Docker, and CI can reproduce/track a training smoke run.
+A fair tuned threshold baseline exists; synthetic and selected Azure workloads use the same `WorkloadTrace`; the final test suite is frozen; MLflow establishes reproducible run identity; the City View makes simulator/controller behavior visible; Docker and CI can reproduce/track a training smoke run.
 
 ## October 5–11 — M3 DQN
 
@@ -90,7 +91,7 @@ There is reproducible evidence to answer the research question on both controlle
 
 - polished README with final tables, limitations, dataset citation, and reproduction commands
 - architecture/results diagrams
-- #37 Scenario Lab dashboard foundation
+- polish the earlier #37 Scenario Lab City View
 - #38 controller playback/comparison if time permits
 - #39 MLflow-backed saved Results Explorer if time permits
 - tagged v1.0 release
