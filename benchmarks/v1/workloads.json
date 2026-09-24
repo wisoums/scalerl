@@ -1,0 +1,184 @@
+{
+  "version": "v1",
+  "frozen_on": "2026-09-24",
+  "workloads": [
+    {
+      "id": "syn-train-steady-moderate",
+      "split": "train",
+      "source": "synthetic",
+      "generator": "steady",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"rate": 100.0}
+    },
+    {
+      "id": "syn-train-seasonal",
+      "split": "train",
+      "source": "synthetic",
+      "generator": "diurnal",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 150.0,
+        "amplitude": 100.0,
+        "period_seconds": 3600.0,
+        "phase_seconds": 0.0
+      }
+    },
+    {
+      "id": "syn-train-ramp-up",
+      "split": "train",
+      "source": "synthetic",
+      "generator": "ramp",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_rate": 40.0, "end_rate": 360.0}
+    },
+    {
+      "id": "syn-train-spike",
+      "split": "train",
+      "source": "synthetic",
+      "generator": "spike",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 80.0,
+        "spike_rate": 420.0,
+        "spike_start_seconds": 1500.0,
+        "spike_duration_seconds": 300.0
+      }
+    },
+    {
+      "id": "syn-train-bursty",
+      "split": "train",
+      "source": "synthetic",
+      "generator": "bursty",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 90.0,
+        "burst_rate": 250.0,
+        "burst_probability": 0.08,
+        "burst_duration_seconds": 90.0,
+        "noise_std": 10.0,
+        "seed": 101
+      }
+    },
+    {
+      "id": "syn-val-steady-high",
+      "split": "validation",
+      "source": "synthetic",
+      "generator": "steady",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"rate": 250.0}
+    },
+    {
+      "id": "syn-val-ramp-down",
+      "split": "validation",
+      "source": "synthetic",
+      "generator": "ramp",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_rate": 350.0, "end_rate": 60.0}
+    },
+    {
+      "id": "syn-val-bursty",
+      "split": "validation",
+      "source": "synthetic",
+      "generator": "bursty",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 120.0,
+        "burst_rate": 280.0,
+        "burst_probability": 0.12,
+        "burst_duration_seconds": 60.0,
+        "noise_std": 15.0,
+        "seed": 202
+      }
+    },
+    {
+      "id": "syn-test-seasonal-shifted",
+      "split": "test",
+      "source": "synthetic",
+      "generator": "diurnal",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 180.0,
+        "amplitude": 140.0,
+        "period_seconds": 3600.0,
+        "phase_seconds": 900.0
+      }
+    },
+    {
+      "id": "syn-test-spike-hard",
+      "split": "test",
+      "source": "synthetic",
+      "generator": "spike",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {
+        "baseline": 60.0,
+        "spike_rate": 480.0,
+        "spike_start_seconds": 900.0,
+        "spike_duration_seconds": 180.0
+      }
+    },
+    {
+      "id": "azure-train-129600",
+      "split": "train",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 129600.0}
+    },
+    {
+      "id": "azure-train-302400",
+      "split": "train",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 302400.0}
+    },
+    {
+      "id": "azure-train-475200",
+      "split": "train",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 475200.0}
+    },
+    {
+      "id": "azure-val-734400",
+      "split": "validation",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 734400.0}
+    },
+    {
+      "id": "azure-test-993600",
+      "split": "test",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 993600.0}
+    },
+    {
+      "id": "azure-test-1166400",
+      "split": "test",
+      "source": "azure",
+      "dataset": "Azure Functions Invocation Trace 2021",
+      "duration_seconds": 3600.0,
+      "control_interval_seconds": 30.0,
+      "parameters": {"start_seconds": 1166400.0}
+    }
+  ]
+}
