@@ -14,9 +14,9 @@ clipped, or rescaled.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,14 @@ from scalerl.workloads.trace import WorkloadTrace
 AZURE_FUNCTIONS_2021 = "Azure Functions Invocation Trace 2021"
 REQUIRED_COLUMNS = ("end_timestamp", "duration")
 DEFAULT_CHUNK_SIZE = 1_000_000
+
+
+class AzureWindow(NamedTuple):
+    """A trace-relative window binned at a fixed control interval."""
+
+    start_seconds: float
+    duration_seconds: float
+    control_interval_seconds: float
 
 
 def load_azure_trace(
@@ -43,12 +51,26 @@ def load_azure_trace(
     The CSV is streamed ``chunk_size`` rows at a time, so memory scales with
     the chunk and the output, not the source file. The result does not depend
     on ``chunk_size`` or row order. Any malformed row raises ``ValueError``
-    rather than being dropped.
+    rather than being dropped. Use :func:`load_azure_traces` to extract several
+    windows in one pass.
     """
-    ticks = _tick_count(duration_seconds, control_interval_seconds)
-    window_start = _non_negative("start_seconds", start_seconds)
-    duration = float(duration_seconds)
-    interval = float(control_interval_seconds)
+    window = AzureWindow(start_seconds, duration_seconds, control_interval_seconds)
+    return load_azure_traces(csv_path, [window], chunk_size=chunk_size)[0]
+
+
+def load_azure_traces(
+    csv_path: str | Path,
+    windows: Sequence[AzureWindow],
+    *,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+) -> list[WorkloadTrace]:
+    """Bin several windows from one streamed pass over the CSV, in ``windows`` order.
+
+    Each result equals :func:`load_azure_trace` for that window alone.
+    """
+    if not windows:
+        raise ValueError("windows must contain at least one window")
+    binners = [_WindowBins(window) for window in windows]
     if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size <= 0:
         raise ValueError("chunk_size must be a positive integer")
 
@@ -57,12 +79,6 @@ def load_azure_trace(
         raise FileNotFoundError(f"Azure trace file not found: {path}")
     _check_columns(path)
 
-    # Explicit edges keep boundary starts in the later interval without
-    # floating-point division; the last edge is the exact window end.
-    edges = window_start + interval * np.arange(ticks + 1)
-    edges[-1] = window_start + duration
-
-    counts = np.zeros(ticks, dtype=np.int64)
     for chunk in _read_chunks(path, chunk_size):
         end = chunk["end_timestamp"].to_numpy()
         elapsed = chunk["duration"].to_numpy()
@@ -74,11 +90,32 @@ def load_azure_trace(
             raise ValueError(f"duration at line {row + 2} is negative: {elapsed[negative][0]}")
 
         starts = end - elapsed
-        starts = starts[(starts >= edges[0]) & (starts < edges[-1])]
-        bins = np.searchsorted(edges, starts, side="right") - 1
-        counts += np.bincount(bins, minlength=ticks)
+        for binner in binners:
+            binner.add(starts)
 
-    return WorkloadTrace((counts / interval).tolist(), interval)
+    return [binner.trace() for binner in binners]
+
+
+class _WindowBins:
+    """Per-interval arrival counts for one window."""
+
+    def __init__(self, window: AzureWindow) -> None:
+        ticks = _tick_count(window.duration_seconds, window.control_interval_seconds)
+        start = _non_negative("start_seconds", window.start_seconds)
+        self._interval = float(window.control_interval_seconds)
+        # Explicit edges keep boundary starts in the later interval without
+        # floating-point division; the last edge is the exact window end.
+        self._edges = start + self._interval * np.arange(ticks + 1)
+        self._edges[-1] = start + float(window.duration_seconds)
+        self._counts = np.zeros(ticks, dtype=np.int64)
+
+    def add(self, starts: np.ndarray) -> None:
+        inside = starts[(starts >= self._edges[0]) & (starts < self._edges[-1])]
+        bins = np.searchsorted(self._edges, inside, side="right") - 1
+        self._counts += np.bincount(bins, minlength=len(self._counts))
+
+    def trace(self) -> WorkloadTrace:
+        return WorkloadTrace((self._counts / self._interval).tolist(), self._interval)
 
 
 def azure_trace_metadata(
