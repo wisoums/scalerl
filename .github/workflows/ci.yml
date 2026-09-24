@@ -18,8 +18,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install project
-        # mlops is included so the MLflow tracking tests actually run.
-        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops]"
+        # mlops and dashboard are included so the MLflow and Streamlit tests actually run.
+        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops,dashboard]"
       - name: Lint
         run: ruff check .
       - name: Format check
@@ -48,5 +48,6 @@ jobs:
           /tmp/scalerl-wheel-smoke/bin/pip install dist/*.whl
           /tmp/scalerl-wheel-smoke/bin/python -c "import scalerl"
           cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
-          # Installed without extras: core and scalerl.mlops must import without MLflow.
-          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops; assert 'mlflow' not in sys.modules"
+          # Installed without extras: core, scalerl.mlops, and scalerl.dashboard must import
+          # without MLflow or Streamlit.
+          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard; assert 'mlflow' not in sys.modules and 'streamlit' not in sys.modules"
