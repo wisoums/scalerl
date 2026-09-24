@@ -109,9 +109,9 @@ Each file is replaced atomically, and metadata is serialized before anything is 
 
 Processed slices are generated locally and never committed.
 
-## Candidate windows
+## Benchmark windows
 
-Candidate windows for different traffic shapes must be written as exact values, for example `start_seconds=…, duration_seconds=…, control_interval_seconds=…`, never as vague labels like "Monday" or "day 3 afternoon", because timestamps were modified. None are recorded yet: choosing them requires inspecting the real trace, and freezing any selection into train/validation/test sets belongs to #18.
+Azure windows are always written as exact values (`start_seconds`, `duration_seconds`, `control_interval_seconds`), never as labels like "Monday", because timestamps were modified. The frozen v1 train/validation/test windows live in [`benchmarks/v1/workloads.json`](../benchmarks/v1/workloads.json); see [`benchmarks/v1/README.md`](../benchmarks/v1/README.md) for the selection rule and the local validation command.
 
 ## Train / validation / test separation
 

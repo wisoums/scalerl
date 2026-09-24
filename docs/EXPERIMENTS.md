@@ -33,7 +33,7 @@ Dataset source/license/citation are documented in `data/README.md`.
 
 ## Train / validation / test split
 
-Before deep-RL hyperparameter tuning, Issue #18 freezes an explicit workload manifest:
+Before deep-RL hyperparameter tuning, Issue #18 freezes an explicit workload manifest ([`benchmarks/v1/`](../benchmarks/v1/README.md)):
 
 - **training:** policy learning;
 - **validation:** threshold/predictive/RL tuning and model selection;
