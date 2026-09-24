@@ -18,7 +18,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install project
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+        # mlops is included so the MLflow tracking tests actually run.
+        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops]"
       - name: Lint
         run: ruff check .
       - name: Format check
@@ -47,3 +48,5 @@ jobs:
           /tmp/scalerl-wheel-smoke/bin/pip install dist/*.whl
           /tmp/scalerl-wheel-smoke/bin/python -c "import scalerl"
           cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
+          # Installed without extras: core and scalerl.mlops must import without MLflow.
+          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops; assert 'mlflow' not in sys.modules"
