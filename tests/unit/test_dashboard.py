@@ -439,6 +439,16 @@ def test_app_history_charts_appear_after_the_first_tick(app: AppTest) -> None:
     assert len(app.get("vega_lite_chart")) == 6
 
 
+def test_static_target_widget_tracks_simulator_replica_bounds(app: AppTest) -> None:
+    app.number_input(key="min").set_value(2).run()
+    app.number_input(key="max").set_value(5).run()
+    app.selectbox(key="manager").set_value("static").run()
+
+    target = app.number_input(key="target")
+    assert target.min == 2
+    assert target.max == 5
+
+
 def test_app_builds_and_steps_a_threshold_controller(app: AppTest) -> None:
     app.selectbox(key="manager").set_value("threshold").run()
     app.button(key="build").click().run()
