@@ -101,17 +101,27 @@ The training image must not bake the raw Azure dataset into an image. Data is mo
 
 ## CI/CD
 
-The current CI verifies Python 3.11/3.12, linting, formatting, typing, tests, and package build/install.
+### Current CI
 
-Issue #45 expands this into the full ML pipeline:
+The checked-in GitHub Actions workflow currently verifies:
 
 ```text
-PR
-├── Ruff lint/format
+PR / push
+├── Ruff lint
+├── Ruff format check
 ├── mypy
 ├── pytest + coverage
 ├── sdist/wheel build
-├── clean wheel install smoke
+└── clean wheel install/import smoke
+```
+
+### Planned in Issue #45
+
+Issue #45 will expand CI into the full ML/MLOps pipeline:
+
+```text
+PR
+├── current checks above
 ├── Docker build
 ├── container smoke
 ├── short SB3 training smoke
@@ -121,7 +131,9 @@ release tag
 └── publish versioned image to GHCR
 ```
 
-Benchmark-scale RL training never runs in CI.
+These Docker, training-smoke, MLflow-smoke, and GHCR stages are **planned** and are not part of the current checked-in workflow yet.
+
+Benchmark-scale RL training will never run in CI.
 
 ## Results UI responsibilities
 
