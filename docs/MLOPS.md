@@ -127,11 +127,12 @@ PR / push
 ├── Ruff lint
 ├── Ruff format check
 ├── mypy
-├── pytest + coverage (installed with dev,mlops, so MLflow tracking tests run
-│   against a temporary SQLite store)
+├── pytest + coverage (installed with dev,mlops,dashboard, so MLflow tracking and
+│   Streamlit City View tests run; MLflow uses a temporary SQLite store)
 ├── sdist/wheel build
-└── clean wheel install/import smoke (no extras: core and scalerl.mlops
-    import without MLflow; packaged benchmark manifest loads)
+└── clean wheel install/import smoke (no extras: core, scalerl.mlops, and
+    scalerl.dashboard import without MLflow or Streamlit; packaged benchmark
+    manifest loads)
 ```
 
 ### Planned in Issue #45
@@ -157,9 +158,7 @@ Benchmark-scale RL training will never run in CI.
 ## Results UI responsibilities
 
 - **MLflow UI:** experiment/run tracking, parameters, metrics, artifacts, model lineage.
-- **ScaleRL dashboard:** domain-specific autoscaling interpretation: traffic, replicas, queue, latency/SLA, cost, and actions.
+- **Scenario Lab City View** ([CITY_VIEW.md](CITY_VIEW.md)): interactive, domain-specific understanding of one simulation: traffic, replicas, queue, latency/SLA, cost, and manager actions. It does not log to MLflow.
+- **Results Explorer (#39, planned):** browsing stored MLflow runs.
 
 The custom dashboard must not become a second experiment database.
-
-- **MLflow:** experiment lineage, params, metrics, and artifacts.
-- **City View (#37):** visual understanding of what the simulator and controller are doing during a run.

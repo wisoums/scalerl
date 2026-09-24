@@ -127,16 +127,24 @@ git clone https://github.com/wisoums/scalerl.git
 cd scalerl
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,mlops]"
+pip install -e ".[dev,mlops,dashboard]"
 pytest
 ```
 
-The `mlops` extra installs MLflow, which the experiment-tracking tests need. The core simulator, controllers, and workloads work without it. To browse tracked runs locally:
+The `mlops` extra installs MLflow and the `dashboard` extra installs Streamlit; their tests need them, but the core simulator, controllers, and workloads work without either. To browse tracked runs locally:
 
 ```bash
 export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
+
+To watch the simulator interactively in the Scenario Lab City View (traffic → scaling → queue → latency/cost, driven manually or by a baseline controller):
+
+```bash
+python -m scalerl.dashboard
+```
+
+See [docs/CITY_VIEW.md](docs/CITY_VIEW.md).
 
 The full Docker Compose MLOps stack is tracked in Issue #44.
 
