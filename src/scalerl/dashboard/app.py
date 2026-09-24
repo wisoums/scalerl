@@ -140,7 +140,12 @@ def _sidebar() -> tuple[BuildRequest, bool]:
     kind: ManagerKind = bar.selectbox(
         "City manager", list(MANAGERS), format_func=MANAGERS.__getitem__, key="manager"
     )
-    manager = _manager_form(kind, int(initial_replicas))
+    manager = _manager_form(
+        kind,
+        min_replicas=int(min_replicas),
+        initial_replicas=int(initial_replicas),
+        max_replicas=int(max_replicas),
+    )
 
     def request() -> ScenarioSession:
         # All validation happens here, inside the guarded build.
@@ -227,13 +232,24 @@ def _timing(source: str) -> tuple[float, float]:
     return float(duration), float(interval)
 
 
-def _manager_form(kind: ManagerKind, initial_replicas: int) -> ManagerSpec:
+def _manager_form(
+    kind: ManagerKind, *, min_replicas: int, initial_replicas: int, max_replicas: int
+) -> ManagerSpec:
     bar = st.sidebar
     if kind == "random":
         seed = int(bar.number_input("Seed", 0, 2**31 - 1, 0, key="random_seed"))
         return ManagerSpec(kind, seed=seed)
     if kind == "static":
-        target = int(bar.number_input("Target replicas", 1, 100, initial_replicas, key="target"))
+        target_default = min(max(initial_replicas, min_replicas), max_replicas)
+        target = int(
+            bar.number_input(
+                "Target replicas",
+                min_replicas,
+                max_replicas,
+                target_default,
+                key="target",
+            )
+        )
         return ManagerSpec(kind, target_replicas=target)
     if kind == "threshold":
         low = float(bar.number_input("Low utilization threshold", 0.0, 0.99, 0.3, 0.05, key="low"))
