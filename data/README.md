@@ -45,7 +45,7 @@ Downloading and extracting the `.rar` archive is a **manual developer step**; Sc
 
 1. Download `AzureFunctionsInvocationTraceForTwoWeeksJan2021.rar` from the dataset documentation page above.
 2. Extract it with any RAR tool (for example `unrar x` or `7z x`).
-3. Place the extracted CSV under `data/raw/`.
+3. Place the extracted file under `data/raw/`. The archive contains `AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt`, which is comma-separated with the header `app,func,end_timestamp,duration` despite its `.txt` extension; pass it to the loader as-is.
 
 Resulting layout:
 
@@ -64,7 +64,7 @@ Both `data/raw/` and `data/processed/` are gitignored.
 from scalerl.workloads import load_azure_trace
 
 trace = load_azure_trace(
-    "data/raw/<extracted file>.csv",
+    "data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt",
     start_seconds=86_400.0,  # trace-relative, not Unix time
     duration_seconds=3_600.0,  # must be a whole number of control intervals
     control_interval_seconds=30.0,

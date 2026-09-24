@@ -76,7 +76,8 @@ from scalerl.benchmarks import build_workload, load_benchmark_manifest
 
 manifest = load_benchmark_manifest()
 trace = build_workload(
-    manifest.get("azure-train-129600"), azure_csv_path="data/raw/<extracted file>.csv"
+    manifest.get("azure-train-129600"),
+    azure_csv_path="data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt",
 )
 ```
 
@@ -85,15 +86,26 @@ trace = build_workload(
 With the real extracted trace available locally:
 
 ```bash
-python -m scalerl.benchmarks.validate_azure --azure-csv data/raw/<extracted file>.csv \
+python -m scalerl.benchmarks.validate_azure --azure-csv data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt \
     --summary-out benchmarks/v1/azure_characterization.json
 ```
 
 All six windows are extracted in a single streamed pass over the CSV. This checks that every Azure window has 120 ticks, the 30 s interval, finite non-negative rates, and at least one invocation, and reports mean, max, and standard deviation of RPS plus the coefficient of variation and peak/mean ratio. The optional summary contains only aggregate statistics and provenance, never raw events, and is safe to commit.
 
-**Status: not yet run.** The frozen Azure windows have not been validated against the real dataset, so no Azure characterization is recorded here yet. Benchmark v1 is not final until this validation passes.
+**Status: validated on 2026-09-24** against the extracted `AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt` (1,980,951 invocations, timestamps spanning 0–1,209,600 s). All six frozen windows lie inside the trace and passed every check. The aggregate summary is committed as [`azure_characterization.json`](azure_characterization.json). The per-window counts were cross-checked against an independent recount with Python's `csv` module, and they matched exactly.
 
-These statistics describe the frozen windows; they must not be used to change split membership or tune any setting.
+| Id | Split | Invocations | Mean RPS | Max RPS | Std RPS | CV | Peak/mean |
+|---|---|---|---|---|---|---|---|
+| `azure-train-129600` | train | 8,237 | 2.288 | 4.900 | 0.397 | 0.174 | 2.142 |
+| `azure-train-302400` | train | 4,968 | 1.380 | 4.067 | 0.921 | 0.668 | 2.947 |
+| `azure-train-475200` | train | 1,636 | 0.454 | 2.167 | 0.307 | 0.676 | 4.768 |
+| `azure-val-734400` | validation | 3,333 | 0.926 | 2.467 | 0.741 | 0.801 | 2.664 |
+| `azure-test-993600` | test | 4,742 | 1.317 | 3.900 | 0.728 | 0.553 | 2.961 |
+| `azure-test-1166400` | test | 5,444 | 1.512 | 3.800 | 0.908 | 0.600 | 2.513 |
+
+Invocations are arrivals (`end_timestamp - duration`) inside the window; rates are invocations per 30 s interval ÷ 30.
+
+These statistics describe the frozen windows; they must not be used to change split membership or tune any setting. In particular, any service-capacity choice for Azure experiments must be justified from train/validation windows only, never from the test rows above.
 
 ## Changing the benchmark
 
