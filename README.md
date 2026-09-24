@@ -77,7 +77,7 @@ ScaleRL uses:
 
 - **MLflow 3.x** for experiment/run tracking, metrics, configuration/model artifacts, and run IDs;
 - **Docker** for reproducible training and later inference/demo environments;
-- **GitHub Actions** for lint/type/test/package/container/training-smoke CI;
+- **GitHub Actions** currently for lint/format/type/test/package checks; container and training/MLflow smoke stages are planned in Issue #45;
 - **Stable-Baselines3 + PyTorch** for DQN/PPO training.
 
 MLflow is intentionally optional for the simulator core.
