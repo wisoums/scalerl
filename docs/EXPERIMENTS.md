@@ -43,6 +43,27 @@ Held-out traces must not be used for threshold grid search, reward tuning, DQN/P
 
 The main controller comparison keeps the simulator configuration fixed so learned policies have a compatible observation/action space.
 
+## Experiment tracking
+
+Every training, tuning, and evaluation run is tracked in MLflow through `scalerl.mlops.start_tracked_run` (see [MLOPS.md](MLOPS.md)). A run records its controller, run kind, benchmark workload and split, seeds, Git commit and software versions, the complete simulator configuration, reward weights, hyperparameters, and the observation/action compatibility contract.
+
+Any number promoted to the README or final results must be traceable to an MLflow run ID, or to a documented aggregate of run IDs.
+
+### Simulator configuration and calibration
+
+Each run records not only the simulator configuration but **why** it has those values (`simulator_config_source`: `default`, `predeclared`, or `calibrated_train_validation` with the calibration workload IDs).
+
+Azure capacity or other simulator calibration may use **train and validation workloads only**. Held-out test statistics must not drive:
+
+- capacity (`service_capacity_rps`);
+- replica bounds;
+- reward weights;
+- threshold settings;
+- predictive settings;
+- DQN/PPO hyperparameters.
+
+Tracking enforces this: calibration workload IDs from the test split are rejected, and `train`/`tune` runs cannot target test workloads. Azure demand itself is never normalized or rescaled.
+
 ## Fair comparison
 
 For every final comparison:
