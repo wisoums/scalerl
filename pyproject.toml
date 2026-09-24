@@ -49,3 +49,8 @@ select = ["E", "F", "I", "UP", "B"]
 # No python_version pin: each CI job checks against its own interpreter and numpy stubs.
 strict = true
 packages = ["scalerl"]
+
+# pandas ships no type information; only the Azure loader uses it.
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
