@@ -30,6 +30,9 @@ dev = [
 mlops = [
   "mlflow>=3.16,<4",
 ]
+dashboard = [
+  "streamlit>=1.64,<2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/scalerl"]
