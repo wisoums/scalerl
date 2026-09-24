@@ -1,7 +1,9 @@
 """Tests for the Azure Functions 2021 trace loader and processed-trace cache."""
 
 import csv
+import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -251,11 +253,13 @@ def test_processed_slice_round_trips_exactly(tmp_path: Path) -> None:
 
     assert sidecar == csv_path.with_suffix(".json")
     assert restored == trace
+    checksum = hashlib.sha256(csv_path.read_bytes()).hexdigest()
     assert restored_metadata == {
         **metadata,
         "format_version": 1,
         "control_interval_seconds": 15.0,
         "tick_count": 2,
+        "csv_sha256": checksum,
     }
 
 
@@ -287,6 +291,72 @@ def test_processed_slice_with_inconsistent_metadata_is_rejected(tmp_path: Path) 
 
     with pytest.raises(ValueError, match="has 3 ticks but metadata records 5"):
         load_processed_trace(csv_path)
+
+
+def _save_original(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
+    csv_path = tmp_path / "slice.csv"
+    save_processed_trace(load(), csv_path, {"dataset": AZURE_FUNCTIONS_2021, "note": "original"})
+    snapshot = {file.name: file.read_bytes() for file in tmp_path.iterdir()}
+    return csv_path, snapshot
+
+
+def _replacement() -> WorkloadTrace:
+    return load(start_seconds=1000.0)  # same tick count, different demand
+
+
+@pytest.mark.parametrize(
+    ("metadata", "error"),
+    [({"bad": object()}, TypeError), ({"bad": float("nan")}, ValueError)],
+    ids=["not_serializable", "nan"],
+)
+def test_failed_metadata_serialization_leaves_existing_slice_untouched(
+    tmp_path: Path, metadata: dict[str, Any], error: type[Exception]
+) -> None:
+    csv_path, before = _save_original(tmp_path)
+    replacement = _replacement()
+
+    with pytest.raises(error):
+        save_processed_trace(replacement, csv_path, metadata)
+
+    assert {file.name: file.read_bytes() for file in tmp_path.iterdir()} == before
+    assert load_processed_trace(csv_path)[1]["note"] == "original"
+
+
+def test_interrupted_save_is_detected_instead_of_mixing_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    csv_path, _ = _save_original(tmp_path)
+    replacement = _replacement()
+    real_replace = os.replace
+    calls = []
+
+    def fail_on_sidecar(source: str, target: str | Path) -> None:
+        calls.append(target)
+        if Path(target).suffix == ".json":
+            raise OSError("disk full")
+        real_replace(source, target)
+
+    monkeypatch.setattr("scalerl.workloads.processed.os.replace", fail_on_sidecar)
+    with pytest.raises(OSError, match="disk full"):
+        save_processed_trace(replacement, csv_path, {"note": "replacement"})
+    monkeypatch.undo()
+
+    # New CSV beside the old JSON: rejected, and no temporary files left behind.
+    assert len(calls) == 2
+    assert sorted(file.name for file in tmp_path.iterdir()) == ["slice.csv", "slice.json"]
+    with pytest.raises(ValueError, match="does not match the checksum"):
+        load_processed_trace(csv_path)
+
+
+def test_swapped_csv_with_equal_tick_count_is_rejected(tmp_path: Path) -> None:
+    first, second = tmp_path / "first.csv", tmp_path / "second.csv"
+    save_processed_trace(load(), first, {"note": "first"})
+    save_processed_trace(_replacement(), second, {"note": "second"})
+
+    first.write_bytes(second.read_bytes())
+
+    with pytest.raises(ValueError, match="does not match the checksum"):
+        load_processed_trace(first)
 
 
 # --- integration ------------------------------------------------------------

@@ -105,6 +105,8 @@ trace, metadata = load_processed_trace("data/processed/azure-example.csv")
 - `azure-example.csv`: `tick,request_rate` rows (rates written exactly, so reloading is lossless);
 - `azure-example.json`: dataset name, source file name, `start_seconds`, `duration_seconds`, `control_interval_seconds`, `tick_count`, loader, ScaleRL version, and `format_version`.
 
+Each file is replaced atomically, and metadata is serialized before anything is written, so a failed save leaves an existing slice untouched. The JSON records the CSV's SHA-256 (`csv_sha256`); loading rejects a CSV that does not match its sidecar, e.g. after an interrupted save.
+
 Processed slices are generated locally and never committed.
 
 ## Candidate windows
