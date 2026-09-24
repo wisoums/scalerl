@@ -1,0 +1,110 @@
+{
+  "benchmark_version": "v1",
+  "dataset": "Azure Functions Invocation Trace 2021",
+  "scalerl_version": "0.1.0",
+  "source_file": "AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt",
+  "workloads": [
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-train-129600",
+      "problems": [],
+      "split": "train",
+      "start_seconds": 129600.0,
+      "statistics": {
+        "coefficient_of_variation": 0.17372278456935783,
+        "max_rps": 4.9,
+        "mean_rps": 2.2880555555555557,
+        "peak_to_mean": 2.1415563918902514,
+        "std_rps": 0.3974873823605002,
+        "ticks": 120
+      },
+      "valid": true
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-train-302400",
+      "problems": [],
+      "split": "train",
+      "start_seconds": 302400.0,
+      "statistics": {
+        "coefficient_of_variation": 0.6675398025630708,
+        "max_rps": 4.066666666666666,
+        "mean_rps": 1.38,
+        "peak_to_mean": 2.9468599033816427,
+        "std_rps": 0.9212049275370375,
+        "ticks": 120
+      },
+      "valid": true
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-train-475200",
+      "problems": [],
+      "split": "train",
+      "start_seconds": 475200.0,
+      "statistics": {
+        "coefficient_of_variation": 0.6755824646902284,
+        "max_rps": 2.1666666666666665,
+        "mean_rps": 0.45444444444444443,
+        "peak_to_mean": 4.767726161369193,
+        "std_rps": 0.30701469784255936,
+        "ticks": 120
+      },
+      "valid": true
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-val-734400",
+      "problems": [],
+      "split": "validation",
+      "start_seconds": 734400.0,
+      "statistics": {
+        "coefficient_of_variation": 0.8008469608841586,
+        "max_rps": 2.466666666666667,
+        "mean_rps": 0.9258333333333333,
+        "peak_to_mean": 2.6642664266426643,
+        "std_rps": 0.7414508112852501,
+        "ticks": 120
+      },
+      "valid": true
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-test-993600",
+      "problems": [],
+      "split": "test",
+      "start_seconds": 993600.0,
+      "statistics": {
+        "coefficient_of_variation": 0.5525125482447594,
+        "max_rps": 3.9,
+        "mean_rps": 1.3172222222222223,
+        "peak_to_mean": 2.9607760438633486,
+        "std_rps": 0.7277818066046248,
+        "ticks": 120
+      },
+      "valid": true
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 3600.0,
+      "id": "azure-test-1166400",
+      "problems": [],
+      "split": "test",
+      "start_seconds": 1166400.0,
+      "statistics": {
+        "coefficient_of_variation": 0.6003995636982036,
+        "max_rps": 3.8,
+        "mean_rps": 1.5122222222222221,
+        "peak_to_mean": 2.5128581925055107,
+        "std_rps": 0.90793756243695,
+        "ticks": 120
+      },
+      "valid": true
+    }
+  ]
+}
