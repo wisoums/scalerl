@@ -127,15 +127,15 @@ git clone https://github.com/wisoums/scalerl.git
 cd scalerl
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,mlops]"
 pytest
 ```
 
-Include local MLflow tooling:
+The `mlops` extra installs MLflow, which the experiment-tracking tests need. The core simulator, controllers, and workloads work without it. To browse tracked runs locally:
 
 ```bash
-pip install -e ".[dev,mlops]"
-mlflow server --host 127.0.0.1 --port 5000
+export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
+mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
 The full Docker Compose MLOps stack is tracked in Issue #44.
