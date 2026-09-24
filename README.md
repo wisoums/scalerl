@@ -138,15 +138,27 @@ export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-To watch the simulator interactively in the Scenario Lab City View (traffic → scaling → queue → latency/cost, driven manually or by a baseline controller):
+The full Docker Compose MLOps stack is tracked in Issue #44.
+
+### Scenario Lab City View
+
+Watch the simulator interactively: traffic → scaling → queue → latency/cost, driven manually or by a baseline controller.
 
 ```bash
+pip install -e ".[dashboard]"
 python -m scalerl.dashboard
 ```
 
-See [docs/CITY_VIEW.md](docs/CITY_VIEW.md).
+It opens at <http://localhost:8501>; stop it with `Ctrl+C`.
 
-The full Docker Compose MLOps stack is tracked in Issue #44.
+A quick tour:
+
+1. **Manual:** press **↑ Scale up** a few times and watch 🏗️ pending shops become ☕ open shops after the startup delay, while the queue and latency respond.
+2. **Threshold controller:** in the sidebar choose **City manager → 🌡️ Threshold**, press **Build / Reset Scenario**, then **▶ Step** or **⏭ Run to end**. The manager panel shows each decision and its reason.
+3. **More dramatic traffic:** pick the workload `syn-train-spike` and build.
+4. **Real Azure data:** with the trace extracted locally (see [data/README.md](data/README.md)), pick `azure-train-129600`; the default path points at `data/raw/`. One replica handles its low demand at the default capacity, so lower **Service capacity per replica** to about `1` and rebuild to see scaling. That change is for exploration only.
+
+See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
