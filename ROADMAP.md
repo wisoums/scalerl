@@ -2,117 +2,119 @@
 
 **Portfolio-ready v1.0 target: October 31, 2026.**
 
-The schedule prioritizes a defensible ML result over feature count. The v1 release is successful if it contains a deterministic simulator, credible non-RL baselines, DQN and PPO, rigorous held-out evaluation, and a polished explanation of the findings. Advanced production integration and additional workload realism are stretch goals if they threaten the experimental core.
+The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow/Docker/CI reproducibility -> DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
 
-## September 14–20 — M0 + M1 simulator foundations
+## Completed — M0/M1 foundations
 
-### Must have
-- package layout and developer tooling
-- CI, linting, typing, tests
-- architecture, reward, experiment, and RL-rationale documentation
+- package/CI/lint/type/test foundation
 - deterministic simulation clock
-- typed simulator configuration
-- workload trace abstraction
-- replica lifecycle and startup delay
-
-### Exit condition
-Core simulator components have deterministic unit tests and no dependence on wall-clock time.
-
-## September 21–27 — Finish M1 Cloud Simulation Environment
-
-### Must have
-- synthetic workload generators
-- queue/service-capacity model
-- latency, SLA, and cost model
+- validated simulator configuration
+- synthetic workload traces/generators
+- replica lifecycle/startup delay
+- request queue/service-capacity model
+- latency/SLA/cost model
 - Gymnasium environment
-- environment invariants and determinism validation
+- environment determinism/invariant validation
+- common controller protocol
+- random/static baselines
+
+## September 24–October 4 — M2 baselines + M3 data/MLOps foundation
+
+### Controllers
+
+- #12 threshold/target-tracking baseline
+- #13 cooldown/anti-thrashing and fair threshold tuning
+- #14 predictive baseline
+- #47 optional tabular Q-learning educational baseline
+
+### Data / experiment isolation
+
+- #43 Azure Functions Invocation Trace 2021 loader
+- #18 freeze explicit training, validation, and held-out test suite **before deep-RL tuning**
+
+### MLOps
+
+- #17 MLflow experiment tracking/run contract
+- #44 reproducible Docker training + MLflow/PostgreSQL/MinIO stack
+- #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
 ### Exit condition
-A fixed seed/config produces reproducible trajectories, valid observations/actions, and believable overload/recovery behavior.
 
-## September 28–October 4 — M2 Traditional Baselines
+A fair tuned threshold baseline exists; synthetic and selected Azure workloads use the same `WorkloadTrace`; the final test suite is frozen; MLflow, Docker, and CI can reproduce/track a training smoke run.
+
+## October 5–11 — M3 DQN
 
 ### Must have
-- random and static controllers
-- threshold/target-tracking controller
-- cooldown and anti-thrashing behavior
-- predictive autoscaling baseline
-- common controller/evaluation interface
+
+- #15 SB3 DQN training pipeline
+- common SB3-to-Controller adapter
+- MLflow params/metrics/artifacts/model logging
+- training/validation only; no held-out test use
+- short CI smoke training plus separate real training run
 
 ### Exit condition
-Every baseline can run the same workload trace and produce the same evaluation schema.
 
-## October 5–11 — M3 Deep RL: DQN + experiment infrastructure
-
-### Must have
-- reproducible experiment configuration
-- training/evaluation separation
-- metrics/checkpoint persistence
-- DQN training pipeline
-- learning curves and basic sanity evaluation
-
-### Exit condition
-DQN demonstrably learns behavior above a random-policy sanity check on training/validation scenarios without using final benchmark traces.
+DQN training is reproducible from config/container, produces an MLflow run and model artifact, and can be evaluated through the same controller harness as baselines.
 
 ## October 12–18 — M3/M4 PPO + benchmark harness
 
 ### Must have
-- PPO training pipeline
-- frozen held-out benchmark workload suite
-- multi-seed evaluation harness
-- consistent metrics for static, threshold, predictive, DQN, and PPO controllers
+
+- #16 PPO training using the same run contract
+- #19 multi-seed evaluation/statistical summaries
+- identical controller evaluation schema
+- model/environment compatibility checks
 
 ### Exit condition
-All five meaningful controllers can be evaluated automatically on the same held-out suite.
 
-## October 19–25 — M4 Analysis and research results
+Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically on identical frozen workloads/configs/seeds. Q-learning is included if #47 is completed.
+
+## October 19–25 — M4 real-trace analysis
 
 ### Must have
-- multi-seed controller comparison
-- statistical summaries / dispersion
-- reward-function ablation
-- latency, SLA, cost, dropped/completed request, and scaling-churn analysis
-- failure-case analysis
-- honest conclusion about where RL wins, ties, or loses
+
+- #20 reward-function ablation
+- #46 held-out Azure trace comparison
+- latency/SLA/cost/queue/churn analysis
+- per-seed raw results and dispersion
+- MLflow run IDs for reported results
+- honest failure-case analysis and conclusion
 
 ### Exit condition
-There is enough reproducible evidence to answer the project research question without relying on episodic reward alone.
 
-## October 26–31 — M7/M8 Portfolio release
+There is reproducible evidence to answer the research question on both controlled synthetic workloads and selected real production traces.
+
+## October 26–31 — dashboard + portfolio release
 
 ### Must have
-- polished README with final result table and limitations
-- reproducible benchmark command/config
-- architecture and results diagrams
-- small visual demo or replay of controller behavior
-- resume-ready project summary
+
+- polished README with final tables, limitations, dataset citation, and reproduction commands
+- architecture/results diagrams
+- #37 Scenario Lab dashboard foundation
+- #38 controller playback/comparison if time permits
+- #39 MLflow-backed saved Results Explorer if time permits
 - tagged v1.0 release
 
-### Nice to have if the core is already stable
-- lightweight interactive dashboard
-- FastAPI shadow-mode inference endpoint
-- Dockerized demo
+### Production-inspired follow-ups
 
-## Stretch after or only if ahead of schedule — M5/M6
+- #22 FastAPI shadow-mode service
+- #23 safety/fallback controller
+- #24 inference/demo container
+- #32 AWS pricing/telemetry validation
 
-- replica failures and degraded capacity
-- changing startup times
-- stronger non-stationary distribution shifts
-- model predictive control baseline
-- production-style shadow mode
-- hard fallback/safety controller around learned policy
-- full Docker/deployment documentation
-
-These are valuable engineering additions, but they should not delay a rigorous October 31 benchmark and release.
+These are valuable but must not compromise the experiment quality above.
 
 ## Definition of v1.0 done
 
-ScaleRL v1.0 is considered portfolio-ready when:
+ScaleRL v1.0 is portfolio-ready when:
 
 1. the simulator is deterministic and tested;
 2. static, reactive, and predictive baselines are implemented fairly;
-3. DQN and PPO train reproducibly;
-4. final evaluation uses held-out workloads and multiple seeds;
-5. results report raw systems metrics rather than only RL return;
-6. the README explains why RL was a reasonable hypothesis and whether evidence ultimately supports it;
-7. another developer can reproduce the principal benchmark from documented commands.
+3. training/validation/test workloads are explicitly separated before final tuning;
+4. DQN and PPO train reproducibly;
+5. training/evaluation runs are tracked in MLflow with config/model artifacts;
+6. Docker and CI reproduce the relevant smoke pipeline on a clean machine;
+7. final evaluation uses held-out workloads and multiple seeds;
+8. at least part of the final evaluation uses attributed real Azure production traces;
+9. results report raw systems metrics rather than only RL return;
+10. another developer can reproduce the principal benchmark from documented commands.
