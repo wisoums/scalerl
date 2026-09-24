@@ -199,6 +199,78 @@ def test_incompatible_environments_are_reported() -> None:
         trained.require_compatible(current)
 
 
+# Fields AutoscalingEnv does not use to build observations; everything else in
+# SimulatorConfig must be part of the compatibility contract.
+NON_OBSERVATION_FIELDS = {"min_replicas", "initial_replicas"}
+
+# A valid alternative value for every observation-defining field.
+OBSERVATION_FIELD_CHANGES: dict[str, dict[str, Any]] = {
+    "control_interval_seconds": {"timing": {"control_interval_seconds": 60.0}},
+    "episode_duration_seconds": {"timing": {"episode_duration_seconds": 7200.0}},
+    "startup_delay_seconds": {"replicas": {"startup_delay_seconds": 30.0}},
+    "max_replicas": {"replicas": {"max_replicas": 12}},
+    "service_capacity_rps": {"replicas": {"service_capacity_rps": 2.0}},
+    "cost_per_hour": {"replicas": {"cost_per_hour": 0.0}},
+    "latency_target_seconds": {"sla": {"latency_target_seconds": 0.25}},
+}
+
+
+def config_with(changes: dict[str, dict[str, Any]]) -> SimulatorConfig:
+    base = SimulatorConfig(timing=V1_TIMING).model_dump()
+    for section, values in changes.items():
+        base[section] = {**base[section], **values}
+    return SimulatorConfig.model_validate(base)
+
+
+def test_every_simulator_field_is_classified_for_compatibility() -> None:
+    config_fields = {
+        field for section in SimulatorConfig().model_dump().values() for field in section
+    }
+    contract_fields = set(EnvironmentCompatibility.model_fields)
+
+    # A new SimulatorConfig field must be added to the contract or deliberately excluded.
+    assert config_fields - NON_OBSERVATION_FIELDS <= contract_fields
+    assert config_fields - NON_OBSERVATION_FIELDS == set(OBSERVATION_FIELD_CHANGES)
+
+
+@pytest.mark.parametrize("field", sorted(OBSERVATION_FIELD_CHANGES))
+def test_changing_an_observation_field_breaks_compatibility(field: str) -> None:
+    trained = EnvironmentCompatibility.from_config(config_with({}))
+    current = EnvironmentCompatibility.from_config(config_with(OBSERVATION_FIELD_CHANGES[field]))
+
+    assert field in trained.mismatches(current)
+    with pytest.raises(ValueError, match="incompatible environment"):
+        trained.require_compatible(current)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"sla": {"latency_target_seconds": 0.25}},
+        {"timing": {"episode_duration_seconds": 7200.0}},
+    ],
+    ids=["latency_target_only", "episode_duration_only"],
+)
+def test_same_shape_but_different_feature_semantics_is_incompatible(
+    changes: dict[str, dict[str, Any]],
+) -> None:
+    trained = EnvironmentCompatibility.from_config(config_with({}))
+    current = EnvironmentCompatibility.from_config(config_with(changes))
+
+    assert trained.observation_shape == current.observation_shape
+    with pytest.raises(ValueError, match="incompatible environment"):
+        trained.require_compatible(current)
+
+
+def test_start_state_fields_do_not_affect_compatibility() -> None:
+    trained = EnvironmentCompatibility.from_config(config_with({}))
+    current = EnvironmentCompatibility.from_config(
+        config_with({"replicas": {"min_replicas": 2, "initial_replicas": 3}})
+    )
+
+    trained.require_compatible(current)
+
+
 def test_git_sha_prefers_override_then_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_SHA", "from-ci")
     assert software_metadata("explicit")["git_sha"] == "explicit"
@@ -276,6 +348,47 @@ def test_runs_use_the_requested_experiment(tracking_uri: str) -> None:
     experiment = client.get_experiment_by_name("azure-v1")
     assert experiment is not None
     assert len(client.search_runs([experiment.experiment_id])) == 2
+
+
+def test_racing_workers_join_the_same_experiment(
+    tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with start_tracked_run(make_spec(), tracking_uri=tracking_uri, experiment_name="race"):
+        pass
+    real_lookup = MlflowClient.get_experiment_by_name
+    lookups = []
+
+    def stale_first_lookup(self: MlflowClient, name: str) -> Any:
+        # The first lookup misses, as if another worker created it just after.
+        lookups.append(name)
+        return None if len(lookups) == 1 else real_lookup(self, name)
+
+    monkeypatch.setattr(MlflowClient, "get_experiment_by_name", stale_first_lookup)
+    with start_tracked_run(make_spec(), tracking_uri=tracking_uri, experiment_name="race") as run:
+        run_id = run.run_id
+    monkeypatch.undo()
+
+    client = MlflowClient(tracking_uri)
+    experiment = client.get_experiment_by_name("race")
+    assert experiment is not None
+    assert client.get_run(run_id).info.experiment_id == experiment.experiment_id
+    assert client.get_run(run_id).info.status == "FINISHED"
+    assert len(client.search_experiments(filter_string="name = 'race'")) == 1
+
+
+def test_other_experiment_creation_errors_propagate(
+    tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mlflow.exceptions import MlflowException
+
+    def refuse(self: MlflowClient, name: str, *args: Any, **kwargs: Any) -> str:
+        raise MlflowException("backend unavailable", error_code="INTERNAL_ERROR")
+
+    monkeypatch.setattr(MlflowClient, "create_experiment", refuse)
+
+    with pytest.raises(MlflowException, match="backend unavailable"):
+        with start_tracked_run(make_spec(), tracking_uri=tracking_uri, experiment_name="new"):
+            pass
 
 
 def test_tracking_uri_comes_from_the_environment(

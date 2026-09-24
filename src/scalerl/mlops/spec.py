@@ -111,14 +111,24 @@ class RunSpec(_Strict):
 
 
 class EnvironmentCompatibility(_Strict):
-    """Observation/action contract a learned policy depends on."""
+    """Observation/action contract a learned policy depends on.
+
+    Besides the shapes, it holds every ``SimulatorConfig`` field that
+    ``AutoscalingEnv`` uses to build or normalize observations, so two
+    environments are compatible only if each feature means the same thing.
+    ``min_replicas`` and ``initial_replicas`` are excluded: they change dynamics
+    and the start state, not what any feature measures.
+    """
 
     observation_shape: tuple[int, ...]
     action_count: int
     startup_delay_seconds: float
     control_interval_seconds: float
+    episode_duration_seconds: float
     max_replicas: int
     service_capacity_rps: float
+    cost_per_hour: float
+    latency_target_seconds: float
     benchmark_version: str | None = None
 
     @classmethod
@@ -134,8 +144,11 @@ class EnvironmentCompatibility(_Strict):
             action_count=int(env.action_space.n),
             startup_delay_seconds=replicas.startup_delay_seconds,
             control_interval_seconds=env.config.timing.control_interval_seconds,
+            episode_duration_seconds=env.config.timing.episode_duration_seconds,
             max_replicas=replicas.max_replicas,
             service_capacity_rps=replicas.service_capacity_rps,
+            cost_per_hour=replicas.cost_per_hour,
+            latency_target_seconds=env.config.sla.latency_target_seconds,
             benchmark_version=benchmark_version,
         )
 

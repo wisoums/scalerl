@@ -97,10 +97,7 @@ def start_tracked_run(
     and ``FAILED`` on any other exception, which is always re-raised.
     """
     client = _client(tracking_uri)
-    experiment = client.get_experiment_by_name(experiment_name)
-    experiment_id = (
-        experiment.experiment_id if experiment else client.create_experiment(experiment_name)
-    )
+    experiment_id = _experiment_id(client, experiment_name)
 
     software = software_metadata(git_sha)
     compatibility = EnvironmentCompatibility.from_config(
@@ -131,6 +128,28 @@ def _client(tracking_uri: str | None) -> MlflowClient:
     except ImportError as error:
         raise ImportError(INSTALL_HINT) from error
     return MlflowClient(tracking_uri=tracking_uri)
+
+
+def _experiment_id(client: MlflowClient, name: str) -> str:
+    """Return the experiment's ID, creating it if needed.
+
+    Parallel workers may race to create a new experiment; the losers join
+    the one the winner created.
+    """
+    from mlflow.exceptions import MlflowException
+
+    experiment = client.get_experiment_by_name(name)
+    if experiment is not None:
+        return experiment.experiment_id
+    try:
+        return client.create_experiment(name)
+    except MlflowException as error:
+        if error.error_code != "RESOURCE_ALREADY_EXISTS":
+            raise
+        experiment = client.get_experiment_by_name(name)
+        if experiment is None:
+            raise
+        return experiment.experiment_id
 
 
 def _tags(spec: RunSpec, software: Mapping[str, Any]) -> dict[str, str]:
