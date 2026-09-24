@@ -75,7 +75,9 @@ Slices of the Azure Functions Invocation Trace 2021 (see [`data/README.md`](../.
 from scalerl.benchmarks import build_workload, load_benchmark_manifest
 
 manifest = load_benchmark_manifest()
-trace = build_workload(manifest.get("azure-train-129600"), azure_csv_path="data/raw/<extracted file>.csv")
+trace = build_workload(
+    manifest.get("azure-train-129600"), azure_csv_path="data/raw/<extracted file>.csv"
+)
 ```
 
 ### Local validation and characterization
