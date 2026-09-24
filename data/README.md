@@ -45,7 +45,7 @@ Downloading and extracting the `.rar` archive is a **manual developer step**; Sc
 
 1. Download `AzureFunctionsInvocationTraceForTwoWeeksJan2021.rar` from the dataset documentation page above.
 2. Extract it with any RAR tool (for example `unrar x` or `7z x`).
-3. Place the extracted CSV under `data/raw/`.
+3. Place the extracted file under `data/raw/`. The archive contains `AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt`, which is comma-separated with the header `app,func,end_timestamp,duration` despite its `.txt` extension; pass it to the loader as-is.
 
 Resulting layout:
 
@@ -64,7 +64,7 @@ Both `data/raw/` and `data/processed/` are gitignored.
 from scalerl.workloads import load_azure_trace
 
 trace = load_azure_trace(
-    "data/raw/<extracted file>.csv",
+    "data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt",
     start_seconds=86_400.0,  # trace-relative, not Unix time
     duration_seconds=3_600.0,  # must be a whole number of control intervals
     control_interval_seconds=30.0,
@@ -109,9 +109,9 @@ Each file is replaced atomically, and metadata is serialized before anything is 
 
 Processed slices are generated locally and never committed.
 
-## Candidate windows
+## Benchmark windows
 
-Candidate windows for different traffic shapes must be written as exact values, for example `start_seconds=…, duration_seconds=…, control_interval_seconds=…`, never as vague labels like "Monday" or "day 3 afternoon", because timestamps were modified. None are recorded yet: choosing them requires inspecting the real trace, and freezing any selection into train/validation/test sets belongs to #18.
+Azure windows are always written as exact values (`start_seconds`, `duration_seconds`, `control_interval_seconds`), never as labels like "Monday", because timestamps were modified. The frozen v1 train/validation/test windows live in [`src/scalerl/benchmarks/v1/workloads.json`](../src/scalerl/benchmarks/v1/workloads.json); see [`benchmarks/v1/README.md`](../benchmarks/v1/README.md) for the selection rule and the local validation command.
 
 ## Train / validation / test separation
 

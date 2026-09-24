@@ -13,9 +13,11 @@ from scalerl.controllers import ThresholdController, run_episode
 from scalerl.environment import AutoscalingEnv, ReplicaConfig, SimulatorConfig, TimingConfig
 from scalerl.workloads import (
     AZURE_FUNCTIONS_2021,
+    AzureWindow,
     WorkloadTrace,
     azure_trace_metadata,
     load_azure_trace,
+    load_azure_traces,
     load_processed_trace,
     save_processed_trace,
 )
@@ -166,6 +168,43 @@ def test_row_order_does_not_change_the_trace(tmp_path: Path) -> None:
 
 def test_repeated_loads_are_identical() -> None:
     assert load(interval=5.0) == load(interval=5.0)
+
+
+# --- several windows in one pass ---------------------------------------------
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 1_000])
+def test_several_windows_in_one_pass_match_individual_loads(chunk_size: int) -> None:
+    windows = [
+        AzureWindow(100.0, 30.0, 10.0),
+        AzureWindow(100.0, 30.0, 5.0),  # same window, different interval
+        AzureWindow(90.0, 60.0, 15.0),  # overlapping window
+        AzureWindow(1000.0, 30.0, 10.0),  # empty window
+    ]
+
+    traces = load_azure_traces(FIXTURE, windows, chunk_size=chunk_size)
+
+    assert traces == [
+        load_azure_trace(
+            FIXTURE,
+            start_seconds=window.start_seconds,
+            duration_seconds=window.duration_seconds,
+            control_interval_seconds=window.control_interval_seconds,
+        )
+        for window in windows
+    ]
+
+
+def test_several_windows_require_at_least_one_window() -> None:
+    with pytest.raises(ValueError, match="at least one window"):
+        load_azure_traces(FIXTURE, [])
+
+
+def test_every_window_is_validated_before_reading(tmp_path: Path) -> None:
+    windows = [AzureWindow(100.0, 30.0, 10.0), AzureWindow(100.0, 25.0, 10.0)]
+
+    with pytest.raises(ValueError, match="whole number of control intervals"):
+        load_azure_traces(tmp_path / "missing.csv", windows)
 
 
 # --- validation -------------------------------------------------------------
