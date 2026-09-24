@@ -12,7 +12,7 @@ ScaleRL is an experimental ML systems project that studies whether reinforcement
 
 ## Why this problem matters
 
-Common autoscalers react to metrics such as CPU utilization or use forecasts to provision capacity ahead of predictable demand. These approaches are effective, but scaling is also a sequential decision problem: a decision made now affects future latency, queueing, cost, and capacity because replicas take time to start and workloads can change before the next control step.
+Common autoscalers react to utilization or use forecasts to provision capacity ahead of predictable demand. Scaling is also a sequential decision problem: a decision made now affects future latency, queueing, cost, and capacity because replicas take time to start and workloads can change before the next control step.
 
 ScaleRL models those delayed consequences and evaluates learned policies against strong non-RL baselines.
 
@@ -20,80 +20,107 @@ ScaleRL models those delayed consequences and evaluates learned policies against
 
 RL is used here as a **hypothesis to evaluate**, not because autoscaling must be solved with RL.
 
-Autoscaling has several properties that make RL a reasonable direction to test: decisions are repeated over time, actions affect future system states, replica startup introduces delayed consequences, service quality and infrastructure cost conflict, and there is no dataset containing a known optimal scaling action for every possible system state.
+Autoscaling has several properties that make RL reasonable to test: decisions repeat over time, actions affect future states, replica startup introduces delayed consequences, service quality and infrastructure cost conflict, and there is no dataset containing a known optimal scaling action for every state.
 
-Other ML paradigms still have useful roles:
+Other paradigms remain first-class comparisons:
 
-- **Supervised learning / forecasting** can predict future demand, but prediction alone does not decide how to trade future latency, cost, SLA risk, and scaling churn. A predictive controller is therefore included as a baseline.
-- **Unsupervised learning** can discover workload regimes or anomalies, but does not directly learn a sequential control policy for the project objective.
-- **Contextual bandits** optimize actions without fully modeling how those actions change later states; autoscaling actions can change capacity and queueing several control intervals into the future.
-- **Classical control and model predictive control** are strong alternatives when system dynamics are known and modelable. They are not treated as obsolete; an MPC baseline is a possible extension.
+- **Forecasting/supervised learning** predicts demand but does not by itself optimize the sequential cost/SLA trade-off.
+- **Classical reactive autoscaling** is a strong industry-style baseline and must be tuned fairly.
+- **Classical control/MPC** is a valid extension when dynamics are known.
 
-The project will reject the RL hypothesis if well-tuned simpler controllers provide an equal or better cost/service trade-off on held-out workloads.
+The project rejects the RL hypothesis if well-tuned simpler controllers provide an equal or better cost/service trade-off on held-out workloads.
 
-See [`docs/WHY_RL.md`](docs/WHY_RL.md) for the full paradigm-selection argument and falsifiable hypothesis.
+See [`docs/WHY_RL.md`](docs/WHY_RL.md).
 
-## Planned controllers
+## Controllers
 
 | Controller | Role |
 | --- | --- |
 | Random policy | Sanity check |
-| Static capacity | Reference baseline |
-| Threshold / target tracking | Reactive industry-style baseline |
+| Static capacity | Fixed-cost reference |
+| Threshold / target tracking | Tuned reactive baseline |
 | Predictive autoscaler | Forecasting baseline |
-| DQN | Discrete-action deep RL |
+| Tabular Q-learning | Optional educational learned baseline |
+| DQN | Primary discrete-action deep RL |
 | PPO | Policy-gradient comparison |
 
-## Initial RL formulation
+## Workloads
 
-**Observation:** CPU utilization, request rate/trend, queue depth, p95 latency, active/pending replicas, cost, and time since the previous scaling action.
+ScaleRL uses one `WorkloadTrace` contract for both generated and recorded traffic.
 
-**Actions:** scale down, hold, or scale up.
+Planned/active workload sources include:
 
-**Objective:** minimize latency, SLA violations, cloud cost, queueing, and unnecessary scaling churn while obeying hard replica limits.
+- synthetic steady, seasonal, ramp, spike, and bursty traffic;
+- selected slices of the **Microsoft Azure Functions Invocation Trace 2021** for real-production-trace evaluation.
+
+The raw Azure dataset is not committed. Source/license/citation and the local data layout are documented in [`data/README.md`](data/README.md).
+
+Training, validation/tuning, and final held-out test workloads are explicitly separated before deep-RL tuning.
 
 ## Evaluation
 
-Policies will be tested on reproducible workload families including steady traffic, daily seasonality, gradual ramps, abrupt spikes, and stochastic bursts. Final results will use held-out workloads and multiple random seeds.
-
 Primary metrics:
 
-- p95 latency
+- p95 latency proxy / latency summaries
 - SLA violation rate
 - infrastructure cost / replica-hours
-- completed or dropped requests
-- scaling-action count
-- cumulative reward
+- queued/completed/dropped requests
+- scaling-action count/churn
+
+Reward is reported as a secondary metric rather than the only success criterion.
+
+Final comparisons use identical held-out traces/configs/seeds and multiple seeds.
+
+## MLOps
+
+ScaleRL uses:
+
+- **MLflow 3.x** for experiment/run tracking, metrics, configuration/model artifacts, and run IDs;
+- **Docker** for reproducible training and later inference/demo environments;
+- **GitHub Actions** for lint/type/test/package/container/training-smoke CI;
+- **Stable-Baselines3 + PyTorch** for DQN/PPO training.
+
+MLflow is intentionally optional for the simulator core.
+
+See [`docs/MLOPS.md`](docs/MLOPS.md) and [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
 
 ## Architecture
 
 ```text
-Workload traces
-      |
-      v
-Cloud simulator ---> Metrics / state
-      |                   |
-      |                   v
-      |              Controller
-      |        (baseline / DQN / PPO)
-      |                   |
-      +<------ action ----+
-      |
-      v
-Evaluation harness ---> latency | SLA | cost | churn
+Synthetic / Azure workload traces
+              |
+              v
+       Cloud simulator
+              |
+              v
+       Gymnasium environment
+              |
+              v
+   baseline / DQN / PPO controller
+              |
+              v
+       Evaluation metrics
+              |
+       +------+------+
+       |             |
+       v             v
+    MLflow      ScaleRL dashboard
+ runs/artifacts  domain plots
 ```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REWARD_DESIGN.md`](docs/REWARD_DESIGN.md), [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md), and [`docs/WHY_RL.md`](docs/WHY_RL.md) for the current design.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REWARD_DESIGN.md`](docs/REWARD_DESIGN.md), [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md), [`docs/MLOPS.md`](docs/MLOPS.md), and [`docs/WHY_RL.md`](docs/WHY_RL.md).
 
 ## Roadmap
 
-The target for the portfolio-ready v1.0 release is **October 31, 2026**. The critical path is the simulator, strong baselines, DQN/PPO, held-out multi-seed benchmarking, and a concise demo/results package. Production-inspired serving and advanced failure scenarios are secondary to completing rigorous ML evaluation.
+Portfolio-ready v1.0 target: **October 31, 2026**.
 
-See [`ROADMAP.md`](ROADMAP.md) for the dated execution plan and scope boundaries.
+The critical path is fair baselines, frozen held-out data, MLflow/Docker/CI reproducibility, DQN/PPO, multi-seed synthetic + real-trace evaluation, and an honest results package.
+
+See [`ROADMAP.md`](ROADMAP.md).
 
 ## Development
 
-The project uses Python 3.11+, Gymnasium, PyTorch, Stable-Baselines3, pytest, Ruff, and mypy.
+Core development:
 
 ```bash
 git clone https://github.com/wisoums/scalerl.git
@@ -104,10 +131,19 @@ pip install -e ".[dev]"
 pytest
 ```
 
+Include local MLflow tooling:
+
+```bash
+pip install -e ".[dev,mlops]"
+mlflow server --host 127.0.0.1 --port 5000
+```
+
+The full Docker Compose MLOps stack is tracked in Issue #44.
+
 ## Project status
 
-**Early development.** The current focus is building a deterministic, testable cloud workload simulator before introducing RL agents.
+The deterministic simulator/Gymnasium environment and random/static baselines are implemented. Current work is focused on fair reactive/predictive baselines plus real-data and MLOps infrastructure before deep-RL benchmark training.
 
 ## License
 
-MIT
+ScaleRL source code is MIT licensed. External datasets retain their own licenses; see `data/README.md`.
