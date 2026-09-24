@@ -140,6 +140,10 @@ def test_first_decision_without_utilization_holds() -> None:
         (0.5, 4, 0, HOLD, "within_band"),
         (0.8, 4, 0, HOLD, "within_band"),  # exactly high: strict crossing required
         (0.3, 4, 0, HOLD, "within_band"),  # exactly low: strict crossing required
+        (1.0, 8, 0, SCALE_DOWN, "above_max"),  # outside bounds wins over high utilization
+        (0.5, 5, 2, SCALE_DOWN, "above_max"),
+        (0.5, 1, 0, SCALE_UP, "below_min"),
+        (0.0, 1, 0, SCALE_UP, "below_min"),  # ...and over low utilization
     ],
 )
 def test_threshold_decisions(
@@ -259,6 +263,33 @@ def test_sustained_low_load_scales_down_to_min_and_holds() -> None:
     assert all(desired(info) >= 2 for info in infos)
     assert controller.last_decision is not None
     assert controller.last_decision.reason == "at_min"
+
+
+def test_fleet_above_controller_max_is_brought_back_under_overload() -> None:
+    env = make_env(rate=500.0, initial_replicas=8)  # env allows 8; controller max is 6
+    controller = make_controller(max_replicas=6)
+
+    infos = run_episode(env, controller)
+
+    actions = [info["requested_action"] for info in infos]
+    assert actions[:3] == [HOLD, SCALE_DOWN, SCALE_DOWN]
+    assert actions[3:] == [HOLD] * (TICKS - 3)
+    assert infos[-1]["active_replicas"] == 6
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "at_max"
+
+
+def test_fleet_below_controller_min_is_raised_within_the_band() -> None:
+    env = make_env(rate=5.0, initial_replicas=1, startup_delay_seconds=0)  # env allows 1
+    controller = make_controller(low_threshold=0.1, min_replicas=3)
+
+    infos = run_episode(env, controller)
+
+    actions = [info["requested_action"] for info in infos]
+    assert actions[:3] == [HOLD, SCALE_UP, SCALE_UP]
+    assert infos[0]["utilization"] == 0.5  # within the band, so thresholds alone would hold
+    assert actions[3:] == [HOLD] * (TICKS - 3)
+    assert infos[-1]["active_replicas"] == 3
 
 
 def test_complete_episodes_are_deterministic() -> None:

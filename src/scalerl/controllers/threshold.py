@@ -9,7 +9,16 @@ from typing import Any, Literal
 
 from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
 
-DecisionReason = Literal["no_sample", "above_high", "below_low", "at_max", "at_min", "within_band"]
+DecisionReason = Literal[
+    "no_sample",
+    "above_max",
+    "below_min",
+    "above_high",
+    "below_low",
+    "at_max",
+    "at_min",
+    "within_band",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +38,10 @@ class ThresholdController:
     ``info`` has none, so the first decision holds rather than reading the
     zero-filled reset observation as 0% load. Desired capacity is
     ``active + pending`` so replicas still starting up are not re-requested.
+
+    Capacity outside ``[min_replicas, max_replicas]`` (possible when these
+    differ from the environment's bounds) is first stepped back inside,
+    regardless of utilization; only then are thresholds applied.
 
     Thresholds are crossed strictly: utilization equal to a threshold holds.
     ``0 <= low_threshold < high_threshold < 1``; a ``high_threshold`` of 1
@@ -100,6 +113,10 @@ class ThresholdController:
         reason: DecisionReason
         if utilization is None:
             action, reason = HOLD, "no_sample"
+        elif desired > self._max_replicas:
+            action, reason = SCALE_DOWN, "above_max"
+        elif desired < self._min_replicas:
+            action, reason = SCALE_UP, "below_min"
         elif utilization > self._high:
             if desired < self._max_replicas:
                 action, reason = SCALE_UP, "above_high"
