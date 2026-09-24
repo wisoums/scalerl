@@ -2,7 +2,7 @@
 
 **Portfolio-ready v1.0 target: October 31, 2026.**
 
-The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow/Docker/CI reproducibility -> DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
+The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
 
 ## Completed — M0/M1 foundations
 
@@ -35,19 +35,21 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 ### MLOps + early visualization
 
 - #17 MLflow experiment tracking/run contract
-- **#37 Scenario Lab City View foundation immediately after #17**
+- **#37 Streamlit Scenario Lab City View foundation immediately after #17**
+- #54 shared Optuna hyperparameter optimization infrastructure
 - #44 reproducible Docker training + MLflow/PostgreSQL/MinIO stack
 - #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
 ### Exit condition
 
-A fair tuned threshold baseline exists; synthetic and selected Azure workloads use the same `WorkloadTrace`; the final test suite is frozen; MLflow establishes reproducible run identity; the City View makes simulator/controller behavior visible; Docker and CI can reproduce/track a training smoke run.
+A fair tuned threshold baseline exists; synthetic and selected Azure workloads use the same `WorkloadTrace`; the final test suite is frozen; MLflow establishes reproducible run identity; the Streamlit City View makes simulator/controller behavior visible; Optuna provides shared train/validation-only tuning; Docker and CI can reproduce/track a training smoke run.
 
 ## October 5–11 — M3 DQN
 
 ### Must have
 
 - #15 SB3 DQN training pipeline
+- #54 Optuna study infrastructure used for DQN hyperparameter search
 - common SB3-to-Controller adapter
 - MLflow params/metrics/artifacts/model logging
 - training/validation only; no held-out test use
@@ -61,7 +63,7 @@ DQN training is reproducible from config/container, produces an MLflow run and m
 
 ### Must have
 
-- #16 PPO training using the same run contract
+- #16 PPO training using the same run contract and #54 Optuna tuning infrastructure
 - #19 multi-seed evaluation/statistical summaries
 - identical controller evaluation schema
 - model/environment compatibility checks
