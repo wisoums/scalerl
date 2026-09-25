@@ -33,8 +33,10 @@ mlops = [
 dashboard = [
   "streamlit>=1.64,<2",
 ]
+# Tuning trials log through MLflow, so the tuning extra includes mlops.
 tuning = [
   "optuna>=5,<6",
+  "scalerl[mlops]",
 ]
 
 [tool.hatch.build.targets.wheel]
