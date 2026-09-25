@@ -35,6 +35,7 @@ from scalerl.rl import (
     read_model_bundle,
     save_model_bundle,
 )
+from scalerl.training import common
 from scalerl.training import dqn as training
 from scalerl.training.dqn import (
     DEFAULT_TIMESTEPS,
@@ -294,7 +295,7 @@ def no_training(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("training started before the workload guardrail")
 
     monkeypatch.setattr(training, "build_dqn", refuse)
-    monkeypatch.setattr(training, "build_workloads", refuse)
+    monkeypatch.setattr(common, "build_workloads", refuse)
 
 
 @pytest.mark.parametrize(
@@ -487,6 +488,7 @@ def test_training_modules_do_not_import_optional_services() -> None:
     code = (
         "import sys\n"
         "import scalerl, scalerl.rl, scalerl.training.dqn, scalerl.tuning.dqn\n"
+        "import scalerl.training.ppo, scalerl.tuning.ppo, scalerl.tuning.sb3\n"
         "assert not {'mlflow', 'optuna', 'streamlit'} & set(sys.modules)\n"
         "import scalerl.environment\n"
     )

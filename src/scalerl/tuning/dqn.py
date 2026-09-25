@@ -41,49 +41,58 @@ import argparse
 import os
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from scalerl.benchmarks import build_workloads, load_benchmark_manifest
+from scalerl.benchmarks import load_benchmark_manifest
 from scalerl.environment import SimulatorConfig
-from scalerl.environment.reward import RewardWeights
 from scalerl.mlops import SimulatorConfigSource
 from scalerl.training.dqn import (
     DEFAULT_LOG_INTERVAL,
     DEFAULT_TIMESTEPS,
+    DQN_ALGORITHM,
     DQN_CONFIG_VERSION,
     DQNHyperparameters,
-    DQNRunSettings,
-    dqn_run_spec,
-    require_exact_timesteps,
-    require_training_workload,
-    require_validation_workloads,
-    run_params,
-    train_and_validate,
 )
-from scalerl.tuning.spec import StudySpec, safe_storage_label
-from scalerl.tuning.study import RUN_IDS_ATTR, TrialContext, run_study
-from scalerl.tuning.threshold import workload_fingerprint
+from scalerl.tuning.sb3 import (
+    DEFAULT_N_TRIALS,
+    DEFAULT_SAMPLER_SEED,
+    SELECTED_TRIAL_ATTR,
+    SELECTION_KEYS,
+    TRAINING_RUN_ATTR,
+    StudyDefinition,
+    TrialAggregate,
+    prepare_sqlite_directory,
+    run_sb3_study,
+    select_trial,
+)
+from scalerl.tuning.spec import safe_storage_label
 
 if TYPE_CHECKING:
     import optuna
 
+__all__ = [
+    "DEFAULT_N_TRIALS",
+    "DEFAULT_SAMPLER_SEED",
+    "OBJECTIVE_NAME",
+    "OBJECTIVE_VERSION",
+    "SEARCH_SPACE_VERSION",
+    "SELECTED_TRIAL_ATTR",
+    "SELECTION_KEYS",
+    "TRAINING_RUN_ATTR",
+    "DQNTuningResult",
+    "TrialAggregate",
+    "main",
+    "run_dqn_study",
+    "select_trial",
+    "suggest_hyperparameters",
+]
+
 OBJECTIVE_NAME = "dqn-sla-first"
 OBJECTIVE_VERSION = "v1"
 SEARCH_SPACE_VERSION = "dqn-search-v1"
-DEFAULT_SAMPLER_SEED = 42
-DEFAULT_N_TRIALS = 20
-SELECTED_TRIAL_ATTR = "selected_trial_number"
-TRAINING_RUN_ATTR = "training_run_id"
-SELECTION_KEYS = (
-    "validation_sla_violation_rate",
-    "validation_normalized_cost",
-    "validation_queue_pressure",
-    "validation_churn_rate",
-)
 NET_ARCHS: dict[str, tuple[int, ...]] = {
     "64x64": (64, 64),
     "128x128": (128, 128),
@@ -110,34 +119,7 @@ def suggest_hyperparameters(trial: optuna.Trial) -> DQNHyperparameters:
     )
 
 
-# --- selection -------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class TrialAggregate:
-    """Validation aggregates of one completed trial."""
-
-    number: int
-    validation_sla_violation_rate: float
-    validation_normalized_cost: float
-    validation_queue_pressure: float
-    validation_churn_rate: float
-
-
-def select_trial(candidates: Sequence[TrialAggregate]) -> TrialAggregate:
-    """Apply ``dqn-sla-first`` v1: SLA, then cost, queue pressure, churn, then trial number."""
-    if not candidates:
-        raise ValueError("no completed trials to select from")
-    return min(
-        candidates,
-        key=lambda c: (
-            c.validation_sla_violation_rate,
-            c.validation_normalized_cost,
-            c.validation_queue_pressure,
-            c.validation_churn_rate,
-            c.number,
-        ),
-    )
+# --- result ----------------------------------------------------------------------------
 
 
 class DQNTuningResult(BaseModel):
@@ -200,130 +182,62 @@ def run_dqn_study(
     log_interval: int = DEFAULT_LOG_INTERVAL,
     suggest: Callable[[optuna.Trial], DQNHyperparameters] = suggest_hyperparameters,
 ) -> DQNTuningResult:
-    """Run (or resume) the seeded TPE study and select a configuration.
+    """Run (or resume) the seeded TPE study (``tuning.sb3``) and select a configuration.
 
-    Workload splits and simulator-config provenance are checked before the
-    study is created or any model is trained. Every trial trains with the same
-    ``seed``, so trials differ only in their hyperparameters.
+    Budget, workload splits, and simulator-config provenance are checked before
+    the study is created or any model is trained. Every trial trains with the
+    same ``seed``, so trials differ only in their hyperparameters.
     """
-    # train_freq is not searched, so the dqn-v1 value applies to every trial.
-    require_exact_timesteps(timesteps, DQNHyperparameters())
-    training_entry = require_training_workload(training_workload_id)
-    validation_entries = require_validation_workloads(validation_workload_ids)
-    settings = DQNRunSettings(
+    outcome = run_sb3_study(
+        StudyDefinition(
+            algorithm=DQN_ALGORITHM,
+            objective_name=OBJECTIVE_NAME,
+            objective_version=OBJECTIVE_VERSION,
+            search_space_version=SEARCH_SPACE_VERSION,
+            suggest=suggest,
+            # train_freq is not searched, so the dqn-v1 value applies to every trial.
+            rollout_sizes=(DQNHyperparameters().train_freq,),
+        ),
+        training_workload_id=training_workload_id,
+        validation_workload_ids=validation_workload_ids,
+        n_trials=n_trials,
         timesteps=timesteps,
         seed=seed,
-        config=config or SimulatorConfig(),
+        sampler_seed=sampler_seed,
+        config=config,
         config_source=config_source,
-        calibration_workload_ids=tuple(calibration_workload_ids),
+        calibration_workload_ids=calibration_workload_ids,
         calibration_note=calibration_note,
-        reward_weights=RewardWeights(),
+        azure_csv_path=azure_csv_path,
+        study_name=study_name,
+        storage=storage,
+        tracking_uri=tracking_uri,
+        experiment_name=experiment_name,
         log_interval=log_interval,
     )
-    for entry in (training_entry, *validation_entries):  # provenance checks, before training
-        dqn_run_spec("tune", entry, settings, run_params(DQNHyperparameters()))
-    entries = (training_entry, *validation_entries)
-    traces = build_workloads(entries, azure_csv_path=azure_csv_path)
-    spec = StudySpec(
-        name=study_name,
-        objective_name=OBJECTIVE_NAME,
-        objective_version=OBJECTIVE_VERSION,
-        search_space_version=SEARCH_SPACE_VERSION,
-        direction="minimize",
-        tuning_workload_ids=tuple(entry.id for entry in entries),
-        sampler="tpe",
-        sampler_seed=sampler_seed,
-        pruner="none",
-        storage=storage,
-        n_trials=n_trials,
-        identity_context={
-            "training_workload_id": training_entry.id,
-            "timesteps": timesteps,
-            "seed": seed,
-            "dqn_config_version": DQN_CONFIG_VERSION,
-            "simulator_config": settings.config.model_dump(mode="json"),
-            "simulator_config_source": config_source,
-            "calibration_workload_ids": list(calibration_workload_ids),
-            "reward_weights": settings.reward_weights.model_dump(mode="json"),
-            "workload_fingerprint": workload_fingerprint(traces),
-        },
-    )
-
-    def objective(context: TrialContext) -> float:
-        hyperparameters = suggest(context.trial)
-
-        def track(run_spec: Any) -> Any:
-            return context.track(
-                run_spec, tracking_uri=tracking_uri, experiment_name=experiment_name
-            )
-
-        outcome = train_and_validate(
-            training_entry=training_entry,
-            validation_entries=validation_entries,
-            traces=traces,
-            hyperparameters=hyperparameters,
-            settings=settings,
-            track=track,
-            training_run_kind="tune",
-            validation_run_kind="tune",
-            extra_params={"hyperparameter_source": f"optuna:{spec.name}#trial{context.number}"},
-        )
-        context.trial.set_user_attr(TRAINING_RUN_ATTR, outcome.training_run_id)
-        context.trial.set_user_attr("hyperparameters", hyperparameters.as_params())
-        for key, value in outcome.aggregate.items():
-            context.trial.set_user_attr(f"validation_{key}", value)
-        return float(outcome.aggregate["sla_violation_rate"])
-
-    study = run_study(spec, objective)
-    return _select_and_record(study, spec, settings, training_entry.id, validation_entries)
-
-
-def _select_and_record(
-    study: Any,
-    spec: StudySpec,
-    settings: DQNRunSettings,
-    training_workload_id: str,
-    validation_entries: Sequence[Any],
-) -> DQNTuningResult:
-    completed = [trial for trial in study.trials if trial.state.name == "COMPLETE"]
-    aggregates = [
-        TrialAggregate(
-            number=trial.number,
-            **{key: float(trial.user_attrs[key]) for key in SELECTION_KEYS},
-        )
-        for trial in completed
-    ]
-    selected = select_trial(aggregates)
-    trial = next(t for t in completed if t.number == selected.number)
-    study.set_user_attr(SELECTED_TRIAL_ATTR, selected.number)
-    study.set_user_attr("selection_rule", f"{OBJECTIVE_NAME}-{OBJECTIVE_VERSION}")
     return DQNTuningResult(
-        study_name=spec.name,
+        study_name=outcome.spec.name,
         objective_name=OBJECTIVE_NAME,
         objective_version=OBJECTIVE_VERSION,
         search_space_version=SEARCH_SPACE_VERSION,
         dqn_config_version=DQN_CONFIG_VERSION,
         benchmark_version=load_benchmark_manifest().version,
-        optuna_storage=safe_storage_label(spec.storage),
+        optuna_storage=safe_storage_label(outcome.spec.storage),
         sampler="tpe",
-        sampler_seed=spec.sampler_seed,
-        training_workload_id=training_workload_id,
-        validation_workload_ids=tuple(entry.id for entry in validation_entries),
-        timesteps=settings.timesteps,
-        seed=settings.seed,
-        trial_count=len(completed),
-        selected_trial_number=selected.number,
-        selected_params=dict(trial.params),
+        sampler_seed=outcome.spec.sampler_seed,
+        training_workload_id=outcome.training_workload_id,
+        validation_workload_ids=outcome.validation_workload_ids,
+        timesteps=outcome.settings.timesteps,
+        seed=outcome.settings.seed,
+        trial_count=outcome.trial_count,
+        selected_trial_number=outcome.selected_trial_number,
+        selected_params=outcome.selected_params,
         selected_hyperparameters=DQNHyperparameters.model_validate(
-            trial.user_attrs["hyperparameters"], strict=False
+            outcome.selected_hyperparameters, strict=False
         ),
-        selected_validation_metrics={
-            key: float(value)
-            for key, value in trial.user_attrs.items()
-            if key.startswith("validation_")
-        },
-        selected_training_run_id=str(trial.user_attrs[TRAINING_RUN_ATTR]),
-        selected_mlflow_run_ids=tuple(trial.user_attrs[RUN_IDS_ATTR]),
+        selected_validation_metrics=outcome.selected_validation_metrics,
+        selected_training_run_id=outcome.selected_training_run_id,
+        selected_mlflow_run_ids=outcome.selected_mlflow_run_ids,
     )
 
 
@@ -374,7 +288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     source: SimulatorConfigSource = args.config_source
-    _prepare_sqlite_directory(args.storage)
+    prepare_sqlite_directory(args.storage)
     result = run_dqn_study(
         training_workload_id=args.train_workload,
         validation_workload_ids=args.validation_workloads,
@@ -403,12 +317,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"retrain with: python -m scalerl.training.dqn --hyperparameters {path} ...")
     print(f"result written to {path}")
     return 0
-
-
-def _prepare_sqlite_directory(storage: str) -> None:
-    prefix = "sqlite:///"
-    if storage.startswith(prefix):
-        Path(storage.removeprefix(prefix)).parent.mkdir(parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":
