@@ -135,15 +135,27 @@ def _sidebar() -> tuple[BuildRequest, bool]:
     bar.header("Simulator")
     defaults = SimulatorConfig().replicas
     min_replicas = bar.number_input(
-        "Min replicas", 1, 100, defaults.min_replicas, key="min",
+        "Min replicas",
+        1,
+        100,
+        defaults.min_replicas,
+        key="min",
         help="Lowest replica count the simulated deployment is allowed to have.",
     )
     initial_replicas = bar.number_input(
-        "Initial replicas", 1, 100, defaults.initial_replicas, key="initial",
+        "Initial replicas",
+        1,
+        100,
+        defaults.initial_replicas,
+        key="initial",
         help="Number of active replicas available when the episode begins.",
     )
     max_replicas = bar.number_input(
-        "Max replicas", 1, 100, defaults.max_replicas, key="max",
+        "Max replicas",
+        1,
+        100,
+        defaults.max_replicas,
+        key="max",
         help="Highest replica count the controller is allowed to request.",
     )
     startup_delay = bar.number_input(
@@ -170,7 +182,12 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         ),
     )
     cost = bar.number_input(
-        "Cost per replica-hour ($)", 0.0, 1000.0, defaults.cost_per_hour, 0.05, key="cost",
+        "Cost per replica-hour ($)",
+        0.0,
+        1000.0,
+        defaults.cost_per_hour,
+        0.05,
+        key="cost",
         help="Simulated infrastructure price for keeping one replica active for one hour.",
     )
     sla = bar.number_input(
@@ -188,7 +205,10 @@ def _sidebar() -> tuple[BuildRequest, bool]:
 
     bar.header("Manager")
     kind: ManagerKind = bar.selectbox(
-        "City manager", list(MANAGERS), format_func=MANAGERS.__getitem__, key="manager",
+        "City manager",
+        list(MANAGERS),
+        format_func=MANAGERS.__getitem__,
+        key="manager",
         help=MANAGER_HELP,
     )
     manager = _manager_form(
@@ -225,7 +245,8 @@ def _benchmark_form() -> Callable[[], Scenario]:
     bar = st.sidebar
     manifest = load_benchmark_manifest()
     show_test = bar.checkbox(
-        "Show held-out final-evaluation scenarios", key="show_test",
+        "Show held-out final-evaluation scenarios",
+        key="show_test",
         help=(
             "Reveals the frozen test split. These scenarios are reserved for final "
             "evaluation and must not be used to tune controllers, rewards, models, or "
@@ -269,7 +290,9 @@ def _benchmark_form() -> Callable[[], Scenario]:
 def _custom_form(duration: float, interval: float) -> Callable[[], Scenario]:
     bar = st.sidebar
     generator: str = bar.selectbox(
-        "Generator", list(CUSTOM_GENERATORS), key="generator",
+        "Generator",
+        list(CUSTOM_GENERATORS),
+        key="generator",
         help="Choose the shape of the synthetic request-rate pattern you want to create.",
     )
     bar.caption(WORKLOAD_SHAPE_HELP[generator])
@@ -308,10 +331,16 @@ def _manager_form(
 ) -> ManagerSpec:
     bar = st.sidebar
     if kind == "random":
-        seed = int(bar.number_input(
-            "Seed", 0, 2**31 - 1, 0, key="random_seed",
-            help="Makes the Random controller reproduce the same action sequence when reset.",
-        ))
+        seed = int(
+            bar.number_input(
+                "Seed",
+                0,
+                2**31 - 1,
+                0,
+                key="random_seed",
+                help="Makes the Random controller reproduce the same action sequence when reset.",
+            )
+        )
         return ManagerSpec(kind, seed=seed)
     if kind == "static":
         target_default = min(max(initial_replicas, min_replicas), max_replicas)
@@ -545,6 +574,7 @@ benchmark/report numbers should come from MLflow-tracked runs, not from an ad-ho
 View session.
 """
         )
+
 
 # --- button callbacks (run before the page re-renders) ---------------------------
 
