@@ -125,6 +125,8 @@ def test_each_workload_is_one_tracked_predictive_run(tracking_uri: str) -> None:
         assert params["hp.target_utilization"] == "0.8"
         assert params["hp.forecast_method"] == "linear-trend"
         assert params["hp.forecast_horizon_ticks"] == "3"
+        assert params["hp.capacity_policy"] == "forecast-plus-backlog-v1"
+        assert params["hp.backlog_recovery_ticks"] == "1"
         assert params["sim.replicas.startup_delay_seconds"] == "60.0"
         for name in (
             "forecast_count",

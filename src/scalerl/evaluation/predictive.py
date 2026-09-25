@@ -2,9 +2,10 @@
 
 Each workload is one #17 MLflow run (``run_kind="evaluate"``,
 ``controller="predictive"``) logging the predeclared controller settings, the
-forecast horizon, forecast accuracy (scored after the episode), and the shared
-system metrics. This development path accepts train/validation workloads only;
-held-out evaluation is a separate, later step. Settings are not tuned here.
+forecast horizon, the capacity policy (forecast plus backlog recovery, #63),
+forecast accuracy (scored after the episode), and the shared system metrics.
+This development path accepts train/validation workloads only; held-out
+evaluation is a separate, later step. Settings are not tuned here.
 
 Run locally::
 
@@ -23,7 +24,11 @@ from typing import Any
 
 from scalerl.benchmarks import AzureWorkload, build_workloads, load_benchmark_manifest
 from scalerl.controllers import PredictiveController
-from scalerl.controllers.predictive import FORECAST_METHOD
+from scalerl.controllers.predictive import (
+    BACKLOG_RECOVERY_TICKS,
+    CAPACITY_POLICY,
+    FORECAST_METHOD,
+)
 from scalerl.environment import AutoscalingEnv, SimulatorConfig
 from scalerl.evaluation.forecast import ForecastAccuracy, score_forecasts
 from scalerl.evaluation.metrics import EpisodeMetrics, evaluate_controller_episode
@@ -99,6 +104,8 @@ def evaluate_predictive(
                 "target_utilization": target_utilization,
                 "forecast_method": FORECAST_METHOD,
                 "forecast_horizon_ticks": controller.forecast_horizon_ticks,
+                "capacity_policy": CAPACITY_POLICY,
+                "backlog_recovery_ticks": BACKLOG_RECOVERY_TICKS,
             },
         )
         with start_tracked_run(
