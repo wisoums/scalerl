@@ -1,0 +1,22 @@
+# Allow-list build context: only what the images need is sent to Docker.
+# Everything else is excluded, including in particular:
+#   .git .venv .env caches (__pycache__, .pytest_cache, .mypy_cache, .ruff_cache)
+#   dist/ build/ mlruns/ mlartifacts/ mlflow.db optuna.db outputs/ models/
+#   postgres-data/ garage-data/ minio-data/
+#   data/raw/ and data/processed/: the ~291 MB Azure trace is never sent to Docker;
+#   mount ./data/raw at runtime instead.
+*
+
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+!docker/
+
+# Never ship bytecode or caches that live inside allowed directories.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.DS_Store

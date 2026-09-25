@@ -1,0 +1,4 @@
+# MLflow tracking server: PostgreSQL metadata + S3-compatible (Garage) artifact proxy.
+mlflow==3.16.1
+psycopg[binary]==3.3.6
+boto3==1.43.102

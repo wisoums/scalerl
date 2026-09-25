@@ -76,7 +76,7 @@ Final comparisons use identical held-out traces/configs/seeds and multiple seeds
 ScaleRL uses:
 
 - **MLflow 3.x** for experiment/run tracking, metrics, configuration/model artifacts, and run IDs;
-- **Docker** for reproducible training and later inference/demo environments;
+- **Docker Compose** for a reproducible local stack: Scenario Lab, trainer, MLflow server (PostgreSQL + S3-compatible Garage artifacts), and Optuna Dashboard; a later inference/demo image is separate (#24);
 - **GitHub Actions** currently for lint/format/type/test/package checks; container and training/MLflow smoke stages are planned in Issue #45;
 - **Stable-Baselines3 + PyTorch** for DQN/PPO training.
 
@@ -138,7 +138,14 @@ export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-The full Docker Compose MLOps stack is tracked in Issue #44.
+### Full local stack (Docker Compose)
+
+```bash
+scripts/setup-local-stack.sh   # once: .env with your UID/GID, outputs/, data/raw/
+docker compose up --build
+```
+
+This starts the Scenario Lab at <http://localhost:8501>, MLflow at <http://localhost:5000>, and the Optuna Dashboard at <http://localhost:8080>. Behind them run PostgreSQL (separate `mlflow` and `optuna` databases) and an S3-compatible artifact store (Garage). Run evaluations and tuning with `docker compose run --rm trainer <command>`. It is a local reproducibility stack, not a production deployment; see [docs/DOCKER.md](docs/DOCKER.md) for commands, persistence, secrets, and the smoke test.
 
 ### Scenario Lab City View
 
@@ -162,7 +169,7 @@ See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
-The deterministic simulator/Gymnasium environment and random/static baselines are implemented. Current work is focused on fair reactive/predictive baselines plus real-data and MLOps infrastructure before deep-RL benchmark training.
+The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. Next are CI expansion (#45) and DQN/PPO training.
 
 ## License
 

@@ -27,16 +27,19 @@ share/python-wheels/
 MANIFEST
 
 # ScaleRL datasets, models, and local experiment state
-data/raw/
+data/raw/*
+!data/raw/.gitkeep
 data/processed/
 models/
 mlruns/
 mlartifacts/
 mlflow.db
 optuna.db
-outputs/
+outputs/*
+!outputs/.gitkeep
 postgres-data/
 minio-data/
+garage-data/
 
 # PyInstaller
 #   Usually these files are written by a python script from a template

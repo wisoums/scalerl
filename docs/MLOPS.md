@@ -103,7 +103,7 @@ No URL is hard-coded. `tracking_uri=None` honors `MLFLOW_TRACKING_URI` and MLflo
 
   Artifacts are written to `./mlruns` under the working directory (both are gitignored);
 - a local server: `mlflow server --host 127.0.0.1 --port 5000` with `MLFLOW_TRACKING_URI=http://127.0.0.1:5000`;
-- the later #44 containerized server, by pointing `MLFLOW_TRACKING_URI` at it.
+- the Docker Compose stack (#44): containers use `MLFLOW_TRACKING_URI=http://mlflow:5000` (PostgreSQL metadata, artifacts proxied to the S3-compatible Garage store), and the browser uses <http://localhost:5000>. See [DOCKER.md](DOCKER.md).
 
 Unit tests use a temporary SQLite store and never contact a server.
 
@@ -182,6 +182,7 @@ Links go both ways:
 ### Storage, resume, and determinism
 
 - `storage=None` is in-memory; `sqlite:///optuna.db` persists locally. No Optuna server is needed.
+- In the Docker Compose stack the trainer gets `OPTUNA_STORAGE_URI=postgresql+psycopg://…@postgres:5432/optuna` (the `postgres` extra provides the driver), and the native Optuna Dashboard at <http://localhost:8080> reads the same database. `python -m scalerl.tuning.threshold` defaults `--storage` to `$OPTUNA_STORAGE_URI` when set, otherwise to local SQLite.
 - `n_trials` is the study's **total** budget. Re-running the same spec loads the existing study and runs only the remaining trials, so an interrupted study continues where it stopped without repeating finished trials. A grid study with `n_trials=None` runs until every combination is done.
 - The study stores its definition (objective, versions, workloads, sampler, seed, grid, pruner, and `identity_context`). Resuming with a different definition is refused, naming what changed; use a new study name. Consumers put every other experiment-defining input in `identity_context`, such as the simulator config, its provenance, and a fingerprint of the workload data.
 - Samplers are always seeded, and **a resumed study proposes exactly the same trials as an uninterrupted one**. Optuna does not persist a sampler's random state, so random and TPE sampling are seeded per trial from `(sampler_seed, trial number)`; the grid sampler reads visited combinations from storage. Without this, a resumed study would restart its random sequence and repeat earlier configurations.
@@ -223,10 +224,10 @@ It runs the 18-point grid on the synthetic train/validation workloads (override 
 
 Two container concerns are intentionally separate:
 
-- **Issue #44:** training + MLflow/PostgreSQL/MinIO MLOps stack.
+- **Issue #44 (done):** the local full stack in [DOCKER.md](DOCKER.md): the ScaleRL runtime image (Scenario Lab + trainer), the MLflow server with PostgreSQL metadata and an S3-compatible artifact store (Garage), and the Optuna Dashboard on PostgreSQL.
 - **Issue #24:** later production-inspired inference/demo image.
 
-The training image must not bake the raw Azure dataset into an image. Data is mounted/provided at runtime.
+Lightweight SQLite mode stays first-class; Compose is an additional mode. No image contains the raw Azure dataset: it is bind-mounted read-only at runtime. `scripts/compose-smoke.sh` verifies a real tracked run, artifact round-trip through the store, and Optuna Dashboard connectivity.
 
 ## CI/CD
 

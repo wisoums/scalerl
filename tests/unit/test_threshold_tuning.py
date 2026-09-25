@@ -17,11 +17,13 @@ from scalerl.controllers import ThresholdController
 from scalerl.environment import AutoscalingEnv, ReplicaConfig, SimulatorConfig, TimingConfig
 from scalerl.tuning import RUN_IDS_ATTR, StudySpec
 from scalerl.tuning.threshold import (
+    LOCAL_STORAGE,
     SELECTED_TRIAL_ATTR,
     SELECTION_KEYS,
     THRESHOLD_GRID,
     ThresholdTuningResult,
     TrialAggregate,
+    default_storage,
     default_tuning_workload_ids,
     evaluate_episode,
     run_threshold_study,
@@ -398,3 +400,16 @@ def test_bound_clipped_requests_are_not_churn() -> None:
     assert metrics.normalized_cost == pytest.approx(39 / 40)  # 1 + 19 x 2 of 20 x 2
     assert 0.0 < metrics.queue_pressure < 1.0
     assert metrics.sla_violation_rate > 0.9
+
+
+def test_cli_storage_defaults_to_local_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPTUNA_STORAGE_URI", raising=False)
+
+    assert default_storage() == LOCAL_STORAGE == "sqlite:///outputs/threshold-optuna.db"
+
+
+def test_cli_storage_honors_the_compose_optuna_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    uri = "postgresql+psycopg://user:secret@postgres:5432/optuna"
+    monkeypatch.setenv("OPTUNA_STORAGE_URI", uri)
+
+    assert default_storage() == uri

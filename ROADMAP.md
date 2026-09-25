@@ -40,7 +40,7 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - **#37 Streamlit Scenario Lab City View foundation immediately after #17**
 - #54 shared Optuna hyperparameter optimization infrastructure
 - #58 four-tick recent traffic history in the RL observation contract
-- #44 reproducible Docker training + Optuna Dashboard + MLflow/PostgreSQL/MinIO stack
+- #44 reproducible Docker training + Optuna Dashboard + MLflow/PostgreSQL/S3-compatible artifact store (Garage)
 - #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
 ### Exit condition
