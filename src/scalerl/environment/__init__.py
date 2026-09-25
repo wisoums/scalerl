@@ -11,7 +11,7 @@ from scalerl.environment.config import (
 from scalerl.environment.gym_env import AutoscalingEnv
 from scalerl.environment.metrics import TickMetrics, compute_tick_metrics
 from scalerl.environment.queue import QueueStepResult, RequestQueue
-from scalerl.environment.replicas import ReplicaPool
+from scalerl.environment.replicas import ReplicaPool, startup_ticks
 from scalerl.environment.reward import (
     MAX_REWARD_WEIGHT,
     RewardBreakdown,
@@ -36,4 +36,5 @@ __all__ = [
     "TimingConfig",
     "compute_reward",
     "compute_tick_metrics",
+    "startup_ticks",
 ]
