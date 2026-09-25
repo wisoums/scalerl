@@ -21,7 +21,7 @@ Random/static are sanity/reference points. The tuned threshold and predictive co
 | Random / Static | nothing / current replica counts |
 | Threshold | current utilization and replica counts (reactive, no history) |
 | Predictive (#14, #63) | a linear-trend forecast of its own window of past completed demand (`info["request_rate"]`), plus the current waiting queue (`info["queued_requests"]`, sizing only, never the forecast) and replica counts |
-| DQN (#15) / PPO | **only** the environment observation (recent traffic window + system state) through the `SB3Controller` adapter, which ignores `info`; learned sequential policies |
+| DQN (#15) / PPO (#16) | **only** the environment observation (recent traffic window + system state) through the `SB3Controller` adapter, which ignores `info`; learned sequential policies |
 
 ### Recent traffic context
 
@@ -203,6 +203,76 @@ Buffer size, learning starts, train frequency, gradient steps, initial epsilon, 
 Episode reward is recorded but never selects. The selected configuration is **retrained** as the `train` run of record with `python -m scalerl.training.dqn --hyperparameters <DQNTuningResult JSON>` (recorded as `hyperparameter_source=optuna:<study>#trial<n>`). No trial model silently becomes the official model.
 
 **Scope of #15.** It establishes that DQN can be trained reproducibly, tuned fairly on train/validation data, and evaluated identically to the baselines. It makes **no claim that DQN beats any baseline**; performance conclusions come from later multi-seed and held-out evaluation (#19, #46).
+
+## PPO (#16)
+
+PPO is ScaleRL's second deep-RL controller, using Stable-Baselines3's PPO. It shares DQN's contract through `scalerl.training.common`: the same observation, reward, splits, MLflow schema, model bundle, compatibility check, deterministic evaluation, and SLA-first tuning.
+
+**Actor/critic, not Q-values.** DQN learns `Q(state, action)` for the three actions. PPO learns two networks:
+
+- an **actor** π(action | state), a probability over scale down / hold / scale up;
+- a **critic** V(state), the expected future return, which turns observed returns into advantages for the actor's update.
+
+In ScaleRL they are separate MLPs of the same widths: 12 → 64 → 64 with tanh, then 3 action logits (actor) or 1 value (critic).
+
+Training repeats one loop: collect a rollout of `n_steps` transitions with the current stochastic policy, estimate advantages (GAE), update both networks for `n_epochs` over minibatches, then collect again. There is no replay buffer, target network, or epsilon exploration: PPO explores by sampling its own policy. Evaluation uses the most likely action (`deterministic=True`) through the same `SB3Controller`, which ignores `info`.
+
+**Same inputs as DQN.** PPO uses the frozen v1 observation and exactly `AutoscalingEnv`'s reward. It gets no PPO-specific features or reward, and reward studies stay in #20.
+
+**Normalization, made explicit:**
+
+| | v1 choice | Why |
+|---|---|---|
+| Observation | `AutoscalingEnv`'s own normalization (`hp.observation_normalization=env-v1`); **no** SB3 `VecNormalize` | features are already normalized; no extra running statistics to save or mismatch |
+| Reward | the ScaleRL reward as is (`hp.reward_normalization=none`); **no** `VecNormalize` reward scaling | PPO and DQN learn from identical reward semantics |
+| Advantages | PPO's per-minibatch `normalize_advantage=True` (logged as `hp.normalize_advantage`) | an optimizer detail inside PPO's loss; it changes neither observations nor rewards |
+
+**`ppo-v1` hyperparameters** are SB3's PPO defaults: predeclared, not tuned, and not claimed optimal.
+
+| Setting | `ppo-v1` |
+|---|---|
+| learning_rate | 3e-4 |
+| n_steps (rollout size, 1 env) | 2,048 |
+| batch_size | 64 (32 minibatches per epoch, dividing the rollout exactly) |
+| n_epochs | 10 |
+| gamma / gae_lambda | 0.99 / 0.95 |
+| clip_range | 0.2 |
+| ent_coef / vf_coef | 0.0 / 0.5 |
+| max_grad_norm | 0.5 |
+| normalize_advantage | true |
+| net_arch | actor [64, 64], critic [64, 64] |
+
+**Budget.** SB3 PPO trains whole rollouts, so a budget that is not a multiple of `n_steps` silently trains longer; ScaleRL refuses such budgets before training.
+
+- The default is **204,800 timesteps**: exactly 100 rollouts of 2,048 steps and about 1,700 episodes, taking about 35 s on a laptop CPU.
+- It is deliberately close to DQN's 200,000 but not equal, because 200,000 is not a whole number of 2,048-step rollouts.
+- The budget is predeclared and logged, not adjusted after seeing results.
+
+**Checkpoints.** A checkpoint is saved every 51,200 timesteps (25 rollouts; configurable, off with `--checkpoint-interval 0`).
+
+- Checkpoints are saved right after an update, so `checkpoints/step-N.zip` is the policy after exactly N timesteps of learning.
+- `checkpoints/manifest.json` lists them.
+- Checkpoints are intermediate artifacts; the final `model/` bundle is the model of record. No checkpoint is selected by validation in #16.
+
+**Tuning (`ppo-search-v1`).** `python -m scalerl.tuning.ppo` runs the same seeded-TPE study runner as DQN (sampler seed 42, sequential trials, no pruning, `run_kind="tune"`, same training seed for every trial). The search space was predeclared from standard SB3/PPO ranges, never from held-out results:
+
+| Parameter | Range |
+|---|---|
+| learning_rate | log-uniform 1e-5 – 1e-3 |
+| gamma | {0.95, 0.98, 0.99, 0.995} |
+| gae_lambda | {0.9, 0.95, 0.98} |
+| clip_range | {0.1, 0.2, 0.3} |
+| ent_coef | {0.0, 0.001, 0.01} |
+| n_steps | {512, 1,024, 2,048} |
+| batch_size | {64, 128, 256} |
+| n_epochs | {5, 10, 20} |
+| net_arch (actor = critic) | {64×64, 128×128, 256×256} |
+
+Every `batch_size` divides every `n_steps`, so no minibatch is ever truncated. The trial budget must be a multiple of 2,048 (the least common multiple of the rollout sizes; the default 204,800 is), so every trial trains exactly the same number of timesteps. `vf_coef`, `max_grad_norm`, advantage normalization, and the normalization policy stay fixed.
+
+**Selection rule `ppo-sla-first` v1.** It is the same as DQN's, so the two selection philosophies are comparable: on VALIDATION only, lowest mean SLA violation rate, then cost, then queue pressure, then churn, then trial number. Reward is recorded but never selects. Retrain the selection as the `train` run of record with `python -m scalerl.training.ppo --hyperparameters <PPOTuningResult JSON>`.
+
+**Scope of #16.** It establishes that PPO trains, tunes, and evaluates under the same contract as DQN and the baselines. It makes **no claim that PPO beats DQN or any baseline**; comparisons come from tuned, multi-seed, and held-out evaluation (#19, #46).
 
 ## Fair comparison
 
