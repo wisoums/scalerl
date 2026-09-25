@@ -33,6 +33,10 @@ mlops = [
 dashboard = [
   "streamlit>=1.64,<2",
 ]
+# PostgreSQL driver for SQLAlchemy stores (Optuna/MLflow in the Docker Compose stack).
+postgres = [
+  "psycopg[binary]>=3.2,<4",
+]
 # Tuning trials log through MLflow, so the tuning extra includes mlops.
 tuning = [
   "optuna>=5,<6",
