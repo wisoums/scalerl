@@ -100,9 +100,9 @@ jobs:
           $py -c "from importlib.metadata import version; v = version('scalerl'); print('scalerl', v); assert v == '$expected', v"
           # The packaged benchmark manifest loads.
           $py -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
-          # Installed without extras: core, scalerl.mlops, scalerl.dashboard, and scalerl.tuning
-          # must import without MLflow, Streamlit, or Optuna.
-          $py -c "import sys, scalerl, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard, scalerl.tuning; leaked = {'mlflow', 'streamlit', 'optuna'} & set(sys.modules); assert not leaked, leaked"
+          # Installed without extras: core, scalerl.mlops, scalerl.dashboard, scalerl.tuning,
+          # and the DQN training/RL modules must import without MLflow, Streamlit, or Optuna.
+          $py -c "import sys, scalerl, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard, scalerl.tuning, scalerl.rl, scalerl.training.dqn; leaked = {'mlflow', 'streamlit', 'optuna'} & set(sys.modules); assert not leaked, leaked"
 
   docker-mlops:
     name: docker-mlops (images, Compose stack, SB3 smoke)
