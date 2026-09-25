@@ -147,8 +147,16 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         help="Highest replica count the controller is allowed to request.",
     )
     startup_delay = bar.number_input(
-        "Startup delay (s)", 0.0, 3600.0, defaults.startup_delay_seconds, 30.0, key="delay",
-        help="Simulated time between requesting a new replica and that replica becoming able to serve traffic.",
+        "Startup delay (s)",
+        0.0,
+        3600.0,
+        defaults.startup_delay_seconds,
+        30.0,
+        key="delay",
+        help=(
+            "Simulated time between requesting a new replica and that replica becoming "
+            "able to serve traffic."
+        ),
     )
     capacity = bar.number_input(
         "Service capacity per replica (RPS)",
@@ -156,7 +164,10 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         10_000.0,
         defaults.service_capacity_rps,
         key="capacity",
-        help="Maximum request rate one active replica can process. Demand above total active capacity builds a queue.",
+        help=(
+            "Maximum request rate one active replica can process. Demand above total "
+            "active capacity builds a queue."
+        ),
     )
     cost = bar.number_input(
         "Cost per replica-hour ($)", 0.0, 1000.0, defaults.cost_per_hour, 0.05, key="cost",
@@ -169,7 +180,10 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         SimulatorConfig().sla.latency_target_seconds,
         0.05,
         key="sla",
-        help="Maximum acceptable p95 latency. A completed tick violates the SLA when p95 latency exceeds this target.",
+        help=(
+            "Maximum acceptable p95 latency. A completed tick violates the SLA when p95 "
+            "latency exceeds this target."
+        ),
     )
 
     bar.header("Manager")
@@ -212,7 +226,11 @@ def _benchmark_form() -> Callable[[], Scenario]:
     manifest = load_benchmark_manifest()
     show_test = bar.checkbox(
         "Show held-out final-evaluation scenarios", key="show_test",
-        help="Reveals the frozen test split. These scenarios are reserved for final evaluation and must not be used to tune controllers, rewards, models, or simulator settings.",
+        help=(
+            "Reveals the frozen test split. These scenarios are reserved for final "
+            "evaluation and must not be used to tune controllers, rewards, models, or "
+            "simulator settings."
+        ),
     )
     if show_test:
         bar.warning(HELD_OUT_WARNING)
@@ -304,19 +322,40 @@ def _manager_form(
                 max_replicas,
                 target_default,
                 key="target",
-                help="Fixed total replica target. Static does not react to traffic; it moves toward this fleet size and then holds.",
+                help=(
+                    "Fixed total replica target. Static does not react to traffic; it "
+                    "moves toward this fleet size and then holds."
+                ),
             )
         )
         return ManagerSpec(kind, target_replicas=target)
     if kind == "threshold":
-        low = float(bar.number_input(
-            "Low utilization threshold", 0.0, 0.99, 0.3, 0.05, key="low",
-            help="When utilization falls below this value, Threshold tends to scale down if replica bounds allow it.",
-        ))
+        low = float(
+            bar.number_input(
+                "Low utilization threshold",
+                0.0,
+                0.99,
+                0.3,
+                0.05,
+                key="low",
+                help=(
+                    "When utilization falls below this value, Threshold tends to scale "
+                    "down if replica bounds allow it."
+                ),
+            )
+        )
         high = float(
             bar.number_input(
-                "High utilization threshold", 0.01, 0.99, 0.8, 0.05, key="high",
-                help="When utilization rises above this value, Threshold tends to scale up if replica bounds allow it.",
+                "High utilization threshold",
+                0.01,
+                0.99,
+                0.8,
+                0.05,
+                key="high",
+                help=(
+                    "When utilization rises above this value, Threshold tends to scale "
+                    "up if replica bounds allow it."
+                ),
             )
         )
         bar.caption("Replica bounds follow the simulator min/max.")
@@ -477,25 +516,33 @@ def _render_guidance() -> None:
 - **p95 latency:** a tail-latency proxy; roughly, 95% of requests are at or below this value.
 - **SLA:** violated when p95 latency is above the configured target.
 - **Cumulative cost:** simulated infrastructure cost accumulated across completed ticks.
-- **Requested action vs applied change:** what the manager asked for versus what actually changed after replica bounds were enforced.
-- **Reward:** a combined RL signal and secondary diagnostic; do not interpret it instead of latency, SLA, queue, and cost.
+- **Requested action vs applied change:** what the manager asked for versus what actually
+  changed after replica bounds were enforced.
+- **Reward:** a combined RL signal and secondary diagnostic; do not interpret it instead
+  of latency, SLA, queue, and cost.
 
 **Typical cause/effect**
 
-`traffic rises → utilization/queue rise → manager may scale up → startup delay → pending replica becomes active → queue/latency may recover → cost increases`
+`traffic rises → utilization/queue rise → manager may scale up → startup delay →`
+`pending replica becomes active → queue/latency may recover → cost increases`
 """
         )
 
     with st.expander("🧪 MLflow and this lab"):
         st.markdown(
             """
-The **Scenario Lab is an interactive sandbox**. Clicking Step, Scale up, or Run to end does **not** automatically create an MLflow run.
+The **Scenario Lab is an interactive sandbox**. Clicking Step, Scale up, or Run to end
+ does **not** automatically create an MLflow run.
 
-**MLflow (#17)** records reproducible `train`, `tune`, and `evaluate` experiment runs produced by the experiment pipeline: their configuration, workload, seed, metrics, Git version, and artifacts.
+**MLflow (#17)** records reproducible `train`, `tune`, and `evaluate` experiment runs
+produced by the experiment pipeline: their configuration, workload, seed, metrics, Git
+version, and artifacts.
 
 A later **Results Explorer (#39)** will let this dashboard browse those saved MLflow runs.
 
-So it is normal for MLflow to stay empty while you only experiment here. Final benchmark/report numbers should come from MLflow-tracked runs, not from an ad-hoc City View session.
+So it is normal for MLflow to stay empty while you only experiment here. Final
+benchmark/report numbers should come from MLflow-tracked runs, not from an ad-hoc City
+View session.
 """
         )
 
