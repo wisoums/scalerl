@@ -25,6 +25,7 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - #12 threshold/target-tracking baseline
 - #13 cooldown/anti-thrashing and fair threshold tuning
 - #14 predictive baseline
+- #56 Live City autoplay / animated single-run playback after #13/#14
 - #47 optional tabular Q-learning educational baseline
 
 ### Data / experiment isolation
@@ -93,8 +94,8 @@ There is reproducible evidence to answer the research question on both controlle
 
 - polished README with final tables, limitations, dataset citation, and reproduction commands
 - architecture/results diagrams
-- polish the earlier #37 Scenario Lab City View
-- #38 controller playback/comparison if time permits
+- polish the earlier #37 Scenario Lab City View and #56 Live City playback
+- #38 controller replay/comparison if time permits
 - #39 MLflow-backed saved Results Explorer if time permits
 - tagged v1.0 release
 
