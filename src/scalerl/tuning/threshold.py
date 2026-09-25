@@ -46,9 +46,10 @@ from scalerl.benchmarks import (
     build_workloads,
     load_benchmark_manifest,
 )
-from scalerl.controllers import ThresholdController, run_episode
+from scalerl.controllers import ThresholdController
 from scalerl.environment import AutoscalingEnv, SimulatorConfig
-from scalerl.environment.reward import RewardWeights, max_tick_capacity_of, max_tick_cost_of
+from scalerl.environment.reward import RewardWeights
+from scalerl.evaluation import EpisodeMetrics, evaluate_controller_episode
 from scalerl.mlops import RunSpec, SimulatorConfigSource
 from scalerl.tuning.spec import (
     GridValue,
@@ -80,56 +81,9 @@ _PARAM_ORDER = ("high_threshold", "low_threshold", "cooldown_ticks")
 # --- workload metrics --------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class WorkloadMetrics:
-    """System metrics of one controller episode on one workload."""
-
-    infrastructure_cost: float
-    normalized_cost: float
-    sla_violation_rate: float
-    mean_p95_latency_seconds: float
-    max_p95_latency_seconds: float
-    mean_queue_depth: float
-    max_queue_depth: float
-    queue_pressure: float
-    scaling_actions: int
-    churn_rate: float
-    episode_reward: float
-
-    def as_metrics(self) -> dict[str, float]:
-        return {name: float(value) for name, value in vars(self).items()}
-
-
-def evaluate_episode(env: AutoscalingEnv, controller: ThresholdController) -> WorkloadMetrics:
-    """Run one full episode and summarize it.
-
-    Normalized cost divides by the cost of ``max_replicas`` for the whole
-    episode; queue pressure averages ``queued / (queued + max-fleet tick
-    capacity)``, as in the observation. Churn counts ticks whose applied
-    replica change was non-zero, so bound-clipped requests are not churn.
-    """
-    infos = run_episode(env, controller, seed=0)
-    ticks = len(infos)
-    config = env.config
-    max_capacity = max_tick_capacity_of(config)
-    max_cost = max_tick_cost_of(config) * ticks
-    cost = sum(info["infrastructure_cost"] for info in infos)
-    latencies = [info["p95_latency_seconds"] for info in infos]
-    queues = [info["queued_requests"] for info in infos]
-    changes = sum(1 for info in infos if info["applied_replica_change"] != 0)
-    return WorkloadMetrics(
-        infrastructure_cost=cost,
-        normalized_cost=cost / max_cost if max_cost > 0 else 0.0,
-        sla_violation_rate=sum(info["sla_violated"] for info in infos) / ticks,
-        mean_p95_latency_seconds=statistics.fmean(latencies),
-        max_p95_latency_seconds=max(latencies),
-        mean_queue_depth=statistics.fmean(queues),
-        max_queue_depth=max(queues),
-        queue_pressure=statistics.fmean(q / (q + max_capacity) for q in queues),
-        scaling_actions=changes,
-        churn_rate=changes / ticks,
-        episode_reward=sum(info["reward"] for info in infos),
-    )
+def evaluate_episode(env: AutoscalingEnv, controller: ThresholdController) -> EpisodeMetrics:
+    """Run one full episode and summarize it with the shared evaluation metrics."""
+    return evaluate_controller_episode(env, controller).metrics
 
 
 # --- selection -------------------------------------------------------------------------
@@ -314,7 +268,7 @@ def _evaluate_workload(
     calibration_note: str | None,
     tracking_uri: str | None,
     experiment_name: str,
-) -> WorkloadMetrics:
+) -> EpisodeMetrics:
     run_spec = _run_spec(
         entry, params, config, config_source, calibration_workload_ids, calibration_note
     )
@@ -363,7 +317,7 @@ def workload_fingerprint(traces: Mapping[str, WorkloadTrace]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-def _aggregate(results: Sequence[WorkloadMetrics]) -> dict[str, float]:
+def _aggregate(results: Sequence[EpisodeMetrics]) -> dict[str, float]:
     return {
         "sla_violation_rate": statistics.fmean(r.sla_violation_rate for r in results),
         "normalized_cost": statistics.fmean(r.normalized_cost for r in results),
