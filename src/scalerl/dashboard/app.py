@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from scalerl.benchmarks import AzureWorkload, load_benchmark_manifest
+from scalerl.controllers import PredictiveDecision
 from scalerl.dashboard.session import (
     ACTION_LABELS,
     CUSTOM_GENERATORS,
@@ -40,6 +41,7 @@ MANAGERS: dict[ManagerKind, str] = {
     "random": "🎲 Random",
     "static": "📌 Static",
     "threshold": "🌡️ Threshold",
+    "predictive": "🔮 Predictive",
 }
 SPLIT_LABELS = {
     "train": "TRAIN",
@@ -69,7 +71,8 @@ WORKLOAD_SHAPE_HELP = {
 MANAGER_HELP = (
     "The manager/controller chooses one action each tick: scale down, hold, or scale up. "
     "Manual lets you choose; Random is a sanity-check baseline; Static targets a fixed fleet; "
-    "Threshold reacts to utilization."
+    "Threshold reacts to utilization already observed; Predictive extrapolates a simple "
+    "trend from recent completed traffic to request capacity before it is needed."
 )
 
 # Starting values for custom generators (same shapes as the v1 training scenarios).
@@ -403,6 +406,41 @@ def _manager_form(
         )
         bar.caption("Replica bounds follow the simulator min/max.")
         return ManagerSpec(kind, low_threshold=low, high_threshold=high, cooldown_ticks=cooldown)
+    if kind == "predictive":
+        history = int(
+            bar.number_input(
+                "History window",
+                1,
+                20,
+                4,
+                1,
+                key="history_window",
+                help=(
+                    "How many completed request-rate samples the forecaster uses to "
+                    "estimate the trend."
+                ),
+            )
+        )
+        utilization_target = float(
+            bar.number_input(
+                "Target utilization",
+                0.05,
+                1.0,
+                0.8,
+                0.05,
+                key="target_utilization",
+                help=(
+                    "Forecasted capacity is sized so predicted traffic uses roughly this "
+                    "fraction of total service capacity, leaving headroom below 100%."
+                ),
+            )
+        )
+        bar.caption(
+            "Replica bounds, capacity, startup delay, and tick length follow the simulator."
+        )
+        return ManagerSpec(
+            kind, history_window_ticks=history, target_utilization=utilization_target
+        )
     return ManagerSpec(kind)
 
 
@@ -507,6 +545,10 @@ def _render_manager(session: ScenarioSession) -> None:
                     "after this one."
                 )
 
+        prediction = session.predictive_decision
+        if prediction is not None:
+            _render_prediction(session, prediction)
+
         if session.done:
             st.success("Episode complete. Build or reset to run again.")
         if session.controller is None:
@@ -551,6 +593,23 @@ def _render_history(session: ScenarioSession) -> None:
         st.line_chart(frame[["cumulative_cost"]])
 
 
+def _render_prediction(session: ScenarioSession, decision: PredictiveDecision) -> None:
+    if decision.forecast_rps is None:
+        st.caption("No completed traffic yet, so there is nothing to forecast: holding.")
+        return
+    seconds = decision.forecast_horizon_ticks * session.config.timing.control_interval_seconds
+    st.markdown(
+        f"observed **{decision.latest_request_rate:.1f} RPS** · forecast "
+        f"**{decision.forecast_rps:.1f} RPS** ({decision.forecast_horizon_ticks} ticks / "
+        f"{seconds:g} s ahead) · desired **{decision.desired_replicas}** · decision "
+        f"**{ACTION_LABELS[decision.action]}** · reason `{decision.reason}`"
+    )
+    st.caption(
+        "Linear-trend forecast from completed traffic only; it cannot see future ticks. "
+        "Pending replicas count as committed capacity."
+    )
+
+
 def _render_guidance() -> None:
     with st.expander("❓ How to read this lab"):
         st.markdown(
@@ -573,6 +632,15 @@ def _render_guidance() -> None:
 
 `traffic rises → utilization/queue rise → manager may scale up → startup delay →`
 `pending replica becomes active → queue/latency may recover → cost increases`
+
+**Reactive vs predictive managers**
+
+- **Threshold** reacts to utilization it has already observed.
+- **Predictive** fits a straight line through recent completed traffic and extrapolates
+  it to the first tick a newly requested replica could serve (1 + startup ticks ahead).
+- **Neither can know a truly random future spike.** `50 → 80 → 120 → 170` has a trend
+  Predictive can extrapolate; `50 → 51 → 49 → 50 → suddenly 400` had no prior signal,
+  so it cannot honestly be predicted.
 """
         )
 
