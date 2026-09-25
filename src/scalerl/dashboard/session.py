@@ -147,6 +147,7 @@ class ManagerSpec:
     target_replicas: int | None = None
     low_threshold: float = 0.3
     high_threshold: float = 0.8
+    cooldown_ticks: int = 0
 
     def build(self, replicas: ReplicaConfig) -> Controller | None:
         """Construct the real controller (``None`` for manual control)."""
@@ -163,6 +164,7 @@ class ManagerSpec:
             high_threshold=self.high_threshold,
             min_replicas=replicas.min_replicas,
             max_replicas=replicas.max_replicas,
+            cooldown_ticks=self.cooldown_ticks,
         )
 
 

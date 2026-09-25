@@ -387,8 +387,22 @@ def _manager_form(
                 ),
             )
         )
+        cooldown = int(
+            bar.number_input(
+                "Cooldown ticks",
+                0,
+                100,
+                0,
+                1,
+                key="cooldown",
+                help=(
+                    "After a real scaling change, hold for this many controller decisions "
+                    "before another threshold-driven scaling action. 0 disables cooldown."
+                ),
+            )
+        )
         bar.caption("Replica bounds follow the simulator min/max.")
-        return ManagerSpec(kind, low_threshold=low, high_threshold=high)
+        return ManagerSpec(kind, low_threshold=low, high_threshold=high, cooldown_ticks=cooldown)
     return ManagerSpec(kind)
 
 
@@ -487,6 +501,11 @@ def _render_manager(session: ScenarioSession) -> None:
                 f"utilization **{utilization}** · desired **{decision.desired_replicas}** · "
                 f"decision **{ACTION_LABELS[decision.action]}** · reason `{decision.reason}`"
             )
+            if decision.cooldown_remaining or decision.reason == "cooldown":
+                st.caption(
+                    f"Cooldown: {decision.cooldown_remaining} more decision(s) blocked "
+                    "after this one."
+                )
 
         if session.done:
             st.success("Episode complete. Build or reset to run again.")

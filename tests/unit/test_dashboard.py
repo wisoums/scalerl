@@ -256,6 +256,36 @@ def test_threshold_diagnostics_are_the_controllers_own() -> None:
     assert session.threshold_decision.action == session.history[-1]["requested_action"]
 
 
+def test_threshold_manager_builds_the_controller_with_cooldown() -> None:
+    session = make_session("threshold", cooldown_ticks=4)
+
+    controller = session.controller
+    assert isinstance(controller, ThresholdController)
+    assert controller.cooldown_ticks == 4
+    assert ManagerSpec("threshold").cooldown_ticks == 0
+
+
+def test_threshold_session_reports_cooldown_diagnostics() -> None:
+    session = make_session("threshold", workload="syn-train-steady-moderate", cooldown_ticks=3)
+
+    reasons = []
+    for _ in range(8):
+        session.step_controller()
+        decision = session.threshold_decision
+        assert decision is not None
+        reasons.append((decision.reason, decision.cooldown_remaining))
+
+    first_change = next(
+        i for i, row in enumerate(session.history) if row["applied_replica_change"] != 0
+    )
+    # The decisions right after the applied change are held by cooldown.
+    assert reasons[first_change + 1 : first_change + 4] == [
+        ("cooldown", 2),
+        ("cooldown", 1),
+        ("cooldown", 0),
+    ]
+
+
 def test_non_threshold_sessions_have_no_threshold_diagnostics() -> None:
     session = make_session("random", seed=1)
     session.step_controller()
@@ -459,6 +489,17 @@ def test_app_builds_and_steps_a_threshold_controller(app: AppTest) -> None:
     session = session_of(app)
     assert (session.manager.kind, session.tick) == ("threshold", 2)
     assert any("reason" in markdown.value for markdown in app.markdown)
+
+
+def test_app_threshold_cooldown_control_reaches_the_controller(app: AppTest) -> None:
+    app.selectbox(key="manager").set_value("threshold").run()
+    app.number_input(key="cooldown").set_value(5).run()
+    app.button(key="build").click().run()
+
+    assert not app.exception
+    controller = session_of(app).controller
+    assert isinstance(controller, ThresholdController)
+    assert controller.cooldown_ticks == 5
 
 
 def test_app_episode_completion_disables_stepping(app: AppTest) -> None:
