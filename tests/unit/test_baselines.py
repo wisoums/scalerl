@@ -125,8 +125,11 @@ def test_decision_info_matches_the_observation_every_tick() -> None:
 
     for _ in range(TICKS):
         current = decision_info(env, info)
-        assert current["active_replicas"] == round(observation[4] * max_replicas)
-        assert current["pending_replicas"] == round(observation[7:].sum() * max_replicas)
+        names = env.observation_features
+        active = observation[names.index("active_replicas_fraction")]
+        pending = observation[names.index("episode_progress") + 1 :]
+        assert current["active_replicas"] == round(active * max_replicas)
+        assert current["pending_replicas"] == round(pending.sum() * max_replicas)
         observation, _, _, _, info = env.step(controller.act(observation, current))
 
 

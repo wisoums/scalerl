@@ -260,9 +260,17 @@ class EpisodeChecker:
         # Observation replica features agree with post-lifecycle replica state:
         # advancing moves pending to active but never changes the desired count.
         max_replicas = replicas.max_replicas
-        observed_desired = (observation[4] + observation[7:].sum()) * max_replicas
+        names = self.env.observation_features
+        active = observation[names.index("active_replicas_fraction")]
+        pending = observation[names.index("episode_progress") + 1 :]
+        observed_desired = (active + pending.sum()) * max_replicas
         assert observed_desired == pytest.approx(self.desired, abs=1e-5)
-        assert observation[6] == pytest.approx((self.steps + 1) / self.env.episode_ticks)
+        progress = observation[names.index("episode_progress")]
+        assert progress == pytest.approx((self.steps + 1) / self.env.episode_ticks)
+        # The latest traffic-history slot is this tick's consumed demand.
+        rate = info["request_rate"]
+        max_rate = replicas.max_replicas * replicas.service_capacity_rps
+        assert observation[0] == pytest.approx(rate / (rate + max_rate), rel=1e-6)
 
         self.steps += 1
         return truncated, info
@@ -454,9 +462,9 @@ def test_reset_after_completed_episode_restores_initial_state() -> None:
 # --- observation-space contract -------------------------------------------------
 
 
-def expected_observation_size(delay: float, interval: float) -> int:
-    """The documented v1 contract: 7 fixed features plus one per startup tick."""
-    return 7 + (math.ceil(delay / interval) if delay > 0 else 0)
+def expected_observation_size(delay: float, interval: float, history: int = 4) -> int:
+    """The documented contract: h traffic ticks + 6 state features + one per startup tick."""
+    return history + 6 + (math.ceil(delay / interval) if delay > 0 else 0)
 
 
 @pytest.mark.parametrize(

@@ -216,7 +216,8 @@ def test_reset_state_holds_despite_zero_filled_observation() -> None:
     observation, info = env.reset(seed=0)
     controller = make_controller()
 
-    assert observation[1] == 0.0  # utilization feature is zero-filled at reset
+    utilization = observation[env.observation_features.index("utilization")]
+    assert utilization == 0.0  # utilization feature is zero-filled at reset
     assert controller.act(observation, info) == HOLD
 
 

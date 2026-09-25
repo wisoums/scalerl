@@ -178,7 +178,8 @@ def test_compatibility_comes_from_the_real_environment() -> None:
     from_env = EnvironmentCompatibility.from_env(AutoscalingEnv(config, trace), "v1")
 
     assert from_env == EnvironmentCompatibility.from_config(config, "v1")
-    assert from_env.observation_shape == (9,)  # 7 + ceil(60 / 30)
+    assert from_env.observation_shape == (12,)  # 4 history + 6 state + ceil(60 / 30)
+    assert from_env.traffic_history_ticks == 4
     assert from_env.action_count == 3
     assert (from_env.max_replicas, from_env.service_capacity_rps) == (8, 2.0)
 
@@ -192,10 +193,10 @@ def test_incompatible_environments_are_reported() -> None:
     assert trained.mismatches(trained) == {}
     trained.require_compatible(trained)
     assert trained.mismatches(current) == {
-        "observation_shape": ((9,), (10,)),
+        "observation_shape": ((12,), (13,)),
         "startup_delay_seconds": (60.0, 90.0),
     }
-    with pytest.raises(ValueError, match=r"observation_shape: \(9,\) != \(10,\)"):
+    with pytest.raises(ValueError, match=r"observation_shape: \(12,\) != \(13,\)"):
         trained.require_compatible(current)
 
 
@@ -212,6 +213,7 @@ OBSERVATION_FIELD_CHANGES: dict[str, dict[str, Any]] = {
     "service_capacity_rps": {"replicas": {"service_capacity_rps": 2.0}},
     "cost_per_hour": {"replicas": {"cost_per_hour": 0.0}},
     "latency_target_seconds": {"sla": {"latency_target_seconds": 0.25}},
+    "traffic_history_ticks": {"observation": {"traffic_history_ticks": 1}},
 }
 
 
@@ -469,7 +471,9 @@ def test_run_records_lineage_params_and_tags(tracking_uri: str) -> None:
     assert params["reward.churn"] == "0.3"
     assert params["hp.low_threshold"] == "0.3"
     assert params["hp.grid.cooldown"] == "[0, 2]"
-    assert params["compat.observation_shape"] == "[9]"
+    assert params["compat.observation_shape"] == "[12]"
+    assert params["compat.traffic_history_ticks"] == "4"
+    assert params["sim.observation.traffic_history_ticks"] == "4"
     assert params["compat.action_count"] == "3"
     # Values the caller did not provide are not logged.
     assert "training_steps" not in params

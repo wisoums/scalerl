@@ -52,6 +52,15 @@ def make_env(
     return AutoscalingEnv(make_config(**replica_overrides), trace, reward_weights)
 
 
+def feature(env: AutoscalingEnv, observation: np.ndarray, name: str) -> float:
+    return float(observation[env.observation_features.index(name)])
+
+
+def pending(env: AutoscalingEnv, observation: np.ndarray) -> np.ndarray:
+    start = env.observation_features.index("episode_progress") + 1
+    return observation[start:]
+
+
 def reset(env: AutoscalingEnv) -> np.ndarray:
     observation, _ = env.reset(seed=0)
     return observation
@@ -65,7 +74,8 @@ def test_spaces_are_discrete_actions_and_unit_box_observations() -> None:
 
     assert env.action_space == spaces.Discrete(3)
     assert isinstance(env.observation_space, spaces.Box)
-    assert env.observation_space.shape == (7 + 2,)  # 60 s delay / 30 s ticks -> 2 buckets
+    # 4 traffic-history ticks + 6 state features + 2 pending buckets (60 s delay / 30 s ticks)
+    assert env.observation_space.shape == (4 + 6 + 2,)
     assert env.observation_space.dtype == np.float32
     assert np.all(env.observation_space.low == 0)
     assert np.all(env.observation_space.high == 1)
@@ -114,7 +124,8 @@ def test_reset_returns_initial_observation_and_info() -> None:
     observation, info = env.reset(seed=0)
 
     assert observation in env.observation_space
-    np.testing.assert_array_equal(observation, [0, 0, 0, 0, 0.25, 0, 0, 0, 0])
+    # history (4), utilization, queue, latency, active 1/4, cost, progress, pending (2)
+    np.testing.assert_array_equal(observation, [0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0])
     assert info == {
         "tick": 0,
         "time_seconds": 0.0,
@@ -177,7 +188,10 @@ def test_one_step_composes_workload_queue_metrics_and_reward() -> None:
     assert info["reward"] == reward
 
     expected_observation = [
-        5 / (5 + 40),  # demand vs. 4 replicas x 10 rps
+        5 / (5 + 40),  # latest demand vs. 4 replicas x 10 rps
+        0.0,  # no older completed ticks yet
+        0.0,
+        0.0,
         0.5,
         0.0,
         0.2 / (0.2 + 0.5),
@@ -275,19 +289,19 @@ def test_observation_distinguishes_pending_replicas_by_readiness() -> None:
         early_observation = early.step(early_action)[0]
         late_observation = late.step(late_action)[0]
 
-    np.testing.assert_allclose(early_observation[7:], [0.25, 0.0, 0.0])
-    np.testing.assert_allclose(late_observation[7:], [0.0, 0.25, 0.0])
+    np.testing.assert_allclose(pending(early, early_observation), [0.25, 0.0, 0.0])
+    np.testing.assert_allclose(pending(late, late_observation), [0.0, 0.25, 0.0])
     # After one more tick, only the earlier request has become active.
-    assert early.step(HOLD)[0][4] == 0.5
-    assert late.step(HOLD)[0][4] == 0.25
+    assert feature(early, early.step(HOLD)[0], "active_replicas_fraction") == 0.5
+    assert feature(late, late.step(HOLD)[0], "active_replicas_fraction") == 0.25
 
 
 @pytest.mark.parametrize(("delay", "buckets"), [(0, 0), (30, 1), (45, 2), (90, 3)])
 def test_pending_bucket_count_follows_startup_delay(delay: float, buckets: int) -> None:
     env = make_env(startup_delay_seconds=delay)
 
-    assert env.observation_space.shape == (7 + buckets,)
-    assert reset(env).shape == (7 + buckets,)
+    assert env.observation_space.shape == (4 + 6 + buckets,)
+    assert reset(env).shape == (4 + 6 + buckets,)
 
 
 def test_replica_counts_reflect_state_after_lifecycle_advance() -> None:
@@ -399,7 +413,7 @@ def test_zero_price_config_has_zero_cost_penalty_and_observation() -> None:
     observation, _, _, _, info = env.step(HOLD)
 
     assert info["reward_components"]["cost_penalty"] == 0.0
-    assert observation[5] == 0.0
+    assert feature(env, observation, "tick_cost_fraction") == 0.0
 
 
 # --- episode end ------------------------------------------------------------
@@ -413,7 +427,7 @@ def test_episode_is_truncated_when_trace_is_exhausted() -> None:
 
     assert [o[2] for o in outcomes] == [False] * TICKS
     assert [o[3] for o in outcomes] == [False] * (TICKS - 1) + [True]
-    assert outcomes[-1][0][6] == 1.0
+    assert feature(env, outcomes[-1][0], "episode_progress") == 1.0
     assert outcomes[-1][4]["time_seconds"] == INTERVAL * TICKS
 
 

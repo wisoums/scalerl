@@ -266,6 +266,7 @@ def test_json_round_trip(config: SimulatorConfig) -> None:
 
 def test_model_dump_has_stable_nested_shape() -> None:
     assert SimulatorConfig().model_dump() == {
+        "observation": {"traffic_history_ticks": 4},
         "timing": {"control_interval_seconds": 30.0, "episode_duration_seconds": 3600.0},
         "replicas": {
             "min_replicas": 1,
