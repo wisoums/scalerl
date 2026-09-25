@@ -130,9 +130,15 @@ def startup_ticks(startup_delay_seconds: float, control_interval_seconds: float)
     A replica requested by the action at tick ``t`` first serves tick
     ``t + startup_ticks`` (it serves tick ``t`` itself when this is 0).
     """
-    if startup_delay_seconds <= 0:
+    delay = float(startup_delay_seconds)
+    interval = float(control_interval_seconds)
+    if not math.isfinite(delay) or delay < 0:
+        raise ValueError("startup_delay_seconds must be finite and non-negative")
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("control_interval_seconds must be finite and greater than zero")
+    if delay == 0:
         return 0
-    return _advances_until_active(startup_delay_seconds, control_interval_seconds)
+    return _advances_until_active(delay, interval)
 
 
 def _advances_until_active(remaining_seconds: float, interval_seconds: float) -> int:
