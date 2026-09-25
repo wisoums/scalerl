@@ -25,7 +25,8 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - #12 threshold/target-tracking baseline
 - #13 cooldown/anti-thrashing and fair threshold tuning
 - #14 predictive baseline
-- #56 Live City autoplay / animated single-run playback after #13/#14
+- #63 queue-aware backlog recovery for the predictive baseline
+- #56 Live City autoplay / animated single-run playback after #13/#14/#63
 - #47 optional tabular Q-learning educational baseline
 
 ### Data / experiment isolation
