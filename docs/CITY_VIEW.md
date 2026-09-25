@@ -1,6 +1,6 @@
 # Scenario Lab: City View
 
-The City View is an interactive Streamlit page for watching one ScaleRL episode tick by tick: traffic arrives, a manager scales the fleet, replicas start up, queues build or drain, and latency, SLA, and cost follow.
+The City View is an interactive Streamlit page for watching one ScaleRL episode tick by tick, either deliberately (Inspect) or as automatic playback (Live City): traffic arrives, a manager scales the fleet, replicas start up, queues build or drain, and latency, SLA, and cost follow.
 
 It is a **view onto the real simulator**. Every value comes from `AutoscalingEnv` and the existing controllers; the dashboard never re-implements queueing, replica lifecycle, latency, cost, reward, workload, or controller logic.
 
@@ -34,7 +34,11 @@ Streamlit is optional: `scalerl`, its environment, controllers, workloads, and b
 | 👔 city manager | autoscaling controller |
 | ↓ — ↑ | scale down / hold / scale up |
 
-Icons are decorative and capped (for example `🚗🚗🚗🚗🚗🚗🚗🚗🚗🚗 +170`); the metrics next to them show exact values.
+The city reads top to bottom as a flow: 🚗 incoming traffic → ☕🏗️ service → 👥 waiting queue → ⏱ latency / 🚨 SLA → 💵 cost.
+
+**Traffic vs queue.** **🚗 Incoming traffic** is the NEW requests arriving during the last completed tick, in requests per second. **👥 Waiting queue** is requests that ALREADY arrived but could not yet be processed. They are different quantities with different units, and each has its own exact metric.
+
+Icons are decorative and capped (for example `🚗🚗🚗🚗🚗🚗🚗🚗🚗🚗 +170` above **180 RPS**); one icon is never one request, and the metric next to it is the authoritative value. Pending replicas are shown as a truthful count of starting shops, without per-replica countdowns (the simulator exposes no public startup-progress API).
 
 **Two moments are shown on purpose.** The shops show the fleet **now**, i.e. what the next decision applies to (`env.replica_counts`). Traffic, queue, latency, SLA, and cost are from the **last completed tick** (that step's `info`). A replica requested earlier can finish starting at the end of a tick, so these can legitimately differ.
 
@@ -78,6 +82,24 @@ Min, initial, and max replicas; startup delay; service capacity per replica; cos
 
 Controller managers offer **▶ Step** (one tick) and **⏭ Run to end**. They decide exactly as the evaluation runner does: `controller.act(observation, decision_info(env, info))`. **↺ Reset episode** restarts the same scenario from tick 0. When the episode reaches its last tick, stepping stops and the final city and history stay visible.
 
+Manager panels use only diagnostics the controller really provides. Random and Static show the action (Static also its target replicas), with no invented reason. Threshold shows decision, utilization, desired replicas, reason, and cooldown remaining. Predictive keeps **forecast arrivals** and **effective sizing demand** separate. Diagnostics explain the decision that produced the last completed tick, so they use what was known before that tick ran (for example the queue of the tick before).
+
+## Inspect vs Live City
+
+A **View mode** switch offers two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+
+| Mode | Controls |
+|---|---|
+| 🔍 Inspect | Manual **↓ / — / ↑**, or controller **▶ Step** and **⏭ Run to end**; **↺ Reset episode** |
+| 🏙️ Live City | **▶ Play**, **⏸ Pause**, **⏯ Step once** (while paused), speed **0.5x / 1x / 2x / 5x**, **↺ Reset episode** |
+
+- **Discrete ticks only.** Every Live City frame is one real `ScenarioSession.step_controller()` call, exactly as Step does. Nothing is interpolated between ticks and no fake queue or latency states are drawn; charts plot real history, one row per tick. Animation does not make ScaleRL a continuous-time simulator.
+- **Speed is presentation cadence only.** 1x ≈ one simulator tick per real second, 0.5x ≈ one every 2 s, 2x ≈ one every 0.5 s, and 5x ≈ one every 0.2 s. It never changes the control interval, workload, controller, startup delay, simulated clock, or reward. 1x does **not** mean one simulated second per real second: in Benchmark v1 each frame is 30 simulated seconds. Changing speed keeps the session and history and only reschedules the next frame.
+- **Stopping.** Pause takes effect on the next rerun. **Reset** pauses and returns to tick 0. **Build / Reset Scenario** pauses even when the new build fails validation, and the old city then stays visible but paused. Reaching the last tick pauses automatically, keeps the final city visible, and disables Play. Leaving Live City for Inspect also pauses. **⏭ Run to end** exists only in Inspect mode.
+- **Manual has no autoplay.** Live City needs a controller-driven manager; with Manual, Play is disabled with an explanation and no HOLD actions are invented. Choose manual actions in Inspect mode.
+- **How it cannot double-step.** The live region is a Streamlit fragment re-run by `st.fragment(run_every=period)` only while playing. A pure `PlaybackState` (`scalerl.dashboard.playback`, no Streamlit import) decides whether a tick is due, using monotonic time. One due timer run advances at most one tick, with no catch-up bursts. Ordinary reruns from clicks and widget changes never step. The fragment always reads the current session from Streamlit state, so a replaced city is never advanced by an old timer.
+- **Accessibility.** Exact numbers, status text (for example `LIVE CITY • PLAYING • 2x` or `LIVE CITY • PAUSED`), and the SLA label never rely on motion; nothing flashes, and Inspect mode stays the non-animated alternative.
+
 ## History
 
 After each tick the page charts traffic, replicas serving each tick (active and pending), queue depth, p95 latency against the SLA target, requested versus applied replica change, and cumulative infrastructure cost. Each history row is the step's raw environment `info` plus a few presentation fields (SLA target, cumulative cost, next-decision replica counts).
@@ -90,4 +112,4 @@ After each tick the page charts traffic, replicas serving each tick (active and 
 | City View | interactive understanding of one simulation |
 | Results Explorer (#39, planned) | browsing stored experiment runs |
 
-The City View does not log to MLflow and is not an experiment database. Numbers used in results must come from tracked MLflow runs.
+The City View, including Live City playback, does not log to MLflow and is not an experiment database; it is interactive Scenario Lab exploration. Numbers used in results must come from tracked MLflow runs.
