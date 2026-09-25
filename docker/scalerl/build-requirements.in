@@ -1,0 +1,2 @@
+# PEP 517 build backend for the ScaleRL package itself (pyproject.toml [build-system]).
+hatchling==1.32.4

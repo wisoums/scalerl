@@ -23,6 +23,11 @@ compile pyproject.toml \
   --custom-compile-command scripts/compile-docker-requirements.sh \
   --output-file docker/scalerl/requirements.txt
 
+# Build backend for the ScaleRL wheel, so image builds never fetch an unpinned hatchling.
+compile docker/scalerl/build-requirements.in \
+  --custom-compile-command scripts/compile-docker-requirements.sh \
+  --output-file docker/scalerl/build-requirements.txt
+
 compile docker/mlflow/requirements.in \
   --custom-compile-command scripts/compile-docker-requirements.sh \
   --output-file docker/mlflow/requirements.txt

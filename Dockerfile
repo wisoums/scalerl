@@ -28,10 +28,17 @@ RUN pip install --require-hashes \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         -r /tmp/requirements.txt
 
-# Then the real ScaleRL package (a regular, non-editable install).
+# Then the real ScaleRL package (a regular, non-editable install). The wheel is
+# built with the hash-pinned hatchling from a separate build venv and without
+# build isolation, so no unpinned build backend is ever downloaded, and the
+# build tooling never reaches the runtime venv.
+COPY docker/scalerl/build-requirements.txt /tmp/build-requirements.txt
+RUN python -m venv /opt/build \
+    && /opt/build/bin/pip install --require-hashes -r /tmp/build-requirements.txt
 COPY pyproject.toml README.md LICENSE /build/
 COPY src /build/src
-RUN pip install --no-deps /build
+RUN /opt/build/bin/pip wheel --no-deps --no-build-isolation --wheel-dir /dist /build \
+    && pip install --no-deps /dist/*.whl
 
 
 FROM ${PYTHON_IMAGE} AS runtime
