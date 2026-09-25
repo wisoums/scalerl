@@ -200,6 +200,19 @@ Every run of the trial is also tagged `scalerl.optuna.trial_state` with that Opt
 
 Pruning plumbing (`pruner="median"`, `context.report`, `context.should_prune`) is available but only meaningful once training exposes legitimate train/validation intermediate metrics (#15/#16). Never prune on held-out test results.
 
+### Threshold study (#13)
+
+The first consumer is the threshold baseline:
+
+```bash
+python -m scalerl.tuning.threshold \
+    --storage sqlite:///outputs/threshold-optuna.db \
+    --tracking-uri sqlite:///outputs/mlflow.db \
+    --output outputs/threshold-v1.json
+```
+
+It runs the 18-point grid on the synthetic train/validation workloads (override with `--workload`, and pass `--azure-csv` for Azure train/validation entries), logs one MLflow run per workload per trial, selects with the `threshold-sla-first` v1 rule, and writes a `ThresholdTuningResult` JSON. `--simulator-config` with `--config-source` and `--calibration-workload` records a non-default simulator configuration's provenance. Re-running the command resumes the study without re-evaluating finished grid points. See [EXPERIMENTS.md](EXPERIMENTS.md#threshold-baseline-13).
+
 ### Tuning guardrails
 
 - `StudySpec` rejects any `tuning_workload_ids` outside the manifest's train/validation splits; `azure-test-993600` or any other held-out workload fails immediately.
