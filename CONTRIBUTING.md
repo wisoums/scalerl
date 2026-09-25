@@ -13,10 +13,10 @@ ScaleRL uses small, reviewable changes tied to GitHub issues.
 
 ## Quality gates
 
-Install with the development and MLOps extras (the MLflow tracking tests need `mlops`):
+Install with the development, MLOps, and dashboard extras (the MLflow and Streamlit tests need them):
 
 ```bash
-pip install -e ".[dev,mlops]"
+pip install -e ".[dev,mlops,dashboard]"
 ```
 
 Before merge:

@@ -127,11 +127,11 @@ git clone https://github.com/wisoums/scalerl.git
 cd scalerl
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,mlops]"
+pip install -e ".[dev,mlops,dashboard]"
 pytest
 ```
 
-The `mlops` extra installs MLflow, which the experiment-tracking tests need. The core simulator, controllers, and workloads work without it. To browse tracked runs locally:
+The `mlops` extra installs MLflow and the `dashboard` extra installs Streamlit; their tests need them, but the core simulator, controllers, and workloads work without either. To browse tracked runs locally:
 
 ```bash
 export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
@@ -139,6 +139,26 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
 The full Docker Compose MLOps stack is tracked in Issue #44.
+
+### Scenario Lab City View
+
+Watch the simulator interactively: traffic → scaling → queue → latency/cost, driven manually or by a baseline controller.
+
+```bash
+pip install -e ".[dashboard]"
+python -m scalerl.dashboard
+```
+
+It opens at <http://localhost:8501>; stop it with `Ctrl+C`.
+
+A quick tour:
+
+1. **Manual:** press **↑ Scale up** a few times and watch 🏗️ pending shops become ☕ open shops after the startup delay, while the queue and latency respond.
+2. **Threshold controller:** in the sidebar choose **City manager → 🌡️ Threshold**, press **Build / Reset Scenario**, then **▶ Step** or **⏭ Run to end**. The manager panel shows each decision and its reason.
+3. **More dramatic traffic:** pick the workload `syn-train-spike` and build.
+4. **Real Azure data:** with the trace extracted locally (see [data/README.md](data/README.md)), pick `azure-train-129600`; the default path points at `data/raw/`. One replica handles its low demand at the default capacity, so lower **Service capacity per replica** to about `1` and rebuild to see scaling. That change is for exploration only.
+
+See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
