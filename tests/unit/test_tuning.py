@@ -7,6 +7,7 @@ temporary SQLite store. Nothing contacts a network service.
 import itertools
 import subprocess
 import sys
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -177,6 +178,14 @@ def test_core_and_tuning_specs_do_not_import_optuna() -> None:
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
+def test_tuning_extra_installs_the_mlflow_tracking_dependency() -> None:
+    pyproject = tomllib.loads((Path(__file__).parents[2] / "pyproject.toml").read_text())
+    extras = pyproject["project"]["optional-dependencies"]
+
+    assert "scalerl[mlops]" in extras["tuning"]
+    assert any(requirement.startswith("optuna") for requirement in extras["tuning"])
+
+
 def test_running_a_study_without_optuna_gives_an_install_hint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -223,6 +232,29 @@ def test_grid_sampler_runs_every_threshold_combination_exactly_once() -> None:
 
 
 # --- storage and resume ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sampler", "first", "total"),
+    [("random", 5, 8), ("tpe", 5, 8), ("tpe", 7, 16)],
+    ids=["random", "tpe_startup", "tpe_past_startup"],
+)
+def test_resumed_studies_match_uninterrupted_ones(
+    tmp_path: Path, sampler: str, first: int, total: int
+) -> None:
+    resumed_storage = f"sqlite:///{tmp_path / 'resumed.db'}"
+    run_study(make_spec(sampler=sampler, storage=resumed_storage, n_trials=first), quadratic)
+    resumed = run_study(
+        make_spec(sampler=sampler, storage=resumed_storage, n_trials=total), quadratic
+    )
+    whole = run_study(
+        make_spec(sampler=sampler, storage=f"sqlite:///{tmp_path / 'whole.db'}", n_trials=total),
+        quadratic,
+    )
+
+    resumed_x = [t.params["x"] for t in resumed.trials]
+    assert resumed_x == [t.params["x"] for t in whole.trials]
+    assert len(set(resumed_x)) == total  # no configuration repeated after resuming
 
 
 def test_studies_resume_from_persistent_storage(optuna_storage: str) -> None:
@@ -312,6 +344,7 @@ def test_single_workload_trials_get_one_mlflow_run_each(tracking_uri: str) -> No
         assert params["hp.optuna.storage"] == "in-memory"
         assert params["hp.optuna.params.target_replicas"] == str(trial.params["target_replicas"])
         assert "infrastructure_cost" in run.data.metrics
+        assert run.data.tags["scalerl.optuna.trial_state"] == "COMPLETE"
 
 
 def test_multi_workload_trials_keep_one_mlflow_run_per_workload(tracking_uri: str) -> None:
@@ -383,7 +416,27 @@ def test_failing_evaluation_fails_both_the_trial_and_its_run(tracking_uri: str) 
     assert trial.state == optuna.trial.TrialState.FAIL
     run_ids = trial.user_attrs[RUN_IDS_ATTR]
     assert len(run_ids) == 1  # the link survives the failure
-    assert MlflowClient(tracking_uri).get_run(run_ids[0]).info.status == "FAILED"
+    run = MlflowClient(tracking_uri).get_run(run_ids[0])
+    assert run.info.status == "FAILED"
+    assert run.data.tags["scalerl.optuna.trial_state"] == "FAIL"
+
+
+def test_caught_failures_tag_every_run_of_the_failed_trial(tracking_uri: str) -> None:
+    def objective(context: TrialContext) -> float:
+        with context.track(tune_spec("syn-train-spike"), tracking_uri=tracking_uri):
+            pass
+        if context.number == 0:
+            raise RuntimeError("aggregation failed after the run finished")
+        return 1.0
+
+    study = run_study(make_spec(n_trials=2), objective, catch=(RuntimeError,))
+
+    client = MlflowClient(tracking_uri)
+    states = [
+        client.get_run(t.user_attrs[RUN_IDS_ATTR][0]).data.tags["scalerl.optuna.trial_state"]
+        for t in study.trials
+    ]
+    assert states == ["FAIL", "COMPLETE"]
 
 
 def test_failures_can_be_caught_so_the_study_continues(optuna_storage: str) -> None:
@@ -421,3 +474,25 @@ def test_pruned_trials_stay_distinguishable(tracking_uri: str) -> None:
     run = MlflowClient(tracking_uri).get_run(trial.user_attrs[RUN_IDS_ATTR][0])
     assert run.info.status == "FINISHED"
     assert run.data.tags["scalerl.optuna.trial_state"] == "PRUNED"
+
+
+def test_pruning_after_aggregation_tags_every_run_of_the_trial(tracking_uri: str) -> None:
+    spec = make_spec(n_trials=1, tuning_workload_ids=("syn-train-spike", "syn-val-bursty"))
+    captured: list[optuna.Study] = []
+
+    def objective(context: TrialContext) -> float:
+        captured.append(context.trial.study)
+        for workload_id, split in (("syn-train-spike", "train"), ("syn-val-bursty", "validation")):
+            with context.track(tune_spec(workload_id, split), tracking_uri=tracking_uri):
+                pass  # both runs have closed before the pruning decision
+        context.prune()
+        return 0.0
+
+    run_study(spec, objective)
+
+    trial = captured[0].trials[0]
+    assert trial.state == optuna.trial.TrialState.PRUNED
+    runs = [MlflowClient(tracking_uri).get_run(r) for r in trial.user_attrs[RUN_IDS_ATTR]]
+    assert len(runs) == 2
+    assert {r.info.status for r in runs} == {"FINISHED"}
+    assert {r.data.tags["scalerl.optuna.trial_state"] for r in runs} == {"PRUNED"}
