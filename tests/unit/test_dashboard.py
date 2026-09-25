@@ -11,7 +11,12 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from scalerl.benchmarks import build_workload, load_benchmark_manifest
-from scalerl.controllers import RandomController, ThresholdController, decision_info
+from scalerl.controllers import (
+    PredictiveController,
+    RandomController,
+    ThresholdController,
+    decision_info,
+)
 from scalerl.dashboard import (
     HELD_OUT_WARNING,
     ManagerSpec,
@@ -286,6 +291,46 @@ def test_threshold_session_reports_cooldown_diagnostics() -> None:
     ]
 
 
+def test_predictive_manager_builds_the_real_controller_from_the_simulator() -> None:
+    session = make_session(
+        "predictive",
+        history_window_ticks=3,
+        target_utilization=0.7,
+        replicas={"startup_delay_seconds": 90.0},
+    )
+
+    controller = session.controller
+    assert isinstance(controller, PredictiveController)
+    assert controller.history_window_ticks == 3
+    assert controller.target_utilization == 0.7
+    assert controller.forecast_horizon_ticks == 1 + 3  # from the simulator's 90 s startup
+    assert (
+        ManagerSpec("predictive").history_window_ticks,
+        ManagerSpec("predictive").target_utilization,
+    ) == (4, 0.8)
+
+
+def test_predictive_session_steps_and_reports_forecasts() -> None:
+    session = make_session("predictive", workload="syn-train-ramp-up")
+    assert session.predictive_decision is None
+
+    session.step_controller()
+    first = session.predictive_decision
+    assert first is not None and first.reason == "no_sample"
+
+    for _ in range(4):
+        session.step_controller()
+    decision = session.predictive_decision
+    assert decision is not None
+    # The shown decision was made before the latest tick ran, so its newest
+    # observed demand is the tick before it (no look-ahead into history[-1]).
+    assert decision.latest_request_rate == session.history[-2]["request_rate"]
+    assert decision.forecast_rps is not None
+    assert decision.forecast_horizon_ticks == 3
+    assert decision.desired_replicas is not None
+    assert session.threshold_decision is None
+
+
 def test_non_threshold_sessions_have_no_threshold_diagnostics() -> None:
     session = make_session("random", seed=1)
     session.step_controller()
@@ -500,6 +545,36 @@ def test_app_threshold_cooldown_control_reaches_the_controller(app: AppTest) -> 
     controller = session_of(app).controller
     assert isinstance(controller, ThresholdController)
     assert controller.cooldown_ticks == 5
+
+
+def test_app_predictive_manager_builds_steps_and_explains(app: AppTest) -> None:
+    app.selectbox(key="manager").set_value("predictive").run()
+    app.number_input(key="history_window").set_value(3).run()
+    app.number_input(key="target_utilization").set_value(0.7).run()
+    app.button(key="build").click().run()
+    for _ in range(3):
+        app.button(key="step").click().run()
+
+    assert not app.exception
+    controller = session_of(app).controller
+    assert isinstance(controller, PredictiveController)
+    assert (controller.history_window_ticks, controller.target_utilization) == (3, 0.7)
+    text = " ".join(markdown.value for markdown in app.markdown)
+    assert "forecast" in text and "ticks /" in text and "desired" in text
+    assert any("completed traffic only" in caption.value for caption in app.caption)
+
+
+def test_app_predictive_settings_apply_only_on_build(app: AppTest) -> None:
+    app.selectbox(key="manager").set_value("predictive").run()
+    app.button(key="build").click().run()
+    running = session_of(app).controller
+
+    app.number_input(key="history_window").set_value(6).run()
+    app.button(key="step").click().run()
+
+    assert session_of(app).controller is running
+    assert isinstance(running, PredictiveController)
+    assert running.history_window_ticks == 4
 
 
 def test_app_episode_completion_disables_stepping(app: AppTest) -> None:

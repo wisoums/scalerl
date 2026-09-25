@@ -73,6 +73,7 @@ Min, initial, and max replicas; startup delay; service capacity per replica; cos
 | 🕹️ Manual | **↓ Scale down**, **— Hold**, **↑ Scale up**: each click is exactly one simulation tick |
 | 🎲 Random | `RandomController` with a chosen seed |
 | 📌 Static | `StaticController` holding a target replica count |
+| 🔮 Predictive | `PredictiveController`: a linear-trend forecast of the last **history window** completed request rates (default 4), sized with a **target utilization** (default 0.8); bounds, capacity, startup delay, and tick length come from the simulator. Shows observed demand, forecast, horizon (ticks and seconds), desired replicas, action, and reason. It forecasts from completed traffic only, so it cannot anticipate a spike with no prior trend |
 | 🌡️ Threshold | `ThresholdController` with low/high utilization thresholds and **cooldown ticks** (after a real scaling change, hold this many decisions; 0 disables it); shows its own decision diagnostics (utilization, desired replicas, action, reason, and remaining cooldown) |
 
 Controller managers offer **▶ Step** (one tick) and **⏭ Run to end**. They decide exactly as the evaluation runner does: `controller.act(observation, decision_info(env, info))`. **↺ Reset episode** restarts the same scenario from tick 0. When the episode reaches its last tick, stepping stops and the final city and history stay visible.

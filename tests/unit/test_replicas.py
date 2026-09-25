@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from scalerl.environment import ReplicaConfig, ReplicaPool
+from scalerl.environment import ReplicaConfig, ReplicaPool, startup_ticks
 
 
 def make_pool(**overrides: Any) -> ReplicaPool:
@@ -264,6 +264,33 @@ def test_readiness_buckets_require_positive_finite_interval(interval: float) -> 
 
     with pytest.raises(ValueError, match="interval_seconds must be finite"):
         pool.pending_by_ticks_until_active(interval)
+
+
+@pytest.mark.parametrize(
+    ("delay", "interval", "ticks"),
+    [(0.0, 30.0, 0), (1.0, 30.0, 1), (30.0, 30.0, 1), (45.0, 30.0, 2), (60.0, 30.0, 2)],
+)
+def test_startup_ticks_matches_pending_buckets(delay: float, interval: float, ticks: int) -> None:
+    assert startup_ticks(delay, interval) == ticks
+    pool = make_pool(startup_delay_seconds=delay)
+    assert len(pool.pending_by_ticks_until_active(interval)) == ticks
+
+
+@pytest.mark.parametrize(
+    ("delay", "interval", "message"),
+    [
+        (-1.0, 30.0, "startup_delay_seconds must be finite and non-negative"),
+        (float("nan"), 30.0, "startup_delay_seconds must be finite and non-negative"),
+        (float("inf"), 30.0, "startup_delay_seconds must be finite and non-negative"),
+        (0.0, 0.0, "control_interval_seconds must be finite and greater than zero"),
+        (60.0, 0.0, "control_interval_seconds must be finite and greater than zero"),
+        (60.0, -30.0, "control_interval_seconds must be finite and greater than zero"),
+        (60.0, float("inf"), "control_interval_seconds must be finite and greater than zero"),
+    ],
+)
+def test_startup_ticks_rejects_invalid_timing(delay: float, interval: float, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        startup_ticks(delay, interval)
 
 
 # --- reset and determinism --------------------------------------------------

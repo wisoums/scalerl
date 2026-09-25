@@ -21,13 +21,15 @@ from scalerl.benchmarks import (
 )
 from scalerl.controllers import (
     Controller,
+    PredictiveController,
+    PredictiveDecision,
     RandomController,
     StaticController,
     ThresholdController,
     ThresholdDecision,
     decision_info,
 )
-from scalerl.environment import AutoscalingEnv, ReplicaConfig, SimulatorConfig
+from scalerl.environment import AutoscalingEnv, SimulatorConfig
 from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
 from scalerl.workloads import (
     WorkloadTrace,
@@ -38,7 +40,7 @@ from scalerl.workloads import (
     steady_workload,
 )
 
-ManagerKind = Literal["manual", "random", "static", "threshold"]
+ManagerKind = Literal["manual", "random", "static", "threshold", "predictive"]
 DEFAULT_AZURE_PATH = "data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt"
 ACTION_LABELS = {SCALE_DOWN: "SCALE DOWN ↓", HOLD: "HOLD —", SCALE_UP: "SCALE UP ↑"}
 HELD_OUT_WARNING = (
@@ -148,13 +150,26 @@ class ManagerSpec:
     low_threshold: float = 0.3
     high_threshold: float = 0.8
     cooldown_ticks: int = 0
+    history_window_ticks: int = 4
+    target_utilization: float = 0.8
 
-    def build(self, replicas: ReplicaConfig) -> Controller | None:
-        """Construct the real controller (``None`` for manual control)."""
+    def build(self, config: SimulatorConfig) -> Controller | None:
+        """Construct the real controller (``None`` for manual control).
+
+        Replica bounds, capacity, and timing come from ``config``, never from
+        duplicated manager settings.
+        """
+        replicas = config.replicas
         if self.kind == "manual":
             return None
         if self.kind == "random":
             return RandomController(seed=self.seed)
+        if self.kind == "predictive":
+            return PredictiveController.from_config(
+                config,
+                history_window_ticks=self.history_window_ticks,
+                target_utilization=self.target_utilization,
+            )
         if self.kind == "static":
             if self.target_replicas is None:
                 raise ValueError("static manager needs target_replicas")
@@ -177,7 +192,7 @@ class ScenarioSession:
 
     def __init__(self, scenario: Scenario, config: SimulatorConfig, manager: ManagerSpec) -> None:
         self._env = AutoscalingEnv(config, scenario.trace)
-        self._controller = manager.build(config.replicas)
+        self._controller = manager.build(config)
         self._scenario = scenario
         self._manager = manager
         self.reset()
@@ -246,6 +261,13 @@ class ScenarioSession:
     @property
     def cumulative_cost(self) -> float:
         return self._cumulative_cost
+
+    @property
+    def predictive_decision(self) -> PredictiveDecision | None:
+        """The predictive controller's own diagnostics for its latest decision."""
+        if isinstance(self._controller, PredictiveController):
+            return self._controller.last_decision
+        return None
 
     @property
     def threshold_decision(self) -> ThresholdDecision | None:

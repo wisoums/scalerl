@@ -112,9 +112,7 @@ class ReplicaPool:
         if not math.isfinite(interval_seconds) or interval_seconds <= 0:
             raise ValueError("interval_seconds must be finite and greater than zero")
 
-        delay = self._config.startup_delay_seconds
-        horizon = _advances_until_active(delay, interval_seconds) if delay > 0 else 0
-        counts = [0] * horizon
+        counts = [0] * startup_ticks(self._config.startup_delay_seconds, interval_seconds)
         for seconds in self._pending_remaining_seconds:
             counts[_advances_until_active(seconds, interval_seconds) - 1] += 1
         return tuple(counts)
@@ -124,6 +122,23 @@ class ReplicaPool:
         self._active = self._config.initial_replicas
         self._pending_remaining_seconds = []
         self._terminating = 0
+
+
+def startup_ticks(startup_delay_seconds: float, control_interval_seconds: float) -> int:
+    """Lifecycle advances a newly requested replica needs before it is active (0 = immediate).
+
+    A replica requested by the action at tick ``t`` first serves tick
+    ``t + startup_ticks`` (it serves tick ``t`` itself when this is 0).
+    """
+    delay = float(startup_delay_seconds)
+    interval = float(control_interval_seconds)
+    if not math.isfinite(delay) or delay < 0:
+        raise ValueError("startup_delay_seconds must be finite and non-negative")
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("control_interval_seconds must be finite and greater than zero")
+    if delay == 0:
+        return 0
+    return _advances_until_active(delay, interval)
 
 
 def _advances_until_active(remaining_seconds: float, interval_seconds: float) -> int:

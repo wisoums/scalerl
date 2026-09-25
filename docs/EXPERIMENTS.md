@@ -5,9 +5,9 @@ ScaleRL evaluates every controller under the same simulator configuration and wo
 ## Controllers
 
 - Random policy — sanity check
-- Static capacity — fixed-cost reference
+- Static capacity — fixed-capacity reference
 - Threshold/target-tracking autoscaler — tuned reactive baseline
-- Predictive autoscaler — forecasting baseline
+- Predictive autoscaler — explicit forecasting baseline
 - Tabular Q-learning — optional educational learned baseline
 - DQN — discrete deep-RL policy
 - PPO — policy-gradient comparison
@@ -20,8 +20,8 @@ Random/static are sanity/reference points. The tuned threshold and predictive co
 |---|---|
 | Random / Static | nothing / current replica counts |
 | Threshold | current utilization and replica counts (reactive, no history) |
-| Predictive (#14) | its own explicit forecast from past demand |
-| DQN / PPO | the environment observation, including the recent traffic window below |
+| Predictive (#14) | a linear-trend forecast of its own window of past completed demand (`info["request_rate"]`), plus replica counts |
+| DQN / PPO | the environment observation (recent traffic window + system state); learned sequential policies |
 
 ### Recent traffic context
 
@@ -101,6 +101,25 @@ The tuned threshold controller is the **main reactive baseline** that DQN and PP
 - **Selection rule `threshold-sla-first` v1** (validation workloads only): lowest mean SLA violation rate, then lowest mean normalized cost (episode cost ÷ cost of `max_replicas` for the whole episode), then lowest mean queue pressure (`queued / (queued + max-fleet tick capacity)`), then lowest churn rate (ticks with an applied change ÷ episode ticks), then the smallest `(high, low, cooldown)` as an exact tie-break. The Optuna objective is the mean validation SLA violation rate.
 - Reward is logged as a secondary metric only and never selects the configuration. Held-out test workloads are rejected before any evaluation. Only the thresholds and cooldown are tuned; simulator settings, reward weights, replica bounds, and `traffic_history_ticks` stay fixed.
 - The selected configuration, rule, validation metrics, study/trial identity, and MLflow run IDs are written to a JSON result (`ThresholdTuningResult`) and to the study's user attributes. Study databases and results live in ignored local paths (`outputs/`), not Git.
+
+## Predictive baseline (#14)
+
+The predictive controller asks: if recent demand has a visible trend, can a simple, transparent forecast request capacity early enough to beat replica startup delay, where a reactive threshold would be late?
+
+v1 design (predeclared, not tuned):
+
+- **History:** the last 4 completed request rates, kept by the controller itself from `info["request_rate"]`. It never reads the trace, the RL observation, or generator parameters.
+- **Forecast:** one sample → persistence; two or more → an ordinary least-squares line through `(tick, rate)`, extrapolated; negative forecasts are clamped to 0.
+- **Horizon:** `1 + ceil(startup_delay / control_interval)` ticks after the latest sample, i.e. the first tick a replica requested now can serve (3 ticks, 90 s, for the v1 60 s / 30 s timing). It uses the simulator's own startup arithmetic and is verified against the environment.
+- **Capacity:** `desired = ceil(forecast / (service_capacity_rps × 0.8))` (target utilization 0.8 leaves headroom), clamped to the replica bounds.
+- **Action:** compare with committed capacity `active + pending`: scale up if below, down if above, else hold. Pending replicas count, so capacity already starting is not requested again, and a scale-down cancels the newest pending replica first.
+- **No look-ahead:** forecasts use only completed ticks. A truly random spike with no prior trend cannot be forecast; the controller reacts only once the spike is part of its history.
+
+Behavior on the synthetic suite, with the default simulator config: on a clean ramp it requests capacity well before a reactive threshold (first scale-up after tick 2 vs 15), at slightly higher cost. **Known limitation:** capacity is sized for forecast *arrivals* only, not queued backlog, and a burst's falling edge drives the trend down; on bursty workloads it under-provisions and SLA violations stay high. Whether to add backlog awareness is a separate design decision, not part of v1.
+
+**Forecast accuracy** is scored only after an episode, by joining each forecast's target tick to that tick's actual request rate (forecasts past the episode end are ignored): count, MAE, RMSE, and mean signed error (bias), all in RPS. MAPE is not used because demand can be near zero.
+
+`python -m scalerl.evaluation.predictive` evaluates it on the synthetic train/validation workloads (held-out workloads are rejected), one MLflow run per workload (`run_kind="evaluate"`, `controller="predictive"`) with its settings, forecast accuracy, and the same system metrics as the threshold study (shared `scalerl.evaluation` metrics).
 
 ## Fair comparison
 
