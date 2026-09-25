@@ -1,0 +1,79 @@
+name: Release
+
+# On a version tag (vX.Y.Z), re-run the full CI gate on the tagged commit, then
+# publish the ScaleRL runtime/trainer image (the same Dockerfile as the Compose
+# stack) to GHCR for linux/amd64 and linux/arm64. Pull requests and pushes to
+# main never publish. Upstream images (PostgreSQL, Garage) are not republished.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  publish:
+    name: publish ScaleRL image to GHCR
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # arm64 is built under QEMU emulation
+    permissions:
+      contents: read
+      packages: write  # only this job can write packages, via GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag must match the package version
+        run: |
+          expected=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "${GITHUB_REF_NAME#v}" != "$expected" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match pyproject.toml version $expected" >&2
+            exit 1
+          fi
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image tags and OCI metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # v1.2.3 → 1.2.3 and 1.2, plus sha-<short> for traceability. No automatic "latest".
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=ScaleRL
+            org.opencontainers.image.description=ScaleRL runtime: Scenario Lab UI and CPU trainer (evaluation, tuning, SB3)
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,scope=release,mode=max
