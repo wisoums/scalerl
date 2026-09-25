@@ -2,7 +2,7 @@
 
 **Portfolio-ready v1.0 target: October 31, 2026.**
 
-The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
+The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> recent-traffic RL observation -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
 
 ## Completed — M0/M1 foundations
 
@@ -38,6 +38,7 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - #17 MLflow experiment tracking/run contract
 - **#37 Streamlit Scenario Lab City View foundation immediately after #17**
 - #54 shared Optuna hyperparameter optimization infrastructure
+- #58 four-tick recent traffic history in the RL observation contract
 - #44 reproducible Docker training + MLflow/PostgreSQL/MinIO stack
 - #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
@@ -50,6 +51,7 @@ A fair tuned threshold baseline exists; synthetic and selected Azure workloads u
 ### Must have
 
 - #15 SB3 DQN training pipeline
+- #58 frozen four-tick recent-demand observation used by learned policies
 - #54 Optuna study infrastructure used for DQN hyperparameter search
 - common SB3-to-Controller adapter
 - MLflow params/metrics/artifacts/model logging
