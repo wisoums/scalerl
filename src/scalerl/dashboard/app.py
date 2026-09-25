@@ -8,6 +8,7 @@ Rendering and widgets only; the simulation runs in ``ScenarioSession``.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,16 @@ import streamlit as st
 
 from scalerl.benchmarks import AzureWorkload, load_benchmark_manifest
 from scalerl.controllers import PredictiveDecision
+from scalerl.dashboard.playback import (
+    MANUAL_AUTOPLAY_MESSAGE,
+    SPEEDS,
+    PlaybackMode,
+    PlaybackState,
+    advance_if_due,
+    autoplay_blocker,
+    speed_label,
+    start_playback,
+)
 from scalerl.dashboard.session import (
     ACTION_LABELS,
     CUSTOM_GENERATORS,
@@ -36,6 +47,12 @@ from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP
 
 SESSION_KEY = "scenario_session"
 ERROR_KEY = "scenario_build_error"
+PLAYBACK_KEY = "playback"
+FULL_RUN_KEY = "playback_full_run"
+MODE_KEY = "playback_mode"
+SPEED_KEY = "playback_speed"
+MODES: dict[PlaybackMode, str] = {"inspect": "🔍 Inspect", "live": "🏙️ Live City"}
+FLOW_ARROW = "↓"
 MANAGERS: dict[ManagerKind, str] = {
     "manual": "🕹️ Manual",
     "random": "🎲 Random",
@@ -75,6 +92,17 @@ MANAGER_HELP = (
     "trend from recent completed traffic to request capacity before it is needed."
 )
 
+MODE_HELP = (
+    "Inspect advances deliberately, one tick per click. Live City plays the same session "
+    "automatically, one real simulator tick per frame. Switching modes never resets the city."
+)
+SPEED_HELP = (
+    "1x shows about one simulator tick per real second (0.5x: every 2 s, 2x: every 0.5 s, "
+    "5x: every 0.2 s). Speed changes only playback cadence, never simulated time."
+)
+TRAFFIC_HELP = "NEW requests arriving during the last completed tick, in requests per second."
+QUEUE_HELP = "Requests that ALREADY arrived but could not yet be processed; they wait for capacity."
+
 # Starting values for custom generators (same shapes as the v1 training scenarios).
 CUSTOM_DEFAULTS: dict[str, dict[str, float | int]] = {
     "steady": {"rate": 100.0},
@@ -106,8 +134,12 @@ BuildRequest = Callable[[], ScenarioSession]
 
 def main() -> None:
     st.set_page_config(page_title="ScaleRL Scenario Lab", page_icon="🏙️", layout="wide")
+    playback = _playback()
     request, build_clicked = _sidebar()
-    if build_clicked or SESSION_KEY not in st.session_state:
+    if build_clicked:
+        playback.stop()  # even if the new build fails: never keep playing the old city
+        _build(request)
+    elif SESSION_KEY not in st.session_state:
         _build(request)
 
     error = st.session_state.get(ERROR_KEY)
@@ -118,7 +150,7 @@ def main() -> None:
         st.title("🏙️ ScaleRL Scenario Lab")
         st.info("Fix the scenario settings in the sidebar and press **Build / Reset Scenario**.")
         return
-    _render(session)
+    _render(session, playback)
 
 
 # --- sidebar: scenario form ---------------------------------------------------
@@ -458,7 +490,7 @@ def _build(request: BuildRequest) -> None:
 # --- main page ----------------------------------------------------------------
 
 
-def _render(session: ScenarioSession) -> None:
+def _render(session: ScenarioSession, playback: PlaybackState) -> None:
     info = session.scenario
     st.title("🏙️ ScaleRL Scenario Lab")
     st.caption(
@@ -471,11 +503,112 @@ def _render(session: ScenarioSession) -> None:
     if note:
         st.info(note)
 
-    tick, time, manager = st.columns(3)
+    _render_controls(session, playback)
+    # Full app runs (any click or widget change) never step; only the fragment's
+    # own timer runs, which do not set this flag, may advance a due tick.
+    st.session_state[FULL_RUN_KEY] = True
+    run_every = playback.period_seconds if playback.playing else None
+    st.fragment(_live_region, run_every=run_every)()
+    _render_guidance()
+
+
+def _render_controls(session: ScenarioSession, playback: PlaybackState) -> None:
+    with st.container(border=True):
+        st.radio(
+            "View mode",
+            list(MODES),
+            format_func=MODES.__getitem__,
+            key=MODE_KEY,
+            horizontal=True,
+            on_change=_on_mode_change,
+            help=MODE_HELP,
+        )
+        if playback.mode == "inspect":
+            _inspect_controls(session)
+        else:
+            _live_controls(session, playback)
+        if session.done:
+            st.success("Episode complete. Build or reset to run again.")
+
+
+def _inspect_controls(session: ScenarioSession) -> None:
+    if session.controller is None:
+        down, hold, up, reset = st.columns(4)
+        for column, action, label, key in (
+            (down, SCALE_DOWN, "↓ Scale down", "step_down"),
+            (hold, HOLD, "— Hold", "step_hold"),
+            (up, SCALE_UP, "↑ Scale up", "step_up"),
+        ):
+            column.button(
+                label, key=key, disabled=session.done, on_click=_manual_step, args=(action,)
+            )
+    else:
+        step, run, reset, _ = st.columns(4)
+        step.button("▶ Step", key="step", disabled=session.done, on_click=_controller_step)
+        run.button("⏭ Run to end", key="run_to_end", disabled=session.done, on_click=_run_to_end)
+    reset.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
+
+
+def _live_controls(session: ScenarioSession, playback: PlaybackState) -> None:
+    blocker = autoplay_blocker(session)
+    if session.controller is None:
+        st.info(MANUAL_AUTOPLAY_MESSAGE)
+    play, pause, step, reset = st.columns(4)
+    play.button(
+        "▶ Play",
+        key="play",
+        type="primary",
+        disabled=playback.playing or blocker is not None,
+        on_click=_play,
+    )
+    pause.button("⏸ Pause", key="pause", disabled=not playback.playing, on_click=_pause)
+    step.button(
+        "⏯ Step once",
+        key="live_step",
+        disabled=playback.playing or blocker is not None,
+        on_click=_controller_step,
+        help="Advance exactly one tick while paused.",
+    )
+    reset.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
+    st.radio(
+        "Playback speed",
+        list(SPEEDS),
+        index=SPEEDS.index(playback.speed),  # the widget is recreated after Inspect mode
+        format_func=speed_label,
+        key=SPEED_KEY,
+        horizontal=True,
+        on_change=_on_speed_change,
+        help=SPEED_HELP,
+    )
+
+
+def _live_region() -> None:
+    """Everything that changes each tick; re-run alone by the playback timer."""
+    session: ScenarioSession | None = st.session_state.get(SESSION_KEY)
+    if session is None:
+        return
+    playback = _playback()
+    timer_run = not st.session_state.pop(FULL_RUN_KEY, False)
+    if timer_run and playback.playing:
+        advance_if_due(playback, session, time.monotonic())
+        if not playback.playing:
+            st.rerun(scope="app")  # completed: refresh the controls and drop the timer
+    _render_live(session, playback)
+
+
+def _render_live(session: ScenarioSession, playback: PlaybackState) -> None:
+    st.markdown(f"#### {_status(session, playback)}")
+    tick, time_, manager = st.columns(3)
     tick.metric("Tick", f"{session.tick} / {session.episode_ticks}")
     minutes, seconds = divmod(int(session.simulated_seconds), 60)
-    time.metric("Simulated time", f"{minutes:02d}:{seconds:02d}")
+    time_.metric("Simulated time", f"{minutes:02d}:{seconds:02d}")
     manager.metric("Manager", MANAGERS[session.manager.kind])
+    if playback.mode == "live":
+        interval = session.config.timing.control_interval_seconds
+        st.caption(
+            f"Each frame is one real {interval:g} s simulated control tick; playback speed "
+            "only changes how often frames are shown, not simulated time."
+        )
 
     city, panel = st.columns([3, 2])
     with city:
@@ -483,7 +616,16 @@ def _render(session: ScenarioSession) -> None:
     with panel:
         _render_manager(session)
     _render_history(session)
-    _render_guidance()
+
+
+def _status(session: ScenarioSession, playback: PlaybackState) -> str:
+    if playback.mode == "inspect":
+        return "🔍 INSPECT"
+    if session.done:
+        return "🏙️ LIVE CITY • ✅ EPISODE COMPLETE"
+    if playback.playing:
+        return f"🏙️ LIVE CITY • ▶ PLAYING • {speed_label(playback.speed)}"
+    return "🏙️ LIVE CITY • ⏸ PAUSED"
 
 
 def _render_city(session: ScenarioSession) -> None:
@@ -495,27 +637,39 @@ def _render_city(session: ScenarioSession) -> None:
             "Shops show the fleet **now** (what the next decision applies to). Traffic, "
             "queue, latency, and cost are from the **last completed tick**."
         )
+        if last is not None:
+            st.markdown(f"🚗 {icon_row('🚗', last['request_rate'], cap=10)}")
+            st.metric(
+                "🚗 Incoming traffic",
+                f"{last['request_rate']:,.1f} RPS",
+                help=TRAFFIC_HELP,
+            )
+            st.caption("NEW requests arriving during the last completed tick, per second.")
+            st.markdown(FLOW_ARROW)
+
         shops = "☕" * min(fleet["active_replicas"], 15) + "🏗️" * min(fleet["pending_replicas"], 15)
         st.markdown(f"### {shops or '—'}")
         active, pending, terminating = st.columns(3)
         active.metric("☕ Open shops (active)", fleet["active_replicas"])
-        pending.metric("🏗️ Being built (pending)", fleet["pending_replicas"])
+        pending.metric("🏗️ Starting (pending)", fleet["pending_replicas"])
         if last and last["terminating_replicas"]:
             terminating.metric("🚧 Closing (last tick)", last["terminating_replicas"])
 
         if last is None:
-            st.info("No customers yet: step the city to start the first tick.")
+            st.info("No customers yet: step or play the city to start the first tick.")
             return
-        st.markdown(f"🚗 {icon_row('🚗', last['request_rate'], cap=10)}")
-        st.markdown(f"👥 {icon_row('👥', last['queued_requests'], cap=10)}")
-        traffic, queue, latency, sla = st.columns(4)
-        traffic.metric("🚗 Traffic", f"{last['request_rate']:.1f} RPS")
-        queue.metric("👥 Queue", f"{last['queued_requests']:.0f} req")
+        st.markdown(FLOW_ARROW)
+        st.markdown(f"👥 {icon_row('👥', last['queued_requests'], cap=10) or '—'}")
+        st.metric("👥 Waiting queue", f"{last['queued_requests']:,.0f} requests", help=QUEUE_HELP)
+        st.caption("Requests that ALREADY arrived but could not yet be processed.")
+        st.markdown(FLOW_ARROW)
+        latency, sla = st.columns(2)
         latency.metric("⏱ p95 latency", f"{last['p95_latency_seconds']:.3f} s")
         target = session.config.sla.latency_target_seconds
         sla.metric(
             "SLA", "🚨 violated" if last["sla_violated"] else "✅ met", f"target {target:g} s"
         )
+        st.markdown(FLOW_ARROW)
         tick_cost, total_cost, reward = st.columns(3)
         tick_cost.metric("💵 Tick cost", f"${last['infrastructure_cost']:.4f}")
         total_cost.metric("💵 Cumulative cost", f"${session.cumulative_cost:.4f}")
@@ -526,48 +680,37 @@ def _render_manager(session: ScenarioSession) -> None:
     last = session.history[-1] if session.history else None
     with st.container(border=True):
         st.subheader(f"👔 {MANAGERS[session.manager.kind]}")
-        if last:
+        if last is None:
+            st.caption("No decision yet.")
+        else:
+            st.markdown(f"### {ACTION_LABELS[last['requested_action']]}")
             requested, applied = st.columns(2)
             requested.metric("Decision", ACTION_LABELS[last["requested_action"]])
             applied.metric("Applied change", f"{last['applied_replica_change']:+d}")
             if last["requested_action"] != HOLD and last["applied_replica_change"] == 0:
                 st.caption("The request hit a replica bound, so nothing changed.")
+        if session.threshold_decision or session.predictive_decision:
+            st.caption(
+                "Diagnostics explain the decision that produced the last completed tick, so "
+                "they use what was known before it ran (the tick before)."
+            )
+        if session.manager.kind == "static":
+            st.markdown(f"target replicas **{session.manager.target_replicas}**")
+
         decision = session.threshold_decision
         if decision is not None:
             utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
             st.markdown(
-                f"utilization **{utilization}** · desired **{decision.desired_replicas}** · "
-                f"decision **{ACTION_LABELS[decision.action]}** · reason `{decision.reason}`"
+                f"- utilization **{utilization}**\n"
+                f"- desired **{decision.desired_replicas}**\n"
+                f"- decision **{ACTION_LABELS[decision.action]}**\n"
+                f"- reason `{decision.reason}`\n"
+                f"- cooldown remaining **{decision.cooldown_remaining}**"
             )
-            if decision.cooldown_remaining or decision.reason == "cooldown":
-                st.caption(
-                    f"Cooldown: {decision.cooldown_remaining} more decision(s) blocked "
-                    "after this one."
-                )
 
         prediction = session.predictive_decision
         if prediction is not None:
             _render_prediction(session, prediction)
-
-        if session.done:
-            st.success("Episode complete. Build or reset to run again.")
-        if session.controller is None:
-            down, hold, up = st.columns(3)
-            for column, action, label, key in (
-                (down, SCALE_DOWN, "↓ Scale down", "step_down"),
-                (hold, HOLD, "— Hold", "step_hold"),
-                (up, SCALE_UP, "↑ Scale up", "step_up"),
-            ):
-                column.button(
-                    label, key=key, disabled=session.done, on_click=_manual_step, args=(action,)
-                )
-        else:
-            step, run = st.columns(2)
-            step.button("▶ Step", key="step", disabled=session.done, on_click=_controller_step)
-            run.button(
-                "⏭ Run to end", key="run_to_end", disabled=session.done, on_click=_run_to_end
-            )
-        st.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
 
 
 def _render_history(session: ScenarioSession) -> None:
@@ -599,16 +742,15 @@ def _render_prediction(session: ScenarioSession, decision: PredictiveDecision) -
         return
     seconds = decision.forecast_horizon_ticks * session.config.timing.control_interval_seconds
     st.markdown(
-        f"observed demand **{decision.latest_request_rate:.1f} RPS** · forecast arrivals "
-        f"**{decision.forecast_rps:.1f} RPS** · waiting queue "
-        f"**{decision.queued_requests:,.0f} requests** · backlog recovery "
-        f"**{decision.backlog_recovery_rps:.1f} RPS** · effective sizing demand "
-        f"**{decision.effective_demand_rps:.1f} RPS**"
-    )
-    st.markdown(
-        f"horizon **{decision.forecast_horizon_ticks} ticks / {seconds:g} s** · desired "
-        f"**{decision.desired_replicas}** · decision **{ACTION_LABELS[decision.action]}** · "
-        f"reason `{decision.reason}`"
+        f"- observed demand **{decision.latest_request_rate:.1f} RPS**\n"
+        f"- forecast arrivals **{decision.forecast_rps:.1f} RPS**\n"
+        f"- waiting queue **{decision.queued_requests:,.0f} requests**\n"
+        f"- backlog recovery **{decision.backlog_recovery_rps:.1f} RPS**\n"
+        f"- effective sizing demand **{decision.effective_demand_rps:.1f} RPS**\n"
+        f"- horizon **{decision.forecast_horizon_ticks} ticks / {seconds:g} s**\n"
+        f"- desired **{decision.desired_replicas}**\n"
+        f"- decision **{ACTION_LABELS[decision.action]}**\n"
+        f"- reason `{decision.reason}`"
     )
     st.caption(
         "Forecast arrivals: linear trend over completed traffic only; it cannot see future "
@@ -650,6 +792,18 @@ def _render_guidance() -> None:
   Predictive can extrapolate; `50 → 51 → 49 → 50 → suddenly 400` had no prior signal,
   so it cannot honestly be predicted.
 
+**Inspect vs Live City**
+
+- **Inspect** advances deliberately, one tick per click (manual actions or controller Step).
+- **Live City** automatically advances the *same* session with the same controller and
+  history: ▶ Play, ⏸ Pause, and speed 0.5x / 1x / 2x / 5x.
+- Animation does not mean ScaleRL became a continuous-time simulator. Each update is one
+  real AutoscalingEnv control tick; nothing is interpolated between ticks.
+- **1x playback speed does not mean 1 simulated second per real second.** It shows about
+  one tick per real second, and for Benchmark v1 one tick = 30 simulated seconds.
+- Live City needs a controller-driven manager; Manual actions are chosen in Inspect mode.
+  Reset, Build, and episode completion stop playback.
+
 **Forecast vs queue recovery (Predictive)**
 
 - **Forecast arrivals** is only a guess about *new* traffic. **Waiting queue** is work
@@ -666,8 +820,8 @@ def _render_guidance() -> None:
     with st.expander("🧪 MLflow and this lab"):
         st.markdown(
             """
-The **Scenario Lab is an interactive sandbox**. Clicking Step, Scale up, or Run to end
- does **not** automatically create an MLflow run.
+The **Scenario Lab is an interactive sandbox**. Clicking Step, Scale up, or Run to end,
+or playing Live City, does **not** create an MLflow run.
 
 **MLflow (#17)** records reproducible `train`, `tune`, and `evaluate` experiment runs
 produced by the experiment pipeline: their configuration, workload, seed, metrics, Git
@@ -690,22 +844,47 @@ def _session() -> ScenarioSession:
     return session
 
 
+def _playback() -> PlaybackState:
+    if PLAYBACK_KEY not in st.session_state:
+        st.session_state[PLAYBACK_KEY] = PlaybackState()
+    playback: PlaybackState = st.session_state[PLAYBACK_KEY]
+    return playback
+
+
 def _manual_step(action: int) -> None:
     if not _session().done:
         _session().step_manual(action)
 
 
 def _controller_step() -> None:
-    if not _session().done:
+    if not _session().done and not _playback().playing:
         _session().step_controller()
 
 
 def _run_to_end() -> None:
+    _playback().stop()
     _session().run_to_end()
 
 
 def _reset_episode() -> None:
+    _playback().stop()
     _session().reset()
+
+
+def _play() -> None:
+    start_playback(_playback(), _session(), time.monotonic())
+
+
+def _pause() -> None:
+    _playback().pause()
+
+
+def _on_mode_change() -> None:
+    _playback().set_mode(st.session_state[MODE_KEY])
+
+
+def _on_speed_change() -> None:
+    _playback().set_speed(st.session_state[SPEED_KEY], time.monotonic())
 
 
 main()

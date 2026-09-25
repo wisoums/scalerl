@@ -20,6 +20,7 @@ from scalerl.controllers import (
 from scalerl.dashboard import (
     HELD_OUT_WARNING,
     ManagerSpec,
+    PlaybackState,
     Scenario,
     ScenarioInfo,
     ScenarioSession,
@@ -686,3 +687,165 @@ def test_app_guidance_explains_forecast_versus_queue_recovery(app: AppTest) -> N
     assert "Forecast vs queue recovery" in text
     assert "effective demand = forecast arrivals + backlog" in text
     assert "does not make a random spike predictable" in text
+
+
+# --- Live City playback (#56) ---------------------------------------------------------------
+
+
+def playback_of(app: AppTest) -> PlaybackState:
+    playback: PlaybackState = app.session_state["playback"]
+    return playback
+
+
+def live_threshold(app: AppTest) -> AppTest:
+    app.selectbox(key="manager").set_value("threshold").run()
+    app.button(key="build").click().run()
+    app.radio(key="playback_mode").set_value("live").run()
+    return app
+
+
+def test_app_opens_paused_in_inspect_mode(app: AppTest) -> None:
+    playback = playback_of(app)
+
+    assert (playback.mode, playback.playing, playback.speed) == ("inspect", False, 1.0)
+    assert app.radio(key="playback_mode").value == "inspect"
+    assert session_of(app).tick == 0
+    assert any("INSPECT" in markdown.value for markdown in app.markdown)
+
+
+def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
+    app.selectbox(key="manager").set_value("threshold").run()
+    app.button(key="build").click().run()
+    app.button(key="step").click().run()
+    running = session_of(app)
+
+    app.radio(key="playback_mode").set_value("live").run()
+    assert session_of(app) is running and running.tick == 1
+    assert app.radio(key="playback_speed").value == 1.0
+    assert any("LIVE CITY • ⏸ PAUSED" in markdown.value for markdown in app.markdown)
+
+    app.radio(key="playback_mode").set_value("inspect").run()
+    assert session_of(app) is running and running.tick == 1
+
+
+def test_app_play_and_pause_without_extra_steps(app: AppTest) -> None:
+    live_threshold(app).button(key="play").click().run()
+
+    assert not app.exception
+    assert playback_of(app).playing
+    assert app.button(key="play").disabled
+    assert not app.button(key="pause").disabled
+    assert app.button(key="live_step").disabled
+    assert any("PLAYING • 1x" in markdown.value for markdown in app.markdown)
+
+    # Ordinary reruns never step, even when a tick is overdue.
+    playback_of(app).next_due = -1_000.0
+    app.run()
+    app.number_input(key="cooldown").set_value(4).run()
+    assert session_of(app).tick == 0
+    assert playback_of(app).playing
+
+    app.button(key="pause").click().run()
+    assert not playback_of(app).playing
+    assert session_of(app).tick == 0
+
+
+def test_app_speed_change_keeps_the_session_and_playback(app: AppTest) -> None:
+    live_threshold(app).button(key="live_step").click().run()
+    app.button(key="play").click().run()
+    running, history = session_of(app), session_of(app).history
+
+    app.radio(key="playback_speed").set_value(5.0).run()
+
+    assert playback_of(app).playing and playback_of(app).speed == 5.0
+    assert session_of(app) is running
+    assert running.history == history and running.tick == 1
+    assert any("PLAYING • 5x" in markdown.value for markdown in app.markdown)
+
+
+def test_app_step_once_while_paused_advances_exactly_one_tick(app: AppTest) -> None:
+    live_threshold(app).button(key="live_step").click().run()
+
+    assert session_of(app).tick == 1
+    assert len(session_of(app).history) == 1
+
+
+def test_app_reset_stops_playback(app: AppTest) -> None:
+    live_threshold(app).button(key="live_step").click().run()
+    app.button(key="play").click().run()
+
+    app.button(key="reset_episode").click().run()
+
+    assert not playback_of(app).playing
+    assert (session_of(app).tick, session_of(app).history) == (0, [])
+
+
+def test_app_build_stops_playback(app: AppTest) -> None:
+    live_threshold(app).button(key="play").click().run()
+    old = session_of(app)
+
+    app.button(key="build").click().run()
+
+    assert not playback_of(app).playing
+    assert session_of(app) is not old and session_of(app).tick == 0
+
+
+def test_app_invalid_build_keeps_the_session_but_pauses(app: AppTest) -> None:
+    live_threshold(app).button(key="live_step").click().run()
+    app.button(key="play").click().run()
+    running = session_of(app)
+
+    app.number_input(key="min").set_value(5).run()
+    app.number_input(key="max").set_value(2).run()
+    app.button(key="build").click().run()
+
+    assert any("Scenario not built" in error.value for error in app.error)
+    assert session_of(app) is running and running.tick == 1
+    assert not playback_of(app).playing
+
+
+def test_app_leaving_live_city_pauses(app: AppTest) -> None:
+    live_threshold(app).button(key="play").click().run()
+
+    app.radio(key="playback_mode").set_value("inspect").run()
+
+    assert not playback_of(app).playing
+    assert app.button(key="run_to_end")
+
+
+def test_app_manual_manager_cannot_autoplay(app: AppTest) -> None:
+    app.radio(key="playback_mode").set_value("live").run()
+
+    assert app.button(key="play").disabled
+    assert app.button(key="live_step").disabled
+    assert any("requires a controller-driven manager" in info.value for info in app.info)
+    assert not playback_of(app).playing and session_of(app).tick == 0
+
+
+def test_app_completed_episode_cannot_play(app: AppTest) -> None:
+    app.selectbox(key="manager").set_value("static").run()
+    app.button(key="build").click().run()
+    app.button(key="run_to_end").click().run()
+
+    app.radio(key="playback_mode").set_value("live").run()
+
+    assert app.button(key="play").disabled and app.button(key="pause").disabled
+    assert any("EPISODE COMPLETE" in markdown.value for markdown in app.markdown)
+    assert session_of(app).tick == 120
+
+
+def test_app_city_separates_incoming_traffic_from_the_waiting_queue(app: AppTest) -> None:
+    app.button(key="step_hold").click().run()
+
+    labels = [metric.label for metric in app.metric]
+    assert "🚗 Incoming traffic" in labels and "👥 Waiting queue" in labels
+    captions = " ".join(caption.value for caption in app.caption)
+    assert "NEW requests arriving" in captions
+    assert "ALREADY arrived but could not yet be processed" in captions
+
+
+def test_app_guidance_explains_live_city(app: AppTest) -> None:
+    text = " ".join(markdown.value for markdown in app.markdown)
+
+    assert "Each update is one" in text and "real AutoscalingEnv control tick" in text
+    assert "does not mean 1 simulated second per real second" in text
