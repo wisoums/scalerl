@@ -1,5 +1,8 @@
 """Stable-Baselines3 policies as ordinary ScaleRL controllers, and their model bundles.
 
+Supported algorithms: ``dqn`` (#15) and ``ppo`` (#16); a bundle's
+``metadata.json`` names its algorithm, so one loader serves both.
+
 A learned policy may use **only the observation**: :class:`SB3Controller`
 ignores ``info`` entirely (unlike the rule-based baselines, which read
 documented raw values from it) and always predicts deterministically.
@@ -25,7 +28,7 @@ from typing import Any, Final, Literal
 
 from gymnasium import spaces
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
-from stable_baselines3 import DQN
+from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 from scalerl.benchmarks import load_benchmark_manifest
@@ -36,8 +39,8 @@ BUNDLE_VERSION: Final = "scalerl-sb3-bundle-v1"
 MODEL_FILE = "model.zip"
 COMPATIBILITY_FILE = "compatibility.json"
 METADATA_FILE = "metadata.json"
-Algorithm = Literal["dqn"]
-_ALGORITHMS: dict[str, type[BaseAlgorithm]] = {"dqn": DQN}
+Algorithm = Literal["dqn", "ppo"]
+_ALGORITHMS: dict[str, type[BaseAlgorithm]] = {"dqn": DQN, "ppo": PPO}
 
 
 class SB3Controller:
