@@ -165,8 +165,11 @@ def run_study(
     )
     _check_identity(study, spec)
 
+    # A grid study's default budget is its grid: re-running a finished grid
+    # must not make GridSampler re-evaluate an already visited point.
+    budget = spec.n_trials if spec.n_trials is not None else spec.grid_size
     finished = sum(1 for trial in study.trials if trial.state.is_finished())
-    remaining = None if spec.n_trials is None else spec.n_trials - finished
+    remaining = None if budget is None else budget - finished
     if remaining is not None and remaining <= 0:
         return study
 

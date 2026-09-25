@@ -281,6 +281,15 @@ def test_interrupted_grid_study_resumes_without_repeating_combinations(
     assert len(study.trials) == len(combinations) == 18
 
 
+def test_rerunning_a_finished_grid_study_adds_no_duplicate_trials(optuna_storage: str) -> None:
+    run_study(grid_spec(storage=optuna_storage), grid_objective)
+
+    study = run_study(grid_spec(storage=optuna_storage), grid_objective)
+
+    combinations = [tuple(t.params.values()) for t in study.trials]
+    assert len(combinations) == len(set(combinations)) == 18
+
+
 def test_resuming_with_a_different_definition_is_refused(optuna_storage: str) -> None:
     run_study(make_spec(storage=optuna_storage, n_trials=2), quadratic)
 
