@@ -299,3 +299,168 @@ def test_complete_episodes_are_deterministic() -> None:
     assert run_episode(env, make_controller(), seed=1) == run_episode(
         env, make_controller(), seed=2
     )
+
+
+# --- cooldown -------------------------------------------------------------------
+
+
+def step_info(
+    utilization: float, active: int, *, tick: int, applied: int = 0, pending: int = 0
+) -> dict[str, Any]:
+    """Decision info after a completed step, as run_episode passes it."""
+    return {
+        **tick_info(utilization, active, pending),
+        "tick": tick,
+        "applied_replica_change": applied,
+    }
+
+
+@pytest.mark.parametrize("cooldown", [0, 1, 10])
+def test_valid_cooldown_is_accepted(cooldown: int) -> None:
+    assert make_controller(cooldown_ticks=cooldown).cooldown_ticks == cooldown
+
+
+def test_cooldown_defaults_to_disabled() -> None:
+    assert make_controller().cooldown_ticks == 0
+
+
+@pytest.mark.parametrize(
+    ("value", "error", "message"),
+    [
+        (-1, ValueError, "cooldown_ticks must be non-negative"),
+        (True, TypeError, "cooldown_ticks must be an integer"),
+        (2.0, TypeError, "cooldown_ticks must be an integer"),
+        ("3", TypeError, "cooldown_ticks must be an integer"),
+    ],
+)
+def test_invalid_cooldown_is_rejected(value: object, error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        make_controller(cooldown_ticks=value)
+
+
+@pytest.mark.parametrize(
+    ("utilization", "applied", "action"),
+    [(0.9, 1, SCALE_UP), (0.1, -1, SCALE_DOWN)],
+    ids=["after_scale_up", "after_scale_down"],
+)
+def test_applied_change_blocks_the_next_n_decisions(
+    utilization: float, applied: int, action: int
+) -> None:
+    controller = make_controller(cooldown_ticks=3)
+
+    # Tick 4 completed with a real one-replica change; cooldown covers ticks 5-7.
+    decisions = []
+    for tick, change in [(4, applied), (5, 0), (6, 0), (7, 0)]:
+        decisions.append(
+            controller.act(OBSERVATION, step_info(utilization, 4, tick=tick, applied=change))
+        )
+        decisions.append(controller.last_decision)
+
+    actions, details = decisions[::2], decisions[1::2]
+    assert actions == [HOLD, HOLD, HOLD, action]
+    assert [d.reason for d in details] == ["cooldown", "cooldown", "cooldown", details[-1].reason]
+    assert details[-1].reason in {"above_high", "below_low"}
+    assert [d.cooldown_remaining for d in details] == [2, 1, 0, 0]
+
+
+def test_bound_clipped_request_does_not_start_cooldown() -> None:
+    controller = make_controller(cooldown_ticks=3)
+
+    # The previous SCALE_UP was clipped by the environment: applied change 0.
+    action = controller.act(OBSERVATION, step_info(0.95, 5, tick=8, applied=0))
+
+    assert action == SCALE_UP
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "above_high"
+    assert controller.last_decision.cooldown_remaining == 0
+
+
+def test_rereading_the_same_tick_does_not_restart_cooldown() -> None:
+    controller = make_controller(cooldown_ticks=2)
+    same = step_info(0.95, 4, tick=10, applied=1)
+
+    first = controller.act(OBSERVATION, same)
+    second = controller.act(OBSERVATION, same)  # e.g. a re-render with stale info
+    third = controller.act(OBSERVATION, same)
+
+    assert (first, second) == (HOLD, HOLD)
+    assert third == SCALE_UP  # the tick-10 change was consumed once, not restarted
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "above_high"
+
+
+def test_reset_clears_cooldown() -> None:
+    controller = make_controller(cooldown_ticks=5)
+    controller.act(OBSERVATION, step_info(0.95, 4, tick=3, applied=1))
+
+    controller.reset()
+
+    assert controller.act(OBSERVATION, step_info(0.95, 4, tick=3, applied=0)) == SCALE_UP
+    # After reset the same tick can be consumed again (new episode).
+    controller.reset()
+    assert controller.act(OBSERVATION, step_info(0.95, 4, tick=3, applied=1)) == HOLD
+
+
+def test_bound_correction_overrides_cooldown() -> None:
+    controller = make_controller(cooldown_ticks=3, max_replicas=6)
+
+    action = controller.act(OBSERVATION, step_info(0.95, 8, tick=2, applied=1))
+
+    assert action == SCALE_DOWN
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "above_max"
+    assert controller.last_decision.cooldown_remaining == 2  # the correction used a slot
+
+
+def test_threshold_equality_and_pending_rules_hold_after_cooldown() -> None:
+    controller = make_controller(cooldown_ticks=1)
+    controller.act(OBSERVATION, step_info(0.9, 3, tick=0, applied=1))
+
+    assert controller.act(OBSERVATION, step_info(0.8, 3, tick=1)) == HOLD  # equal to high
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "within_band"
+    assert controller.act(OBSERVATION, step_info(0.9, 3, tick=2, pending=3)) == HOLD
+    assert controller.last_decision.reason == "at_max"  # pending counts toward desired
+
+
+def test_zero_cooldown_reproduces_the_uncooled_controller() -> None:
+    def actions(controller: ThresholdController) -> list[int]:
+        infos = run_episode(make_env(rate=45.0, initial_replicas=2), controller)
+        return [info["requested_action"] for info in infos]
+
+    plain = ThresholdController(
+        low_threshold=0.3, high_threshold=0.8, min_replicas=1, max_replicas=8
+    )
+    zero = make_controller(max_replicas=8, min_replicas=1, cooldown_ticks=0)
+
+    assert actions(zero) == actions(plain)
+
+
+def oscillating_env() -> AutoscalingEnv:
+    """Demand alternates across both thresholds every tick, provoking thrashing."""
+    config = SimulatorConfig(
+        timing=TimingConfig(
+            control_interval_seconds=INTERVAL, episode_duration_seconds=INTERVAL * 60
+        ),
+        replicas=ReplicaConfig(
+            min_replicas=1,
+            max_replicas=6,
+            initial_replicas=2,
+            startup_delay_seconds=0.0,
+            service_capacity_rps=10.0,
+        ),
+    )
+    trace = WorkloadTrace([28.0 if tick % 2 else 4.0 for tick in range(60)], INTERVAL)
+    return AutoscalingEnv(config, trace)
+
+
+def test_cooldown_reduces_applied_scaling_churn_on_oscillating_demand() -> None:
+    def applied_changes(cooldown: int) -> int:
+        controller = make_controller(min_replicas=1, max_replicas=6, cooldown_ticks=cooldown)
+        infos = run_episode(oscillating_env(), controller)
+        return sum(1 for info in infos if info["applied_replica_change"] != 0)
+
+    uncooled, cooled = applied_changes(0), applied_changes(3)
+
+    assert uncooled >= 30  # scales on almost every tick
+    assert cooled < uncooled / 2

@@ -183,7 +183,7 @@ Links go both ways:
 
 - `storage=None` is in-memory; `sqlite:///optuna.db` persists locally. No Optuna server is needed.
 - `n_trials` is the study's **total** budget. Re-running the same spec loads the existing study and runs only the remaining trials, so an interrupted study continues where it stopped without repeating finished trials. A grid study with `n_trials=None` runs until every combination is done.
-- The study stores its definition (objective, versions, workloads, sampler, seed, grid, pruner). Resuming with a different definition is refused; use a new study name.
+- The study stores its definition (objective, versions, workloads, sampler, seed, grid, pruner, and `identity_context`). Resuming with a different definition is refused, naming what changed; use a new study name. Consumers put every other experiment-defining input in `identity_context`, such as the simulator config, its provenance, and a fingerprint of the workload data.
 - Samplers are always seeded, and **a resumed study proposes exactly the same trials as an uninterrupted one**. Optuna does not persist a sampler's random state, so random and TPE sampling are seeded per trial from `(sampler_seed, trial number)`; the grid sampler reads visited combinations from storage. Without this, a resumed study would restart its random sequence and repeat earlier configurations.
 - Trials run sequentially by default (`n_jobs=1`). `n_jobs > 1` is available explicitly, but parallel completion order can change the history that adaptive samplers such as TPE see.
 - Multi-objective studies are deferred until a consumer needs them.
@@ -199,6 +199,19 @@ Links go both ways:
 Every run of the trial is also tagged `scalerl.optuna.trial_state` with that Optuna state, so the trial outcome is visible on each run regardless of its own status.
 
 Pruning plumbing (`pruner="median"`, `context.report`, `context.should_prune`) is available but only meaningful once training exposes legitimate train/validation intermediate metrics (#15/#16). Never prune on held-out test results.
+
+### Threshold study (#13)
+
+The first consumer is the threshold baseline:
+
+```bash
+python -m scalerl.tuning.threshold \
+    --storage sqlite:///outputs/threshold-optuna.db \
+    --tracking-uri sqlite:///outputs/mlflow.db \
+    --output outputs/threshold-v1.json
+```
+
+It runs the 18-point grid on the synthetic train/validation workloads (override with `--workload`, and pass `--azure-csv` for Azure train/validation entries), logs one MLflow run per workload per trial, selects with the `threshold-sla-first` v1 rule, and writes a `ThresholdTuningResult` JSON. `--simulator-config` with `--config-source` and `--calibration-workload` records a non-default simulator configuration's provenance. Re-running the command resumes the study without re-evaluating finished grid points. The study's identity includes the full simulator config, config source, calibration workload IDs, reward weights, and a SHA-256 fingerprint of the built workload traces, so a re-run with a different config or different workload data (for example another Azure file) is refused instead of mixing or reusing stale trials. See [EXPERIMENTS.md](EXPERIMENTS.md#threshold-baseline-13).
 
 ### Tuning guardrails
 

@@ -281,11 +281,34 @@ def test_interrupted_grid_study_resumes_without_repeating_combinations(
     assert len(study.trials) == len(combinations) == 18
 
 
+def test_rerunning_a_finished_grid_study_adds_no_duplicate_trials(optuna_storage: str) -> None:
+    run_study(grid_spec(storage=optuna_storage), grid_objective)
+
+    study = run_study(grid_spec(storage=optuna_storage), grid_objective)
+
+    combinations = [tuple(t.params.values()) for t in study.trials]
+    assert len(combinations) == len(set(combinations)) == 18
+
+
 def test_resuming_with_a_different_definition_is_refused(optuna_storage: str) -> None:
     run_study(make_spec(storage=optuna_storage, n_trials=2), quadratic)
 
     with pytest.raises(ValueError, match=r"different definition \(objective_version\)"):
         run_study(make_spec(storage=optuna_storage, objective_version="v2"), quadratic)
+
+
+def test_resuming_with_different_identity_context_is_refused(optuna_storage: str) -> None:
+    context = {"simulator_config": {"capacity": 50.0}, "workload_fingerprint": "abc"}
+    run_study(make_spec(storage=optuna_storage, n_trials=2, identity_context=context), quadratic)
+
+    same = run_study(
+        make_spec(storage=optuna_storage, n_trials=2, identity_context=context), quadratic
+    )
+    assert len(same.trials) == 2
+
+    changed = {**context, "simulator_config": {"capacity": 5.0}}
+    with pytest.raises(ValueError, match=r"\(identity_context\.simulator_config\)"):
+        run_study(make_spec(storage=optuna_storage, identity_context=changed), quadratic)
 
 
 def test_parallel_execution_is_explicit_and_works() -> None:

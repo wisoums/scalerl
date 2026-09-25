@@ -73,7 +73,7 @@ Min, initial, and max replicas; startup delay; service capacity per replica; cos
 | 🕹️ Manual | **↓ Scale down**, **— Hold**, **↑ Scale up**: each click is exactly one simulation tick |
 | 🎲 Random | `RandomController` with a chosen seed |
 | 📌 Static | `StaticController` holding a target replica count |
-| 🌡️ Threshold | `ThresholdController` with low/high utilization thresholds; shows its own decision diagnostics (utilization, desired replicas, action, reason) |
+| 🌡️ Threshold | `ThresholdController` with low/high utilization thresholds and **cooldown ticks** (after a real scaling change, hold this many decisions; 0 disables it); shows its own decision diagnostics (utilization, desired replicas, action, reason, and remaining cooldown) |
 
 Controller managers offer **▶ Step** (one tick) and **⏭ Run to end**. They decide exactly as the evaluation runner does: `controller.act(observation, decision_info(env, info))`. **↺ Reset episode** restarts the same scenario from tick 0. When the episode reaches its last tick, stepping stops and the final city and history stay visible.
 
