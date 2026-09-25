@@ -17,18 +17,24 @@ DecisionReason = Literal[
     "below_low",
     "at_max",
     "at_min",
+    "cooldown",
     "within_band",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class ThresholdDecision:
-    """Why the controller chose its latest action."""
+    """Why the controller chose its latest action.
+
+    ``cooldown_remaining`` counts future decisions still blocked by cooldown
+    after this one (0 when no cooldown is pending).
+    """
 
     utilization: float | None
     desired_replicas: int
     action: int
     reason: DecisionReason
+    cooldown_remaining: int = 0
 
 
 class ThresholdController:
@@ -43,13 +49,27 @@ class ThresholdController:
     differ from the environment's bounds) is first stepped back inside,
     regardless of utilization; only then are thresholds applied.
 
+    **Cooldown** (``cooldown_ticks``, default 0 = off, symmetric for up and
+    down) stops threshold-driven scaling from thrashing. It starts only after a
+    step whose ``info["applied_replica_change"]`` is non-zero; a request the
+    environment clipped at a bound (applied change 0) starts nothing. With
+    ``cooldown_ticks = N`` the next N decisions hold with reason ``"cooldown"``
+    and decision N + 1 applies thresholds again. Each completed tick's change
+    (identified by ``info["tick"]``) is consumed once, so re-reading the same
+    ``info`` never restarts a cooldown. Every decision while a cooldown is
+    pending uses one of its N slots.
+
+    Decision priority: no utilization sample yet (hold), then capacity outside
+    the controller bounds (always corrected, even during cooldown), then
+    cooldown, then thresholds.
+
     Thresholds are crossed strictly: utilization equal to a threshold holds.
     ``0 <= low_threshold < high_threshold < 1``; a ``high_threshold`` of 1
     is rejected because utilization saturates at exactly 1, so scale-up could
     never trigger. ``low_threshold == 0`` is allowed and disables scale-down.
 
-    Decisions depend only on the current inputs; ``last_decision`` is
-    read-only diagnostics.
+    Apart from cooldown, decisions depend only on the current inputs;
+    ``last_decision`` is read-only diagnostics.
     """
 
     def __init__(
@@ -59,6 +79,7 @@ class ThresholdController:
         high_threshold: float,
         min_replicas: int,
         max_replicas: int,
+        cooldown_ticks: int = 0,
     ) -> None:
         for name, value in (("low_threshold", low_threshold), ("high_threshold", high_threshold)):
             if isinstance(value, bool) or not isinstance(value, int | float):
@@ -74,11 +95,18 @@ class ThresholdController:
             raise ValueError("min_replicas must be at least 1")
         if max_replicas < min_replicas:
             raise ValueError("max_replicas must be at least min_replicas")
+        if isinstance(cooldown_ticks, bool) or not isinstance(cooldown_ticks, int):
+            raise TypeError("cooldown_ticks must be an integer")
+        if cooldown_ticks < 0:
+            raise ValueError("cooldown_ticks must be non-negative")
 
         self._low = float(low_threshold)
         self._high = float(high_threshold)
         self._min_replicas = min_replicas
         self._max_replicas = max_replicas
+        self._cooldown_ticks = cooldown_ticks
+        self._cooldown_remaining = 0
+        self._consumed_tick: Any = None
         self._last_decision: ThresholdDecision | None = None
 
     @property
@@ -98,17 +126,25 @@ class ThresholdController:
         return self._max_replicas
 
     @property
+    def cooldown_ticks(self) -> int:
+        return self._cooldown_ticks
+
+    @property
     def last_decision(self) -> ThresholdDecision | None:
         """Return the most recent decision since reset, if any."""
         return self._last_decision
 
     def reset(self, seed: int | None = None) -> None:
-        """Clear diagnostics; the controller is deterministic, so ``seed`` is unused."""
+        """Clear diagnostics and cooldown state; ``seed`` is unused (deterministic)."""
+        self._cooldown_remaining = 0
+        self._consumed_tick = None
         self._last_decision = None
 
     def act(self, observation: Observation, info: Mapping[str, Any]) -> int:
         utilization: float | None = info.get("utilization")
         desired = info["active_replicas"] + info["pending_replicas"]
+        self._start_cooldown_after_applied_change(info)
+        cooling = self._cooldown_remaining > 0
 
         reason: DecisionReason
         if utilization is None:
@@ -117,6 +153,8 @@ class ThresholdController:
             action, reason = SCALE_DOWN, "above_max"
         elif desired < self._min_replicas:
             action, reason = SCALE_UP, "below_min"
+        elif cooling:
+            action, reason = HOLD, "cooldown"
         elif utilization > self._high:
             if desired < self._max_replicas:
                 action, reason = SCALE_UP, "above_high"
@@ -130,5 +168,20 @@ class ThresholdController:
         else:
             action, reason = HOLD, "within_band"
 
-        self._last_decision = ThresholdDecision(utilization, desired, action, reason)
+        if cooling:
+            self._cooldown_remaining -= 1
+        self._last_decision = ThresholdDecision(
+            utilization, desired, action, reason, self._cooldown_remaining
+        )
         return action
+
+    def _start_cooldown_after_applied_change(self, info: Mapping[str, Any]) -> None:
+        """Start cooldown if the last completed step really changed the fleet."""
+        if self._cooldown_ticks == 0 or "applied_replica_change" not in info:
+            return
+        tick = info.get("tick")
+        if tick is not None and tick == self._consumed_tick:
+            return  # this tick's change was already counted
+        self._consumed_tick = tick
+        if info["applied_replica_change"] != 0:
+            self._cooldown_remaining = self._cooldown_ticks
