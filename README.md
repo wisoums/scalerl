@@ -77,7 +77,7 @@ ScaleRL uses:
 
 - **MLflow 3.x** for experiment/run tracking, metrics, configuration/model artifacts, and run IDs;
 - **Docker Compose** for a reproducible local stack: Scenario Lab, trainer, MLflow server (PostgreSQL + S3-compatible Garage artifacts), and Optuna Dashboard; a later inference/demo image is separate (#24);
-- **GitHub Actions** currently for lint/format/type/test/package checks; container and training/MLflow smoke stages are planned in Issue #45;
+- **GitHub Actions** as the reproducibility gate. Every PR runs lint/format/strict types, tests on Python 3.11 and 3.12, a package build with a clean wheel install, and the full Docker Compose stack smoke: a tracked ScaleRL run with MLflow → PostgreSQL metadata and Garage artifacts, Optuna → PostgreSQL seen by the Dashboard, and a tiny CPU Stable-Baselines3 learning smoke. Version tags publish the runtime image to GHCR (amd64 + arm64); benchmark-scale training never runs in CI;
 - **Stable-Baselines3 + PyTorch** for DQN/PPO training.
 
 MLflow is intentionally optional for the simulator core.

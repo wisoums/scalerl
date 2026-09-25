@@ -231,42 +231,48 @@ Lightweight SQLite mode stays first-class; Compose is an additional mode. No ima
 
 ## CI/CD
 
-### Current CI
-
-The checked-in GitHub Actions workflow currently verifies:
+GitHub Actions is ScaleRL's reproducibility gate. Every pull request and every push to `main` runs [`ci.yml`](../.github/workflows/ci.yml):
 
 ```text
-PR / push
-├── Ruff lint
-├── Ruff format check
-├── mypy
-├── pytest + coverage (installed with dev,mlops,dashboard,tuning, so MLflow,
-│   Streamlit City View, and tiny Optuna study tests run on temporary SQLite stores)
-├── sdist/wheel build
-└── clean wheel install/import smoke (no extras: core, scalerl.mlops,
-    scalerl.dashboard, and scalerl.tuning import without MLflow, Streamlit, or
-    Optuna; packaged benchmark manifest loads)
+quality (Python 3.12) ──────┐  Ruff lint, Ruff format check, mypy --strict
+tests (Python 3.11, 3.12) ──┼─→ docker-mlops (ubuntu, native linux/amd64, 30 min cap)
+package (Python 3.12) ──────┘    ├── setup-local-stack.sh (.env from .env.example, runner UID/GID)
+                                 ├── docker compose config
+                                 ├── Bake build of compose.yaml images (GitHub Actions cache)
+                                 ├── scripts/compose-smoke.sh (same script as locally)
+                                 ├── on failure: compose ps + logs uploaded as `compose-logs`
+                                 └── always: docker compose down --volumes
 ```
 
-### Planned in Issue #45
+| Job | Guarantees |
+|---|---|
+| `quality` | `ruff check .`, `ruff format --check .`, `mypy src` (strict), with all extras installed so every code path is type-checked |
+| `tests` | pytest with coverage (terminal report + `coverage.xml` artifact) on Python 3.11 and 3.12. MLflow, Streamlit, and Optuna tests run on temporary SQLite stores; the Compose config is checked statically. No coverage threshold is enforced |
+| `package` | `python -m build` builds sdist and wheel. The wheel alone (no extras) is installed in a clean venv and used from outside the checkout. It must import from site-packages, report the `pyproject.toml` version through `importlib.metadata`, load the packaged benchmark manifest, and import core, `scalerl.mlops`, `scalerl.dashboard`, and `scalerl.tuning` without importing MLflow, Streamlit, or Optuna |
+| `docker-mlops` | Runs only after the three jobs above pass. It builds the ScaleRL runtime, MLflow, and Optuna Dashboard images from `compose.yaml` (PostgreSQL and Garage are pulled), starts the real stack from empty volumes, and runs [`scripts/compose-smoke.sh`](../scripts/compose-smoke.sh), listed below |
 
-Issue #45 will expand CI into the full ML/MLOps pipeline:
+The Compose smoke covers:
 
-```text
-PR
-├── current checks above
-├── Docker build
-├── container smoke
-├── short SB3 training smoke
-└── isolated MLflow logging smoke
+- a real ScaleRL tracked run (predictive baseline on a synthetic TRAIN workload), with params, metrics, and `scalerl/` artifacts;
+- those artifacts downloaded back through MLflow's proxy, i.e. MLflow → PostgreSQL metadata and MLflow → Garage artifacts;
+- a temporary Optuna study in the PostgreSQL `optuna` database, seen by the native Optuna Dashboard, then deleted;
+- Scenario Lab health and trainer write access to `outputs/`;
+- the [SB3 smoke](../scripts/sb3_smoke.py) in the trainer image: SB3's env checker on the real `AutoscalingEnv`, then a CPU `DQN` (`MlpPolicy` 32×32, `learning_starts=0`, `train_freq=1`, `batch_size=16`, `buffer_size=256`, seed 0). It learns for 64 timesteps, so 64 gradient updates must change the Q-network weights. It then checks that the prediction drives the env and that a save/load round-trip predicts the same action. This is infrastructure only, with no performance assertion.
 
-release tag
-└── publish versioned image to GHCR
-```
+CI uses no repository secrets, no Azure data (`data/raw` stays empty), no GPU, and no paid services. Docker layers are cached with BuildKit's GitHub Actions cache, but a cache miss just rebuilds from the hash-pinned requirements, so correctness never depends on the cache. No PostgreSQL, Garage, or MLflow state is cached: every run starts from empty volumes, so first-time initialization is exercised too. A newer commit on the same PR cancels the older run; `main` and release runs are never cancelled.
 
-These Docker, training-smoke, MLflow-smoke, and GHCR stages are **planned** and are not part of the current checked-in workflow yet.
+**Releases.** Pushing a tag `vX.Y.Z` runs [`release.yml`](../.github/workflows/release.yml):
 
-Benchmark-scale RL training will never run in CI.
+- It first re-runs the whole `ci.yml` gate on the tagged commit (as a reusable workflow).
+- It then checks that the tag matches the `pyproject.toml` version.
+- Finally it publishes the ScaleRL runtime/trainer image, built from the same `Dockerfile`, to GHCR for `linux/amd64` and `linux/arm64` (arm64 through QEMU):
+  - tags `ghcr.io/wisoums/scalerl:X.Y.Z`, `:X.Y`, and `:sha-<short>`, with no automatic `latest`;
+  - OCI labels for source, revision, and version;
+  - SLSA provenance (`mode=max`) and an SBOM.
+
+Only that publish job has `packages: write`, through `GITHUB_TOKEN` (no PAT); every other job is `contents: read`. Pull requests (including forks) and pushes to `main` never publish. PostgreSQL and Garage are upstream images and are not republished; the MLflow and Optuna Dashboard images are infrastructure and are built locally.
+
+Benchmark-scale RL training, Optuna tuning grids, Azure workloads, and multi-seed runs never run in CI.
 
 ## Results UI responsibilities
 
