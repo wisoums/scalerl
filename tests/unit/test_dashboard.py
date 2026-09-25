@@ -328,7 +328,27 @@ def test_predictive_session_steps_and_reports_forecasts() -> None:
     assert decision.forecast_rps is not None
     assert decision.forecast_horizon_ticks == 3
     assert decision.desired_replicas is not None
+    assert decision.queued_requests == session.history[-2]["queued_requests"]
     assert session.threshold_decision is None
+
+
+def test_predictive_session_separates_forecast_from_backlog_recovery() -> None:
+    session = make_session("predictive", workload="syn-train-bursty")
+
+    decision = None
+    while not session.done:
+        session.step_controller()
+        decision = session.predictive_decision
+        if decision is not None and decision.queued_requests:
+            break
+
+    assert decision is not None and decision.queued_requests
+    interval = session.config.timing.control_interval_seconds
+    assert decision.backlog_recovery_rps == pytest.approx(decision.queued_requests / interval)
+    assert decision.effective_demand_rps == pytest.approx(
+        decision.forecast_rps + decision.backlog_recovery_rps  # type: ignore[operator]
+    )
+    assert decision.effective_demand_rps > decision.forecast_rps  # type: ignore[operator]
 
 
 def test_non_threshold_sessions_have_no_threshold_diagnostics() -> None:
@@ -560,7 +580,18 @@ def test_app_predictive_manager_builds_steps_and_explains(app: AppTest) -> None:
     assert isinstance(controller, PredictiveController)
     assert (controller.history_window_ticks, controller.target_utilization) == (3, 0.7)
     text = " ".join(markdown.value for markdown in app.markdown)
-    assert "forecast" in text and "ticks /" in text and "desired" in text
+    for label in (
+        "observed demand",
+        "forecast arrivals",
+        "waiting queue",
+        "backlog recovery",
+        "effective sizing demand",
+        "ticks /",
+        "desired",
+        "decision",
+        "reason",
+    ):
+        assert label in text
     assert any("completed traffic only" in caption.value for caption in app.caption)
 
 
@@ -647,3 +678,11 @@ def test_random_controller_seeds_are_honored() -> None:
 
     reference = RandomController(seed=4)
     assert actions == [reference.act(np.zeros(9, dtype=np.float32), {}) for _ in range(20)]
+
+
+def test_app_guidance_explains_forecast_versus_queue_recovery(app: AppTest) -> None:
+    text = " ".join(markdown.value for markdown in app.markdown)
+
+    assert "Forecast vs queue recovery" in text
+    assert "effective demand = forecast arrivals + backlog" in text
+    assert "does not make a random spike predictable" in text
