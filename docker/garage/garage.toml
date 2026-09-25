@@ -1,0 +1,23 @@
+# Garage: the S3-compatible MLflow artifact store of the local Compose stack.
+#
+# Single node, single copy: local development/reproducibility only.
+# No secrets here. GARAGE_RPC_SECRET and GARAGE_ADMIN_TOKEN come from the
+# environment (.env), which Garage reads as overrides of rpc_secret/admin_token.
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# S3 clients (MLflow server) must use this region.
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+
+[admin]
+# Admin API used by garage-init for layout, access key, and bucket setup.
+api_bind_addr = "[::]:3903"

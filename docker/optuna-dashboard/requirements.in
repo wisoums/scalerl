@@ -1,0 +1,4 @@
+# Native Optuna Dashboard reading the PostgreSQL Optuna database.
+optuna-dashboard==0.21.0
+optuna==5.0.0
+psycopg[binary]==3.3.6

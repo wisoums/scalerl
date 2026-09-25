@@ -37,6 +37,7 @@ optuna.db
 outputs/
 postgres-data/
 minio-data/
+garage-data/
 
 # PyInstaller
 #   Usually these files are written by a python script from a template
