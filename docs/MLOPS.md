@@ -69,7 +69,7 @@ Metrics are only what the caller computed and passes in. Values must be finite r
 | `simulator_config.json` | complete nested `SimulatorConfig` |
 | `reward_weights.json` | complete `RewardWeights` |
 | `software.json` | Git SHA and dirty flag; ScaleRL and Python versions; MLflow, Gymnasium, NumPy, pandas, Pydantic, Stable-Baselines3, and PyTorch versions (`not_installed` when absent) |
-| `compatibility.json` | observation shape, action count, and every config field that defines observation features: startup delay, control interval, episode duration, max replicas, service capacity, cost per hour, SLA latency target; plus benchmark version |
+| `compatibility.json` | observation shape, action count, and every config field that defines observation features: traffic history ticks, startup delay, control interval, episode duration, max replicas, service capacity, cost per hour, SLA latency target; plus benchmark version |
 
 The Git SHA comes from an explicit `git_sha=` argument, then `SCALERL_GIT_SHA` or `GITHUB_SHA`, then `git rev-parse` next to the installed package, and otherwise `unknown`, so runs from an installed wheel without `.git/` still work.
 
@@ -88,7 +88,7 @@ The Git SHA comes from an explicit `git_sha=` argument, then `SCALERL_GIT_SHA` o
 
 ### Learned-model compatibility
 
-The v1 observation size depends on startup delay and control interval, and feature values are normalized by episode duration, max replicas, service capacity, hourly price, and the SLA latency target. A trained policy therefore only fits environments where every one of these matches, not just the observation shape. `min_replicas` and `initial_replicas` are excluded because they change dynamics and the starting state, not what any feature measures; a test requires every new `SimulatorConfig` field to be explicitly classified. `EnvironmentCompatibility.from_env(env)` or `.from_config(config)` captures it from a real `AutoscalingEnv`, and `trained.require_compatible(current)` raises with every mismatching field. Every run logs this contract as `compatibility.json`; DQN/PPO model loading (#15/#16) must check it before inference.
+The v1 observation size depends on the traffic history length (`traffic_history_ticks`), startup delay, and control interval, and feature values are normalized by episode duration, max replicas, service capacity, hourly price, and the SLA latency target. A trained policy therefore only fits environments where every one of these matches, not just the observation shape: a model trained with 4 history ticks is rejected by an environment with any other history length, even if the shapes happened to coincide. `min_replicas` and `initial_replicas` are excluded because they change dynamics and the starting state, not what any feature measures; a test requires every new `SimulatorConfig` field to be explicitly classified. `EnvironmentCompatibility.from_env(env)` or `.from_config(config)` captures it from a real `AutoscalingEnv`, and `trained.require_compatible(current)` raises with every mismatching field. Every run logs this contract as `compatibility.json`; DQN/PPO model loading (#15/#16) must check it before inference.
 
 ### Tracking location
 
