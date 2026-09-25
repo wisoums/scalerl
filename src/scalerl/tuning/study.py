@@ -253,8 +253,24 @@ def _check_identity(study: optuna.Study, spec: StudySpec) -> None:
     if existing is None:
         study.set_user_attr(IDENTITY_ATTR, identity)
     elif existing != identity:
-        changed = sorted(key for key in identity if existing.get(key) != identity[key])
+        changed = _changed_fields(existing, identity)
         raise ValueError(
             f"study {spec.name!r} already exists with a different definition "
             f"({', '.join(changed)}); use a new study name"
         )
+
+
+def _changed_fields(existing: dict[str, Any], identity: dict[str, Any]) -> list[str]:
+    """Name the identity fields that differ, down to ``identity_context`` entries."""
+    changed = []
+    for key in identity:
+        if existing.get(key) == identity[key]:
+            continue
+        if key == "identity_context":
+            old, new = existing.get(key) or {}, identity[key]
+            changed += [
+                f"{key}.{name}" for name in set(old) | set(new) if old.get(name) != new.get(name)
+            ]
+        else:
+            changed.append(key)
+    return sorted(changed)

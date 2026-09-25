@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from scalerl.benchmarks import BenchmarkManifest, WorkloadEntry, load_benchmark_manifest
 
@@ -42,7 +42,10 @@ class StudySpec(BaseModel):
     """Everything that defines an Optuna study, validated before Optuna is touched.
 
     ``n_trials`` is the study's total budget: running the same spec against an
-    existing study only runs the remaining trials. Single-objective only;
+    existing study only runs the remaining trials. ``identity_context`` holds
+    any other inputs that define the experiment (simulator config, provenance,
+    workload data fingerprints); it is part of the persisted identity, so a
+    study cannot be resumed with different inputs. Single-objective only;
     multi-objective studies are deferred until a consumer needs them.
     """
 
@@ -63,6 +66,7 @@ class StudySpec(BaseModel):
     timeout_seconds: float | None = Field(default=None, gt=0)
     n_jobs: int = Field(default=1, ge=1)
     load_if_exists: bool = True
+    identity_context: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -102,6 +106,7 @@ class StudySpec(BaseModel):
                 "sampler_seed",
                 "grid",
                 "pruner",
+                "identity_context",
             },
         )
 

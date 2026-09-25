@@ -297,6 +297,20 @@ def test_resuming_with_a_different_definition_is_refused(optuna_storage: str) ->
         run_study(make_spec(storage=optuna_storage, objective_version="v2"), quadratic)
 
 
+def test_resuming_with_different_identity_context_is_refused(optuna_storage: str) -> None:
+    context = {"simulator_config": {"capacity": 50.0}, "workload_fingerprint": "abc"}
+    run_study(make_spec(storage=optuna_storage, n_trials=2, identity_context=context), quadratic)
+
+    same = run_study(
+        make_spec(storage=optuna_storage, n_trials=2, identity_context=context), quadratic
+    )
+    assert len(same.trials) == 2
+
+    changed = {**context, "simulator_config": {"capacity": 5.0}}
+    with pytest.raises(ValueError, match=r"\(identity_context\.simulator_config\)"):
+        run_study(make_spec(storage=optuna_storage, identity_context=changed), quadratic)
+
+
 def test_parallel_execution_is_explicit_and_works() -> None:
     study = run_study(make_spec(sampler="random", n_trials=4, n_jobs=2), quadratic)
 
