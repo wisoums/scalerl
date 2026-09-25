@@ -170,7 +170,7 @@ DQN is ScaleRL's first deep-RL controller, using Stable-Baselines3's DQN. It fit
 | exploration eps initial → final | 1.0 → 0.05 | 1.0 → 0.05 |
 | net_arch | [64, 64] | [64, 64] |
 
-The default budget is **200,000 timesteps**, about 1,667 episodes, which takes about 30 s on a laptop CPU. Tests and CI use tiny budgets (≤ 256 timesteps; the CI smoke uses 64) and make no performance assertions.
+The default budget is **200,000 timesteps**, about 1,667 episodes, which takes about 30 s on a laptop CPU. Budgets must be a multiple of `train_freq` (4 in `dqn-v1`): SB3's off-policy loop only checks the budget between `train_freq`-step rollouts, so 97 steps would silently train 100. ScaleRL refuses such budgets before training, so the recorded `training_steps`, the bundle metadata, and the model always agree. Tests and CI use tiny budgets (≤ 256 timesteps; the CI smoke uses 64) and make no performance assertions.
 
 **Seeding.** One explicit seed drives SB3's network initialization, exploration, and environment resets. Runs with the same seed and config reproduce on the same platform and library versions. ScaleRL does not claim bit-identical results across PyTorch versions or hardware.
 

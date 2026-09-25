@@ -330,6 +330,33 @@ def test_validation_workloads_must_be_validation(
         train_dqn(workload_id=TRAIN, validation_workload_ids=validation, tracking_uri=tracking_uri)
 
 
+@pytest.mark.parametrize(("timesteps", "trained"), [(1, 4), (6, 8), (97, 100)])
+def test_budgets_sb3_would_overshoot_are_refused_before_training(
+    timesteps: int, trained: int, no_training: None, tracking_uri: str
+) -> None:
+    # SB3 finishes whole train_freq rollouts: the recorded budget must be exact.
+    with pytest.raises(ValueError, match=f"multiple of train_freq \\(4\\).*{trained} timesteps"):
+        train_dqn(
+            workload_id=TRAIN,
+            validation_workload_ids=VALIDATION,
+            timesteps=timesteps,
+            tracking_uri=tracking_uri,
+        )
+
+
+def test_budgets_follow_the_configured_train_freq(no_training: None, tracking_uri: str) -> None:
+    with pytest.raises(ValueError, match="multiple of train_freq \\(8\\)"):
+        train_dqn(
+            workload_id=TRAIN,
+            validation_workload_ids=VALIDATION,
+            hyperparameters=TINY.model_copy(update={"train_freq": 8}),
+            timesteps=100,
+            tracking_uri=tracking_uri,
+        )
+    with pytest.raises(ValueError, match="at least 1"):
+        train_dqn(workload_id=TRAIN, validation_workload_ids=VALIDATION, timesteps=0)
+
+
 def test_default_validation_set_is_the_synthetic_validation_workloads() -> None:
     assert training.default_validation_workload_ids() == (
         "syn-val-steady-high",
@@ -372,6 +399,7 @@ def test_training_run_is_tracked_with_model_and_validation_lineage(
     assert params["hp.net_arch"] == "[16, 16]"
     assert params["compat.traffic_history_ticks"] == "4"
     assert metrics["training_timesteps"] == 256
+    assert result.timesteps == 256  # requested == recorded == actually trained
     for name in ("train/loss", "train/exploration_rate", "train/n_updates", "train/episodes"):
         history = client.get_metric_history(result.training_run_id, name)
         assert history and all(point.step % 64 == 0 for point in history), name
@@ -383,7 +411,7 @@ def test_training_run_is_tracked_with_model_and_validation_lineage(
     downloaded = Path(client.download_artifacts(result.training_run_id, "model", str(tmp_path)))
     metadata, _ = read_model_bundle(downloaded)
     assert metadata.training_run_id == result.training_run_id
-    assert metadata.total_timesteps == 256
+    assert metadata.total_timesteps == int(params["training_steps"]) == result.timesteps
     # The downloaded bundle is directly usable through the standard harness.
     controller = load_sb3_controller(downloaded, env_for("syn-val-bursty"))
     assert evaluate_controller_episode(env_for("syn-val-bursty"), controller).metrics

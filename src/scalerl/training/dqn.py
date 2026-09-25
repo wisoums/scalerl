@@ -149,6 +149,27 @@ def require_validation_workloads(workload_ids: Sequence[str]) -> tuple[WorkloadE
     return tuple(entries)
 
 
+def require_exact_timesteps(timesteps: int, hyperparameters: DQNHyperparameters) -> None:
+    """Refuse budgets SB3 DQN cannot train exactly.
+
+    SB3's off-policy ``learn`` checks the budget only between rollouts of
+    ``train_freq`` steps, so a budget that is not a multiple of ``train_freq``
+    silently trains longer (e.g. 1 → 4, 97 → 100 with ``train_freq=4``). The
+    requested count is recorded as ``training_steps`` before training starts,
+    so it must be exactly what the model is trained for.
+    """
+    if timesteps < 1:
+        raise ValueError("timesteps must be at least 1")
+    remainder = timesteps % hyperparameters.train_freq
+    if remainder:
+        exact = timesteps + hyperparameters.train_freq - remainder
+        raise ValueError(
+            f"timesteps ({timesteps}) must be a multiple of train_freq "
+            f"({hyperparameters.train_freq}); SB3 DQN collects whole rollouts and would "
+            f"train for {exact} timesteps instead"
+        )
+
+
 def default_validation_workload_ids() -> tuple[str, ...]:
     """The benchmark's synthetic validation workloads."""
     return tuple(
@@ -307,6 +328,7 @@ def train_and_validate(
     (so the compatibility check is exercised) and evaluates it with the shared
     ``evaluate_controller_episode``, one tracked run per validation workload.
     """
+    require_exact_timesteps(settings.timesteps, hyperparameters)
     params = run_params(hyperparameters, extra_params)
     config, weights = settings.config, settings.reward_weights
     with track(dqn_run_spec(training_run_kind, training_entry, settings, params)) as run:
@@ -315,6 +337,11 @@ def train_and_validate(
         callback = MLflowTrainingCallback(run, log_interval=settings.log_interval)
         started = time.perf_counter()
         model.learn(total_timesteps=settings.timesteps, callback=callback)
+        if model.num_timesteps != settings.timesteps:
+            raise RuntimeError(
+                f"SB3 trained {model.num_timesteps} timesteps, not the recorded "
+                f"{settings.timesteps}"
+            )
         run.log_metrics(
             {
                 "training_timesteps": float(model.num_timesteps),
@@ -446,8 +473,8 @@ def train_dqn(
     Every guardrail (train split, validation split, simulator-config
     provenance) runs before any trace is built or any model is trained.
     """
-    if timesteps < 1:
-        raise ValueError("timesteps must be at least 1")
+    hyperparameters = hyperparameters or DQNHyperparameters()
+    require_exact_timesteps(timesteps, hyperparameters)
     training_entry = require_training_workload(workload_id)
     validation_ids = (
         tuple(validation_workload_ids)
@@ -455,7 +482,6 @@ def train_dqn(
         else default_validation_workload_ids()
     )
     validation_entries = require_validation_workloads(validation_ids)
-    hyperparameters = hyperparameters or DQNHyperparameters()
     settings = DQNRunSettings(
         timesteps=timesteps,
         seed=seed,

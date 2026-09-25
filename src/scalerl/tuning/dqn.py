@@ -58,6 +58,7 @@ from scalerl.training.dqn import (
     DQNHyperparameters,
     DQNRunSettings,
     dqn_run_spec,
+    require_exact_timesteps,
     require_training_workload,
     require_validation_workloads,
     run_params,
@@ -205,8 +206,8 @@ def run_dqn_study(
     study is created or any model is trained. Every trial trains with the same
     ``seed``, so trials differ only in their hyperparameters.
     """
-    if timesteps < 1:
-        raise ValueError("timesteps must be at least 1")
+    # train_freq is not searched, so the dqn-v1 value applies to every trial.
+    require_exact_timesteps(timesteps, DQNHyperparameters())
     training_entry = require_training_workload(training_workload_id)
     validation_entries = require_validation_workloads(validation_workload_ids)
     settings = DQNRunSettings(

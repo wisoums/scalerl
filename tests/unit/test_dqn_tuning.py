@@ -159,6 +159,19 @@ def test_resumed_study_runs_only_the_remaining_budget(tracking_uri: str, tmp_pat
     assert study.trials[0].params == first.selected_params
 
 
+def test_tuning_budget_must_be_a_whole_number_of_rollouts(
+    tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("tuning started before the budget check")
+
+    monkeypatch.setattr(tuning, "build_workloads", refuse)
+    monkeypatch.setattr(tuning, "run_study", refuse)
+
+    with pytest.raises(ValueError, match="multiple of train_freq \\(4\\).*100 timesteps"):
+        tiny_study(tracking_uri, timesteps=97)
+
+
 @pytest.mark.parametrize(
     ("train", "validation", "message"),
     [
