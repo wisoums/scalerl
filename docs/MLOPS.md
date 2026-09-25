@@ -90,6 +90,39 @@ The Git SHA comes from an explicit `git_sha=` argument, then `SCALERL_GIT_SHA` o
 
 The v1 observation size depends on the traffic history length (`traffic_history_ticks`), startup delay, and control interval, and feature values are normalized by episode duration, max replicas, service capacity, hourly price, and the SLA latency target. A trained policy therefore only fits environments where every one of these matches, not just the observation shape: a model trained with 4 history ticks is rejected by an environment with any other history length, even if the shapes happened to coincide. `min_replicas` and `initial_replicas` are excluded because they change dynamics and the starting state, not what any feature measures; a test requires every new `SimulatorConfig` field to be explicitly classified. `EnvironmentCompatibility.from_env(env)` or `.from_config(config)` captures it from a real `AutoscalingEnv`, and `trained.require_compatible(current)` raises with every mismatching field. Every run logs this contract as `compatibility.json`; DQN/PPO model loading (#15/#16) must check it before inference.
 
+### DQN training runs and model bundles (#15)
+
+```bash
+# lightweight local
+python -m scalerl.training.dqn --workload syn-train-bursty \
+    --validation-workload syn-val-bursty --timesteps 200000 --seed 0 \
+    --tracking-uri sqlite:///outputs/mlflow.db --output outputs/dqn-v1.json
+
+# full stack: MLflow server, artifacts in Garage
+docker compose run --rm trainer python -m scalerl.training.dqn \
+    --workload syn-train-bursty --validation-workload syn-val-bursty --output outputs/dqn-v1.json
+```
+
+Other options include `--hyperparameters <json>` (a `DQNHyperparameters` file or a DQN tuning result), `--hp name=value` overrides, `--log-interval`, `--simulator-config`/`--config-source`/`--calibration-workload`, `--reward-weights`, and `--azure-csv` for Azure train/validation workloads.
+
+- **Training run** (`run_kind=train`, `controller=dqn`):
+  - `RunSpec` metadata as for every run, plus every DQN setting as `hp.*` (with `hp.dqn_config_version` and `hp.hyperparameter_source`) and `training_steps`;
+  - a learning curve every `--log-interval` timesteps (default 1,000; about 200 points per 200k run), logged from SB3's public callback hooks:
+    - `train/episode_reward_mean` (window) and `train/episode_reward_mean_100`;
+    - `train/episodes`, `train/exploration_rate`, `train/loss`, `train/n_updates`;
+    - a value SB3 has not produced yet is omitted, never logged as zero;
+  - `training_timesteps`, `training_episodes`, `training_seconds`;
+  - aggregate `validation.*` metrics and `scalerl/validation_summary.json`;
+  - the model bundle under `model/`.
+- **Validation runs:** one `evaluate` run per validation workload, with the shared `EpisodeMetrics` and tag `scalerl.model_source_run_id=<training run>`. They hold the raw validation metrics; the training run only aggregates them.
+- **Model bundle** (`model/`), loadable anywhere with `scalerl.rl.load_sb3_controller(bundle_dir, env)`:
+  - `model.zip`: SB3's native save, the canonical policy artifact;
+  - `compatibility.json`: the `EnvironmentCompatibility` of the training environment;
+  - `metadata.json`: algorithm, config version, benchmark version, training workload, seed, timesteps, hyperparameters, ScaleRL version, and training run ID.
+- **Loading:** the loader derives the contract from the *current* environment and calls `require_compatible`. A mismatch in any recorded field (not just the observation shape) raises before the model is loaded. No MLflow Model Registry is used.
+- **Result file:** the training result (`DQNTrainingResult` JSON in `outputs/`) records the run IDs, workloads, seed, timesteps, hyperparameters, compatibility, validation aggregates, and the model URI `runs:/<id>/model`. It contains no model bytes.
+- **Tuning:** `python -m scalerl.tuning.dqn --train-workload … --validation-workload … --n-trials 20 --timesteps 200000` uses `--storage` (default `$OPTUNA_STORAGE_URI`, else `sqlite:///outputs/dqn-optuna.db`) and writes a `DQNTuningResult`. It includes the selected trial's hyperparameters, validation metrics, training run ID, and all its MLflow run IDs; see [EXPERIMENTS.md](EXPERIMENTS.md#dqn-15).
+
 ### Tracking location
 
 No URL is hard-coded. `tracking_uri=None` honors `MLFLOW_TRACKING_URI` and MLflow's defaults, and an explicit `tracking_uri=` overrides both. The same code works with:
