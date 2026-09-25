@@ -1,4 +1,4 @@
-"""Tests for the predictive (linear-trend forecasting) autoscaler (#14)."""
+"""Tests for the predictive autoscaler: linear-trend forecast (#14) plus backlog recovery (#63)."""
 
 import math
 from typing import Any
@@ -6,10 +6,14 @@ from typing import Any
 import numpy as np
 import pytest
 
+from scalerl.benchmarks import build_workloads, load_benchmark_manifest
 from scalerl.controllers import (
     Controller,
+    ForecastRecord,
     PredictiveController,
     ThresholdController,
+    backlog_recovery_rate,
+    effective_sizing_demand,
     run_episode,
 )
 from scalerl.environment import (
@@ -19,37 +23,54 @@ from scalerl.environment import (
     SimulatorConfig,
     TimingConfig,
 )
+from scalerl.evaluation import evaluate_controller_episode
 from scalerl.workloads import WorkloadTrace, ramp_workload
 
 SCALE_DOWN, HOLD, SCALE_UP = 0, 1, 2
 OBSERVATION = np.zeros(12, dtype=np.float32)
 
 
+_PARAMS: dict[str, Any] = {
+    "min_replicas": 1,
+    "max_replicas": 20,
+    "service_capacity_rps": 50.0,
+    "startup_delay_seconds": 60.0,
+    "control_interval_seconds": 30.0,
+}
+
+
 def make_controller(**overrides: Any) -> PredictiveController:
-    params: dict[str, Any] = {
-        "min_replicas": 1,
-        "max_replicas": 20,
-        "service_capacity_rps": 50.0,
-        "startup_delay_seconds": 60.0,
-        "control_interval_seconds": 30.0,
-    }
-    return PredictiveController(**{**params, **overrides})
+    return PredictiveController(**{**_PARAMS, **overrides})
 
 
-def step_info(tick: int, rate: float, active: int = 1, pending: int = 0) -> dict[str, Any]:
+def step_info(
+    tick: int, rate: float, active: int = 1, pending: int = 0, queued: float = 0.0
+) -> dict[str, Any]:
     return {
         "tick": tick,
         "request_rate": rate,
         "active_replicas": active,
         "pending_replicas": pending,
+        "queued_requests": queued,
     }
 
 
-def feed(controller: PredictiveController, rates: list[float], **replicas: int) -> int:
+def feed(
+    controller: PredictiveController, rates: list[float], queued: float = 0.0, **replicas: int
+) -> int:
     action = HOLD
     for tick, rate in enumerate(rates):
-        action = controller.act(OBSERVATION, step_info(tick, rate, **replicas))
+        action = controller.act(OBSERVATION, step_info(tick, rate, queued=queued, **replicas))
     return action
+
+
+class ForecastOnlyReference(PredictiveController):
+    """Test-only #14 reference: sizes for forecast arrivals and ignores the queue."""
+
+    def act(self, observation: Any, info: dict[str, Any]) -> int:
+        if "tick" in info:
+            info = {**info, "queued_requests": 0.0}
+        return super().act(observation, info)
 
 
 def env_for(rates: list[float], **replicas: Any) -> AutoscalingEnv:
@@ -410,3 +431,227 @@ def test_predictive_cannot_anticipate_an_abrupt_spike() -> None:
     )
     # Only once the spike is part of the completed history does it react.
     assert any(info["requested_action"] == SCALE_UP for info in infos if info["tick"] > 20)
+
+
+# --- backlog recovery (#63) ---------------------------------------------------------------
+
+
+def test_backlog_recovery_clears_the_queue_in_one_control_interval() -> None:
+    assert backlog_recovery_rate(3000.0, 30.0) == pytest.approx(100.0)
+    assert backlog_recovery_rate(0, 30.0) == 0.0
+
+
+def test_effective_demand_is_forecast_plus_backlog_recovery() -> None:
+    assert effective_sizing_demand(80.0, 3000.0, 30.0) == pytest.approx(180.0)
+    assert effective_sizing_demand(80.0, 0.0, 30.0) == pytest.approx(80.0)
+
+
+@pytest.mark.parametrize(
+    ("queued", "error"),
+    [
+        (math.nan, ValueError),
+        (math.inf, ValueError),
+        (-1.0, ValueError),
+        (True, TypeError),
+        ("10", TypeError),
+    ],
+)
+def test_malformed_queue_is_rejected(queued: object, error: type[Exception]) -> None:
+    with pytest.raises(error, match="queued_requests"):
+        backlog_recovery_rate(queued, 30.0)  # type: ignore[arg-type]
+    with pytest.raises(error, match="queued_requests"):
+        feed(make_controller(), [50.0], queued=queued)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("interval", [0.0, -30.0, math.nan, math.inf])
+def test_backlog_recovery_rejects_invalid_intervals(interval: float) -> None:
+    with pytest.raises(ValueError, match="control_interval_seconds"):
+        backlog_recovery_rate(100.0, interval)
+
+
+def test_missing_queue_is_rejected() -> None:
+    info = step_info(0, 50.0)
+    del info["queued_requests"]
+
+    with pytest.raises(ValueError, match="queued_requests"):
+        make_controller().act(OBSERVATION, info)
+
+
+def test_empty_queue_reproduces_forecast_only_sizing() -> None:
+    rates = [40.0, 90.0, 60.0, 150.0, 20.0, 0.0, 300.0]
+    for active, pending in [(1, 0), (3, 1), (8, 0)]:
+        queue_aware, reference = make_controller(), ForecastOnlyReference(**_PARAMS)
+        for tick, rate in enumerate(rates):
+            info = step_info(tick, rate, active=active, pending=pending)
+            assert queue_aware.act(OBSERVATION, info) == reference.act(OBSERVATION, info)
+            assert queue_aware.last_decision == reference.last_decision
+        decision = queue_aware.last_decision
+        assert decision is not None
+        assert decision.queued_requests == 0.0
+        assert decision.backlog_recovery_rps == 0.0
+        assert decision.effective_demand_rps == decision.forecast_rps
+
+
+def test_queue_empty_workloads_behave_exactly_like_forecast_only() -> None:
+    env = ramp_env()  # capacity keeps up, so the queue stays empty
+
+    queue_aware = run_episode(env, PredictiveController.from_config(env.config), seed=0)
+    reference = run_episode(env, ForecastOnlyReference.from_config(env.config), seed=0)
+
+    assert all(info["queued_requests"] == 0 for info in queue_aware)
+    assert queue_aware == reference
+
+
+def test_forecast_is_identical_whatever_the_queue() -> None:
+    rates = [40.0, 60.0, 90.0, 130.0, 110.0]
+    empty, backlogged = make_controller(), make_controller()
+
+    feed(empty, rates, queued=0.0)
+    feed(backlogged, rates, queued=10_000.0)
+
+    assert empty.forecasts == backlogged.forecasts
+    assert empty.request_history == backlogged.request_history
+    assert empty.last_decision is not None and backlogged.last_decision is not None
+    assert empty.last_decision.forecast_rps == backlogged.last_decision.forecast_rps
+    assert backlogged.last_decision.effective_demand_rps == pytest.approx(
+        backlogged.last_decision.forecast_rps + 10_000.0 / 30.0  # type: ignore[operator]
+    )
+
+
+def test_forecast_record_is_unchanged() -> None:
+    assert ForecastRecord.__slots__ == (
+        "source_tick",
+        "target_tick",
+        "forecast_rps",
+        "sample_count",
+    )
+
+
+def test_large_queue_scales_up_for_recovery() -> None:
+    controller = make_controller()
+
+    action = feed(controller, [40.0], queued=3000.0)  # forecast 40 + recovery 100 = 140 RPS
+
+    decision = controller.last_decision
+    assert action == SCALE_UP
+    assert decision is not None
+    assert decision.forecast_rps == pytest.approx(40.0)  # the forecast alone needs 1 replica
+    assert decision.queued_requests == 3000.0
+    assert decision.backlog_recovery_rps == pytest.approx(100.0)
+    assert decision.effective_demand_rps == pytest.approx(140.0)
+    assert decision.desired_replicas == 4  # ceil(140 / 40)
+    assert decision.reason == "queue_recovery"
+
+
+def test_scale_up_needed_by_the_forecast_alone_keeps_the_scale_up_reason() -> None:
+    controller = make_controller()
+
+    assert feed(controller, [100.0], queued=3000.0) == SCALE_UP  # forecast alone needs 3
+
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "scale_up"
+    assert controller.last_decision.desired_replicas == 5  # ceil(200 / 40)
+
+
+def test_positive_queue_blocks_scale_down() -> None:
+    controller = make_controller()
+
+    action = feed(controller, [10.0], queued=1.0, active=5)
+
+    decision = controller.last_decision
+    assert action == HOLD
+    assert decision is not None
+    assert decision.desired_replicas == 1  # sizing alone would shrink
+    assert decision.reason == "backlog_hold"
+
+
+def test_empty_queue_allows_scale_down() -> None:
+    controller = make_controller()
+
+    assert feed(controller, [10.0], queued=0.0, active=5) == SCALE_DOWN
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "scale_down"
+
+
+def test_pending_capacity_counts_toward_backlog_recovery() -> None:
+    controller = make_controller()
+
+    # desired ceil(140 / 40) = 4 == committed 1 active + 3 pending
+    assert feed(controller, [40.0], queued=3000.0, active=1, pending=3) == HOLD
+    assert controller.last_decision is not None
+    assert controller.last_decision.reason == "at_target"
+
+    # desired 4 < committed 5, but requests are still queued: no cancellation
+    assert feed(make_controller(), [40.0], queued=3000.0, active=1, pending=4) == HOLD
+
+
+def test_backlog_recovery_stays_within_bounds() -> None:
+    controller = make_controller(max_replicas=5)
+
+    assert feed(controller, [40.0], queued=1_000_000.0, active=5) == HOLD
+
+    assert controller.last_decision is not None
+    assert (controller.last_decision.desired_replicas, controller.last_decision.reason) == (
+        5,
+        "at_max",
+    )
+
+
+def test_reset_clears_backlog_diagnostics() -> None:
+    controller = make_controller()
+    feed(controller, [40.0], queued=3000.0)
+
+    controller.reset()
+
+    assert controller.last_decision is None
+    assert feed(controller, [40.0]) == HOLD
+    assert controller.last_decision is not None
+    assert controller.last_decision.queued_requests == 0.0
+
+
+def test_no_sample_decision_has_no_backlog_diagnostics() -> None:
+    controller = make_controller()
+
+    controller.act(OBSERVATION, {"active_replicas": 1, "pending_replicas": 0})
+
+    decision = controller.last_decision
+    assert decision is not None
+    assert decision.reason == "no_sample"
+    assert (
+        decision.queued_requests,
+        decision.backlog_recovery_rps,
+        decision.effective_demand_rps,
+    ) == (None, None, None)
+
+
+def bursty_episode(controller: PredictiveController) -> list[dict[str, Any]]:
+    config = SimulatorConfig()
+    entry = load_benchmark_manifest().get("syn-train-bursty")  # development split only
+    trace = build_workloads([entry])[entry.id]
+    return evaluate_controller_episode(AutoscalingEnv(config, trace), controller).infos
+
+
+def scale_downs_into_backlog(infos: list[dict[str, Any]]) -> int:
+    # The action logged at tick t was decided from the queue left by tick t - 1.
+    return sum(
+        1
+        for previous, info in zip(infos, infos[1:], strict=False)
+        if previous["queued_requests"] > 0 and info["requested_action"] == SCALE_DOWN
+    )
+
+
+def test_burst_falling_edge_never_scales_down_into_a_backlog() -> None:
+    config = SimulatorConfig()
+    reference = bursty_episode(ForecastOnlyReference.from_config(config))
+    queue_aware = bursty_episode(PredictiveController.from_config(config))
+
+    # Forecast-only (#14) removes capacity on falling edges while requests still wait ...
+    assert scale_downs_into_backlog(reference) > 0
+    # ... queue-aware sizing never does, and so waits less and violates the SLA less.
+    assert scale_downs_into_backlog(queue_aware) == 0
+
+    def mean(infos: list[dict[str, Any]], key: str) -> float:
+        return sum(float(info[key]) for info in infos) / len(infos)
+
+    assert mean(queue_aware, "queued_requests") < mean(reference, "queued_requests")
+    assert mean(queue_aware, "sla_violated") < mean(reference, "sla_violated")
