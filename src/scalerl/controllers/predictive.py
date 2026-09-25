@@ -1,8 +1,11 @@
 """Predictive autoscaler: a transparent linear-trend forecast of recent demand.
 
-Information set: only ``info["request_rate"]`` of completed ticks. The
-controller never reads the workload trace, the RL observation, or generator
-parameters, so it cannot know a future value before that tick has run.
+Information set: the forecast uses only ``info["request_rate"]`` of completed
+ticks; capacity sizing additionally reads the current backlog
+``info["queued_requests"]`` of the latest completed tick. The controller never
+reads the workload trace, the RL observation, or generator parameters, so it
+cannot know a future value before that tick has run. The queue never feeds
+the forecast.
 
 Each decision (v1 defaults in parentheses):
 
@@ -12,12 +15,20 @@ Each decision (v1 defaults in parentheses):
    persistence with one sample, otherwise an ordinary least-squares line over
    the window's ``(tick, rate)`` points, extrapolated; negative forecasts are
    clamped to 0;
-3. size capacity with headroom:
-   ``desired = ceil(forecast / (service_capacity_rps * target_utilization))``
+3. size capacity for forecast arrivals plus backlog recovery
+   (capacity policy ``forecast-plus-backlog-v1``):
+   ``backlog_recovery_rps = queued_requests / control_interval_seconds``
+   (clear the current backlog over one control interval),
+   ``effective_demand_rps = forecast_rps + backlog_recovery_rps``, and
+   ``desired = ceil(effective_demand_rps / (service_capacity_rps * target_utilization))``
    (target utilization 0.8), clamped to ``[min_replicas, max_replicas]``;
 4. compare with committed capacity ``active + pending``: scale up if below,
-   down if above (a scale-down cancels the newest pending replica first),
-   otherwise hold. The environment moves at most one replica per tick.
+   otherwise hold, and scale down only when no requests are queued (a
+   scale-down cancels the newest pending replica first). Never removing
+   capacity while backlog remains may keep capacity longer, trading cost for
+   backlog/SLA recovery. The environment moves at most one replica per tick.
+
+With an empty queue the rule is exactly the forecast-only sizing of #14.
 
 **Horizon.** A decision is made after tick ``t`` completes; its scale-up is
 applied during tick ``t + 1`` and the new replica first serves tick
@@ -27,8 +38,8 @@ the simulator's own lifecycle arithmetic). So
 tick that capacity requested now can actually serve. With 60 s startup and
 30 s ticks that is 3 ticks (90 s) ahead.
 
-A truly random spike with no prior trend cannot be forecast; this baseline
-only helps when recent demand carries a signal.
+A truly random spike with no prior trend cannot be forecast. Backlog
+recovery only helps after overload has actually built a queue.
 """
 
 from __future__ import annotations
@@ -44,8 +55,19 @@ from scalerl.environment.config import SimulatorConfig
 from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
 from scalerl.environment.replicas import startup_ticks
 
-PredictiveReason = Literal["no_sample", "scale_up", "scale_down", "at_target", "at_min", "at_max"]
+PredictiveReason = Literal[
+    "no_sample",
+    "scale_up",
+    "queue_recovery",
+    "scale_down",
+    "backlog_hold",
+    "at_target",
+    "at_min",
+    "at_max",
+]
 FORECAST_METHOD = "linear-trend"
+CAPACITY_POLICY = "forecast-plus-backlog-v1"
+BACKLOG_RECOVERY_TICKS = 1  # fixed v1 rule, not a tuning parameter
 _CEIL_TOLERANCE = 1e-9
 
 
@@ -61,11 +83,21 @@ class ForecastRecord:
 
 @dataclass(frozen=True, slots=True)
 class PredictiveDecision:
-    """Why the controller chose its latest action."""
+    """Why the controller chose its latest action.
+
+    ``forecast_rps`` is the arrival forecast alone; ``effective_demand_rps``
+    adds ``backlog_recovery_rps`` for requests already queued. Reasons:
+    ``scale_up`` (the forecast alone needs more capacity), ``queue_recovery``
+    (only the backlog term does), ``backlog_hold`` (a scale-down blocked
+    because requests are still queued).
+    """
 
     latest_request_rate: float | None
     forecast_rps: float | None
     forecast_horizon_ticks: int
+    queued_requests: float | None
+    backlog_recovery_rps: float | None
+    effective_demand_rps: float | None
     desired_replicas: int | None
     active_replicas: int
     pending_replicas: int
@@ -112,6 +144,7 @@ class PredictiveController:
         self._min_replicas = min_replicas
         self._max_replicas = max_replicas
         self._capacity_per_replica = float(service_capacity_rps) * float(target_utilization)
+        self._control_interval = float(control_interval_seconds)
         self._history_window = history_window_ticks
         self._target_utilization = float(target_utilization)
         self._horizon = 1 + startup_ticks(
@@ -181,7 +214,17 @@ class PredictiveController:
 
         if not self._samples:
             self._last_decision = PredictiveDecision(
-                None, None, self._horizon, None, active, pending, HOLD, "no_sample"
+                None,
+                None,
+                self._horizon,
+                None,
+                None,
+                None,
+                None,
+                active,
+                pending,
+                HOLD,
+                "no_sample",
             )
             return HOLD
 
@@ -191,15 +234,30 @@ class PredictiveController:
             ForecastRecord(source_tick, source_tick + self._horizon, forecast, len(self._samples))
         )
 
-        needed = math.ceil(forecast / self._capacity_per_replica - _CEIL_TOLERANCE)
-        desired = min(max(needed, self._min_replicas), self._max_replicas)
+        queued = _queued_requests(info)
+        self._last_decision = self._decide(latest, forecast, queued, active, pending)
+        return self._last_decision.action
+
+    def _decide(
+        self, latest: float, forecast: float, queued: float, active: int, pending: int
+    ) -> PredictiveDecision:
+        """Size capacity for forecast arrivals plus backlog recovery and pick an action."""
+        recovery = backlog_recovery_rate(queued, self._control_interval)
+        effective = effective_sizing_demand(forecast, queued, self._control_interval)
+        needed, desired = self._size(effective)
+        _, forecast_only_desired = self._size(forecast)
         committed = active + pending
 
+        action: int
         reason: PredictiveReason
         if desired > committed:
-            action, reason = SCALE_UP, "scale_up"
+            action = SCALE_UP
+            reason = "scale_up" if forecast_only_desired > committed else "queue_recovery"
         elif desired < committed:
-            action, reason = SCALE_DOWN, "scale_down"
+            if queued > 0:
+                action, reason = HOLD, "backlog_hold"  # never remove capacity into a backlog
+            else:
+                action, reason = SCALE_DOWN, "scale_down"
         elif needed > self._max_replicas:
             action, reason = HOLD, "at_max"
         elif needed < self._min_replicas:
@@ -207,10 +265,24 @@ class PredictiveController:
         else:
             action, reason = HOLD, "at_target"
 
-        self._last_decision = PredictiveDecision(
-            latest, forecast, self._horizon, desired, active, pending, action, reason
+        return PredictiveDecision(
+            latest_request_rate=latest,
+            forecast_rps=forecast,
+            forecast_horizon_ticks=self._horizon,
+            queued_requests=queued,
+            backlog_recovery_rps=recovery,
+            effective_demand_rps=effective,
+            desired_replicas=desired,
+            active_replicas=active,
+            pending_replicas=pending,
+            action=action,
+            reason=reason,
         )
-        return action
+
+    def _size(self, demand_rps: float) -> tuple[int, int]:
+        """Return ``(needed, desired)`` replicas for ``demand_rps`` with headroom."""
+        needed = math.ceil(demand_rps / self._capacity_per_replica - _CEIL_TOLERANCE)
+        return needed, min(max(needed, self._min_replicas), self._max_replicas)
 
     def _record_sample(self, info: Mapping[str, Any]) -> None:
         """Add the latest completed tick's demand once, keyed by its tick."""
@@ -233,6 +305,37 @@ class PredictiveController:
             return max(0.0, rates[0])
         slope, intercept = statistics.linear_regression(ticks, rates)
         return max(0.0, intercept + slope * target_tick)
+
+
+def backlog_recovery_rate(queued_requests: float, control_interval_seconds: float) -> float:
+    """Service rate that clears ``queued_requests`` in one control interval."""
+    queued = _require_non_negative("queued_requests", queued_requests)
+    interval = float(control_interval_seconds)
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("control_interval_seconds must be finite and greater than zero")
+    return queued / (BACKLOG_RECOVERY_TICKS * interval)
+
+
+def effective_sizing_demand(
+    forecast_rps: float, queued_requests: float, control_interval_seconds: float
+) -> float:
+    """Forecast arrivals plus backlog recovery: the demand capacity is sized for."""
+    forecast = _require_non_negative("forecast_rps", forecast_rps)
+    return forecast + backlog_recovery_rate(queued_requests, control_interval_seconds)
+
+
+def _queued_requests(info: Mapping[str, Any]) -> float:
+    if "queued_requests" not in info:
+        raise ValueError("info must include queued_requests once a tick has completed")
+    return _require_non_negative("queued_requests", info["queued_requests"])
+
+
+def _require_non_negative(name: str, value: object) -> float:
+    _require_number(name, value)
+    assert isinstance(value, int | float)
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return float(value)
 
 
 def _require_int(name: str, value: object) -> None:

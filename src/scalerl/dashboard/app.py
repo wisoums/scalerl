@@ -599,14 +599,22 @@ def _render_prediction(session: ScenarioSession, decision: PredictiveDecision) -
         return
     seconds = decision.forecast_horizon_ticks * session.config.timing.control_interval_seconds
     st.markdown(
-        f"observed **{decision.latest_request_rate:.1f} RPS** · forecast "
-        f"**{decision.forecast_rps:.1f} RPS** ({decision.forecast_horizon_ticks} ticks / "
-        f"{seconds:g} s ahead) · desired **{decision.desired_replicas}** · decision "
-        f"**{ACTION_LABELS[decision.action]}** · reason `{decision.reason}`"
+        f"observed demand **{decision.latest_request_rate:.1f} RPS** · forecast arrivals "
+        f"**{decision.forecast_rps:.1f} RPS** · waiting queue "
+        f"**{decision.queued_requests:,.0f} requests** · backlog recovery "
+        f"**{decision.backlog_recovery_rps:.1f} RPS** · effective sizing demand "
+        f"**{decision.effective_demand_rps:.1f} RPS**"
+    )
+    st.markdown(
+        f"horizon **{decision.forecast_horizon_ticks} ticks / {seconds:g} s** · desired "
+        f"**{decision.desired_replicas}** · decision **{ACTION_LABELS[decision.action]}** · "
+        f"reason `{decision.reason}`"
     )
     st.caption(
-        "Linear-trend forecast from completed traffic only; it cannot see future ticks. "
-        "Pending replicas count as committed capacity."
+        "Forecast arrivals: linear trend over completed traffic only; it cannot see future "
+        "ticks. Backlog recovery: extra rate to clear the waiting queue in one tick. Capacity "
+        "is sized for their sum, and never scaled down while requests are waiting. Pending "
+        "replicas count as committed capacity."
     )
 
 
@@ -641,6 +649,17 @@ def _render_guidance() -> None:
 - **Neither can know a truly random future spike.** `50 → 80 → 120 → 170` has a trend
   Predictive can extrapolate; `50 → 51 → 49 → 50 → suddenly 400` had no prior signal,
   so it cannot honestly be predicted.
+
+**Forecast vs queue recovery (Predictive)**
+
+- **Forecast arrivals** is only a guess about *new* traffic. **Waiting queue** is work
+  that already arrived and was not served yet; it is not part of the forecast.
+- Predictive sizes capacity for **effective demand = forecast arrivals + backlog
+  recovery**, where backlog recovery = waiting queue ÷ tick length (clear it in one tick).
+- While requests are waiting it never scales down (reason `backlog_hold`); `queue_recovery`
+  means it scales up only because of the queue. This trades extra cost for faster recovery.
+- Queue recovery does not make a random spike predictable: it only helps *after* the
+  overload has built a queue.
 """
         )
 
