@@ -141,7 +141,7 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 ### Full local stack (Docker Compose)
 
 ```bash
-cp .env.example .env
+scripts/setup-local-stack.sh   # once: .env with your UID/GID, outputs/, data/raw/
 docker compose up --build
 ```
 

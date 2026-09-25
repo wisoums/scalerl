@@ -9,7 +9,7 @@ ScaleRL runs in two modes:
 
 Both use the same code: ScaleRL reads `MLFLOW_TRACKING_URI` and an Optuna storage URI, so only configuration changes.
 
-> **Local development/reproducibility only.** This stack is not a hardened, internet-facing production deployment. It uses example credentials from `.env`, has no TLS or authentication in front of the web UIs, and publishes them on `localhost` only.
+> **Local development/reproducibility only.** This stack is not a hardened, internet-facing production deployment. It uses example credentials from `.env`, has no TLS or authentication in front of the web UIs, and binds their host ports to `127.0.0.1` only, so they are not reachable from other machines on your network.
 
 ## Lightweight local mode (SQLite)
 
@@ -25,9 +25,11 @@ Nothing here needs Docker. See [MLOPS.md](MLOPS.md).
 ## Full local stack
 
 ```bash
-cp .env.example .env
+scripts/setup-local-stack.sh   # once: creates .env, outputs/, data/raw/
 docker compose up --build
 ```
+
+`scripts/setup-local-stack.sh` creates `.env` from `.env.example` with `SCALERL_UID`/`SCALERL_GID` set to your user, and makes sure `./outputs` and `./data/raw` exist and belong to you. (Both folders already ship with the checkout.) It never overwrites an existing `.env`. `cp .env.example .env` also works on macOS; on Linux, set the UID/GID yourself.
 
 Then open:
 
@@ -119,11 +121,13 @@ docker compose run --rm trainer \
     python -m scalerl.tuning.threshold --output outputs/threshold-v1.json
 ```
 
-Runs appear at <http://localhost:5000> and studies at <http://localhost:8080>. Small result files such as `outputs/threshold-v1.json` land in the host's `./outputs` (bind-mounted). Durable experiment artifacts, including future trained models, go to MLflow, so nothing important stays inside an exited container. On Linux, set `SCALERL_UID`/`SCALERL_GID` in `.env` to `id -u`/`id -g` so files in `./outputs` belong to you.
+Runs appear at <http://localhost:5000> and studies at <http://localhost:8080>. Small result files such as `outputs/threshold-v1.json` land in the host's `./outputs` (bind-mounted). Durable experiment artifacts, including future trained models, go to MLflow, so nothing important stays inside an exited container.
+
+The trainer runs as `SCALERL_UID:SCALERL_GID` from `.env`, which the setup script sets to your user, so on Linux it can write `./outputs` and its files belong to you. The `./outputs` and `./data/raw` bind mounts use `create_host_path: false`: if a folder is missing, Compose fails with "bind source path does not exist" instead of silently creating it as root. Run `scripts/setup-local-stack.sh` to fix that; if Docker already created one as root, run `sudo chown -R "$(id -u):$(id -g)" outputs data/raw`.
 
 ### Azure data
 
-The raw Azure trace (~291 MB) is **never** part of the Docker build context or any image; `.dockerignore` is an allow-list of `pyproject.toml`, `README.md`, `LICENSE`, `src/`, and `docker/`. At runtime `./data/raw` is bind-mounted **read-only** at `/app/data/raw`, so the default path `data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt` works in the UI and trainer when you have extracted it (see [data/README.md](../data/README.md)). Everything works with an empty `data/raw`; nothing is downloaded automatically.
+The raw Azure trace (~291 MB) is **never** part of the Docker build context or any image; `.dockerignore` is an allow-list of `pyproject.toml`, `README.md`, `LICENSE`, `src/`, and `docker/`. At runtime `./data/raw` is bind-mounted **read-only** at `/app/data/raw`, so the default path `data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt` works in the UI and trainer when you have extracted it (see [data/README.md](../data/README.md)). Everything works with an empty `data/raw` (it ships with only a `.gitkeep`); nothing is downloaded automatically. Because the folder belongs to you, you can drop the extracted trace into it at any time.
 
 ### Persistence
 
@@ -150,7 +154,7 @@ Nothing in ScaleRL or MLflow's tracking contract depends on Garage specifically:
 
 ### Secrets and `.env`
 
-- `cp .env.example .env` before the first launch; `.env` is gitignored and never copied into an image (no `COPY .env`, no secret build `ARG`s).
+- Run `scripts/setup-local-stack.sh` (or `cp .env.example .env`) before the first launch; `.env` is gitignored and never copied into an image (no `COPY .env`, no secret build `ARG`s).
 - The example values are **local development placeholders**, not production-safe secrets. Replace them if you like: `openssl rand -hex 32` for `GARAGE_RPC_SECRET` and `GARAGE_SECRET_ACCESS_KEY`, and `GK` + 24 hex characters for `GARAGE_ACCESS_KEY_ID`. Keep passwords URL-safe, because they appear in database URIs.
 - Compose refuses to start with a clear message if a required variable is missing.
 - Garage credentials changed after the first start are not re-applied to existing volumes; reset with `docker compose down -v` in that case.
@@ -163,7 +167,9 @@ SMOKE_BUILD=1 scripts/compose-smoke.sh   # rebuild images first
 MLFLOW_UI_PORT=5001 scripts/compose-smoke.sh   # shell variables override .env
 ```
 
-It waits for every health check, then checks the three browser URLs. From the trainer on the Compose network, it then:
+It first runs `scripts/setup-local-stack.sh`, waits for every health check, and checks the three browser URLs. From the trainer on the Compose network, it then:
+
+- checks the trainer can write the bind-mounted `outputs/` (the Linux UID/GID setup);
 
 - runs a real tracked ScaleRL evaluation: the predictive baseline on `syn-train-steady-moderate`, a synthetic TRAIN workload that needs no Azure data;
 - checks the run finished with params and metrics;
@@ -183,5 +189,6 @@ The tiny MLflow run stays in the `scalerl-compose-smoke` experiment as evidence.
 | MLflow server | `mlflow==3.16.1` (+ `psycopg[binary]==3.3.6`, `boto3==1.43.102`) |
 | Optuna Dashboard | `optuna-dashboard==0.21.0` with `optuna==5.0.0` |
 | PyTorch (runtime image) | `torch==2.14.0+cpu` |
+| Build backend (ScaleRL wheel) | `hatchling==1.32.4` |
 
-Python dependencies of each image are fully pinned with hashes in `docker/*/requirements.txt`, generated by `scripts/compile-docker-requirements.sh` (rerun it after changing dependencies). The project itself keeps its version ranges in `pyproject.toml`; there is no global lock file. All images are multi-architecture (amd64 and arm64), so the same `compose.yaml` works on Apple Silicon and x86_64 Linux without emulation or a GPU.
+Python dependencies of each image, and the `hatchling` build backend that builds the ScaleRL wheel (`docker/scalerl/build-requirements.txt`, used without build isolation), are fully pinned with hashes in `docker/*/*requirements.txt`, generated by `scripts/compile-docker-requirements.sh` (rerun it after changing dependencies). The project itself keeps its version ranges in `pyproject.toml`; there is no global lock file. All images are multi-architecture (amd64 and arm64), so the same `compose.yaml` works on Apple Silicon and x86_64 Linux without emulation or a GPU.

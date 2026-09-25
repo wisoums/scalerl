@@ -1,12 +1,13 @@
 # ScaleRL local full stack: Scenario Lab, trainer, MLflow, Optuna Dashboard,
 # PostgreSQL metadata, and the S3-compatible artifact store (Garage).
 #
-#   cp .env.example .env
+#   scripts/setup-local-stack.sh   # .env with your UID/GID, outputs/, data/raw/
 #   docker compose up --build
 #
 # Browser: ScaleRL http://localhost:8501 · MLflow http://localhost:5000 ·
-# Optuna Dashboard http://localhost:8080. Local development/reproducibility
-# only, not a hardened internet-facing deployment. See docs/DOCKER.md.
+# Optuna Dashboard http://localhost:8080, bound to 127.0.0.1 only (the UIs are
+# unauthenticated). Local development/reproducibility only, not a hardened
+# internet-facing deployment. See docs/DOCKER.md.
 
 name: ${COMPOSE_PROJECT_NAME:-scalerl}
 
@@ -26,13 +27,18 @@ services:
     <<: [*scalerl-image, *restart]
     init: true
     ports:
-      - "${SCALERL_UI_PORT:-8501}:8501"
+      - "127.0.0.1:${SCALERL_UI_PORT:-8501}:8501"
     environment:
       # Browser-facing URLs for later platform navigation (#59); never Docker DNS names.
       SCALERL_MLFLOW_UI_URL: ${SCALERL_MLFLOW_UI_URL:-http://localhost:5000}
       SCALERL_OPTUNA_DASHBOARD_URL: ${SCALERL_OPTUNA_DASHBOARD_URL:-http://localhost:8080}
     volumes:
-      - ./data/raw:/app/data/raw:ro
+      - type: bind
+        source: ./data/raw
+        target: /app/data/raw
+        read_only: true
+        bind:
+          create_host_path: false  # never let Docker create it as root; see scripts/setup-local-stack.sh
     healthcheck:
       test:
         - CMD
@@ -60,8 +66,17 @@ services:
       SCALERL_MLFLOW_UI_URL: ${SCALERL_MLFLOW_UI_URL:-http://localhost:5000}
       SCALERL_OPTUNA_DASHBOARD_URL: ${SCALERL_OPTUNA_DASHBOARD_URL:-http://localhost:8080}
     volumes:
-      - ./data/raw:/app/data/raw:ro
-      - ./outputs:/app/outputs
+      - type: bind
+        source: ./data/raw
+        target: /app/data/raw
+        read_only: true
+        bind:
+          create_host_path: false  # never let Docker create it as root; see scripts/setup-local-stack.sh
+      - type: bind
+        source: ./outputs
+        target: /app/outputs
+        bind:
+          create_host_path: false
     depends_on:
       mlflow:
         condition: service_healthy
@@ -83,7 +98,7 @@ services:
       # Clients reach it as mlflow:5000 (Compose DNS) or localhost:<port> (browser).
       - --allowed-hosts=mlflow,mlflow:5000,localhost,localhost:*,127.0.0.1,127.0.0.1:*
     ports:
-      - "${MLFLOW_UI_PORT:-5000}:5000"
+      - "127.0.0.1:${MLFLOW_UI_PORT:-5000}:5000"
     environment:
       MLFLOW_BACKEND_STORE_URI: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/mlflow
       # The server proxies artifact uploads/downloads, so ScaleRL clients need no S3 credentials.
@@ -123,7 +138,7 @@ services:
         python -c "import os, optuna; optuna.storages.RDBStorage(os.environ['OPTUNA_STORAGE_URI'])"
         && exec optuna-dashboard --host 0.0.0.0 --port 8080 "$$OPTUNA_STORAGE_URI"
     ports:
-      - "${OPTUNA_DASHBOARD_PORT:-8080}:8080"
+      - "127.0.0.1:${OPTUNA_DASHBOARD_PORT:-8080}:8080"
     environment:
       # The same PostgreSQL database the trainer's Optuna studies use.
       OPTUNA_STORAGE_URI: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/optuna

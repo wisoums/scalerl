@@ -3,6 +3,7 @@
 The running stack is exercised by scripts/compose-smoke.sh, not by pytest.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +31,16 @@ def compose() -> dict[str, Any]:
 
 def services(compose: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = compose["services"]
+    return result
+
+
+def bind(service: dict[str, Any], target: str) -> dict[str, Any]:
+    (mount,) = [
+        volume
+        for volume in service["volumes"]
+        if isinstance(volume, dict) and volume["target"] == target
+    ]
+    result: dict[str, Any] = mount
     return result
 
 
@@ -68,9 +79,10 @@ def test_databases_and_artifact_store_are_not_published(compose: dict[str, Any])
         name: service["ports"] for name, service in services(compose).items() if "ports" in service
     }
     assert published == {
-        "scalerl-ui": ["${SCALERL_UI_PORT:-8501}:8501"],
-        "mlflow": ["${MLFLOW_UI_PORT:-5000}:5000"],
-        "optuna-dashboard": ["${OPTUNA_DASHBOARD_PORT:-8080}:8080"],
+        # Loopback only: these development UIs are unauthenticated.
+        "scalerl-ui": ["127.0.0.1:${SCALERL_UI_PORT:-8501}:8501"],
+        "mlflow": ["127.0.0.1:${MLFLOW_UI_PORT:-5000}:5000"],
+        "optuna-dashboard": ["127.0.0.1:${OPTUNA_DASHBOARD_PORT:-8080}:8080"],
     }
 
 
@@ -131,7 +143,12 @@ def test_trainer_is_an_on_demand_utility(compose: dict[str, Any]) -> None:
     assert trainer["profiles"] == ["trainer"]
     assert "restart" not in trainer
     assert "sleep" not in " ".join(trainer["command"])
-    assert "./outputs:/app/outputs" in trainer["volumes"]
+    assert bind(trainer, "/app/outputs") == {
+        "type": "bind",
+        "source": "./outputs",
+        "target": "/app/outputs",
+        "bind": {"create_host_path": False},
+    }
 
 
 def test_state_lives_in_named_volumes(compose: dict[str, Any]) -> None:
@@ -141,7 +158,13 @@ def test_state_lives_in_named_volumes(compose: dict[str, Any]) -> None:
 
 def test_azure_data_is_mounted_read_only_not_baked(compose: dict[str, Any]) -> None:
     for name in ("scalerl-ui", "trainer"):
-        assert "./data/raw:/app/data/raw:ro" in services(compose)[name]["volumes"]
+        assert bind(services(compose)[name], "/app/data/raw") == {
+            "type": "bind",
+            "source": "./data/raw",
+            "target": "/app/data/raw",
+            "read_only": True,
+            "bind": {"create_host_path": False},
+        }
     for path in DOCKERFILES:
         copies = [
             line for line in path.read_text().splitlines() if line.startswith(("COPY", "ADD"))
@@ -212,3 +235,49 @@ def test_core_import_does_not_pull_infrastructure_drivers() -> None:
     )
 
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_host_bind_directories_ship_with_the_checkout() -> None:
+    # Docker must never create them (as root); a clone already has them, owned by the user.
+    tracked = subprocess.run(
+        ["git", "ls-files", "outputs", "data/raw"], cwd=ROOT, capture_output=True, text=True
+    ).stdout.split()
+    if not (ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    assert set(tracked) == {"outputs/.gitkeep", "data/raw/.gitkeep"}
+
+
+def test_setup_script_prepares_directories_and_env(tmp_path: Path) -> None:
+    for name in ("scripts/setup-local-stack.sh", ".env.example"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text((ROOT / name).read_text())
+    script = tmp_path / "scripts" / "setup-local-stack.sh"
+    script.chmod(0o755)
+
+    subprocess.run([str(script)], check=True, capture_output=True)
+
+    assert (tmp_path / "outputs").is_dir() and (tmp_path / "data" / "raw").is_dir()
+    env = (tmp_path / ".env").read_text()
+    assert f"SCALERL_UID={os.getuid()}\n" in env
+    assert f"SCALERL_GID={os.getgid()}\n" in env
+    # Re-running keeps an existing .env untouched.
+    (tmp_path / ".env").write_text(env + "# mine\n")
+    subprocess.run([str(script)], check=True, capture_output=True)
+    assert (tmp_path / ".env").read_text().endswith("# mine\n")
+
+
+def test_runtime_image_builds_with_the_pinned_backend() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    build_lock = (ROOT / "docker" / "scalerl" / "build-requirements.txt").read_text()
+    backend = re.search(r'build-backend = "(\w+)', (ROOT / "pyproject.toml").read_text())
+
+    assert backend and backend.group(1).split(".")[0] == "hatchling"
+    assert re.search(r"^hatchling==[\d.]+ \\$", build_lock, re.MULTILINE)
+    assert "--hash=sha256:" in build_lock
+    assert "--require-hashes -r /tmp/build-requirements.txt" in dockerfile
+    assert "--no-build-isolation" in dockerfile
+    # The only packages pip installs are hash-pinned or the locally built wheel.
+    installs = re.findall(r"pip (?:install|wheel)[^\n]*", dockerfile)
+    assert installs and all(
+        "--require-hashes" in line or "--no-deps" in line for line in installs
+    ), installs

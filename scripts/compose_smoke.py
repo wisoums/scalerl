@@ -11,6 +11,7 @@ Invoked by scripts/compose-smoke.sh as
 3. Optuna: a tiny throwaway study in ``OPTUNA_STORAGE_URI`` is visible to the
    Optuna Dashboard, then deleted.
 4. The Scenario Lab health endpoint answers on the Compose network.
+5. The trainer can write the bind-mounted ``outputs/`` (host UID/GID setup).
 """
 
 from __future__ import annotations
@@ -91,8 +92,22 @@ def ui_check() -> None:
     check(get(UI_HEALTH).strip() == b"ok", "Scenario Lab health endpoint")
 
 
+def outputs_check() -> None:
+    probe = Path("outputs") / f".compose-smoke-{uuid.uuid4().hex[:8]}"
+    try:
+        probe.write_text("ok")
+    except PermissionError as error:
+        raise SystemExit(
+            f"FAIL: trainer (uid {os.getuid()}) cannot write outputs/: {error}. "
+            "Run scripts/setup-local-stack.sh and match SCALERL_UID/GID to your user."
+        ) from error
+    probe.unlink()
+    check(True, f"trainer (uid {os.getuid()}) can write outputs/")
+
+
 def main() -> int:
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    outputs_check()
     mlflow_checks()
     optuna_checks()
     ui_check()
