@@ -77,9 +77,23 @@ class SlaConfig(_FrozenConfig):
     )
 
 
+class ObservationConfig(_FrozenConfig):
+    """What the environment observation exposes to learned policies."""
+
+    traffic_history_ticks: int = Field(
+        default=4,
+        ge=1,
+        description=(
+            "Completed ticks of demand pressure in the observation, newest first and "
+            "including the latest tick. v1 uses 4 (two minutes at 30 s ticks)."
+        ),
+    )
+
+
 class SimulatorConfig(_FrozenConfig):
     """Complete simulator configuration composed from focused sub-configs."""
 
     timing: TimingConfig = Field(default_factory=TimingConfig)
     replicas: ReplicaConfig = Field(default_factory=ReplicaConfig)
     sla: SlaConfig = Field(default_factory=SlaConfig)
+    observation: ObservationConfig = Field(default_factory=ObservationConfig)
