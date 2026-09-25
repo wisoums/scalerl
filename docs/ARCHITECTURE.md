@@ -20,27 +20,29 @@ The environment consumes `WorkloadTrace`, not a specific generator/source. This 
 
 ### Observation
 
-The v1 observation (`AutoscalingEnv`) is a `Box` in `[0, 1]` describing the state after the last completed tick:
+The v1 observation (`AutoscalingEnv`) is a `Box` in `[0, 1]` describing the state after the last completed tick. With `h = observation.traffic_history_ticks` (v1: 4) and `k` pending-readiness buckets:
 
 | Index | Feature |
 |---|---|
-| 0 | demand pressure: `rate / (rate + max_replicas * service_capacity_rps)` |
-| 1 | utilization of active capacity |
-| 2 | queue pressure: `queued / (queued + max-fleet capacity per tick)` |
-| 3 | latency pressure: `p95 / (p95 + latency_target)` |
-| 4 | active replicas / `max_replicas` |
-| 5 | tick cost / cost of `max_replicas` for one tick |
-| 6 | episode progress |
-| 7 … 7+k−1 | pending replicas that activate after 1 … k more ticks, each / `max_replicas` |
+| 0 … h−1 | recent demand pressure, newest first: `0` = latest completed tick, `h−1` = oldest (zero until enough ticks have run); each `rate / (rate + max_replicas * service_capacity_rps)` |
+| h | utilization of active capacity |
+| h+1 | queue pressure: `queued / (queued + max-fleet capacity per tick)` |
+| h+2 | latency pressure: `p95 / (p95 + latency_target)` |
+| h+3 | active replicas / `max_replicas` |
+| h+4 | tick cost / cost of `max_replicas` for one tick |
+| h+5 | episode progress |
+| h+6 … h+6+k−1 | pending replicas that activate after 1 … k more ticks, each / `max_replicas` |
 
-The observation size is config-dependent:
+`AutoscalingEnv.observation_features` names every position. The observation size is config-dependent:
 
 ```text
-observation_size = 7 + ceil(startup_delay_seconds / control_interval_seconds)   # delay > 0
-observation_size = 7                                                            # delay == 0
+observation_size = h + 6 + k
+k = ceil(startup_delay_seconds / control_interval_seconds)   # 0 when startup delay is 0
 ```
 
-Bucketing pending replicas by readiness keeps the observation Markov when startup delay spans several ticks. For a fixed `SimulatorConfig` the shape never changes across workloads, seeds, resets, actions, or episodes; changing startup delay or control interval may change it.
+The v1 default (`h = 4`, 60 s startup delay, 30 s ticks, so `k = 2`) has 12 features. `h = 1` reproduces the earlier `7 + k` layout. The traffic history only ever contains demand consumed by completed ticks; the next workload value is never observed.
+
+Bucketing pending replicas by readiness keeps the observation Markov when startup delay spans several ticks. For a fixed `SimulatorConfig` the shape never changes across workloads, seeds, resets, actions, or episodes; changing the traffic history length, startup delay, or control interval may change it.
 
 **Model compatibility:** a trained DQN/PPO policy is only directly usable with an environment whose observation/action spaces match its training environment. MLflow model/run metadata records this contract; training/serving code must reject obvious incompatibilities rather than silently loading them.
 

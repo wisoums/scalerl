@@ -129,6 +129,7 @@ class EnvironmentCompatibility(_Strict):
     service_capacity_rps: float
     cost_per_hour: float
     latency_target_seconds: float
+    traffic_history_ticks: int
     benchmark_version: str | None = None
 
     @classmethod
@@ -149,6 +150,7 @@ class EnvironmentCompatibility(_Strict):
             service_capacity_rps=replicas.service_capacity_rps,
             cost_per_hour=replicas.cost_per_hour,
             latency_target_seconds=env.config.sla.latency_target_seconds,
+            traffic_history_ticks=env.config.observation.traffic_history_ticks,
             benchmark_version=benchmark_version,
         )
 

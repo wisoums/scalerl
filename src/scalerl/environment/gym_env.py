@@ -18,18 +18,25 @@ Each ``step`` runs one tick in this order:
 New replicas therefore serve no traffic until their startup delay has elapsed,
 unless the delay is zero.
 
-Observations (``Box([0, 1]^(7 + k))``) describe the state after the last
-completed tick; at reset there is no completed tick, so traffic features are zero:
+Observations (``Box([0, 1]^(h + 6 + k))``) describe the state after the last
+completed tick; at reset there is no completed tick, so traffic features are zero.
+With ``h = observation.traffic_history_ticks`` (v1: 4):
 
-0. demand pressure: ``rate / (rate + max_replicas * service_capacity_rps)``
-1. utilization of active capacity
-2. queue pressure: ``queued / (queued + max-fleet capacity per tick)``
-3. latency pressure: ``p95 / (p95 + latency_target)``
-4. active replicas / ``max_replicas``
-5. tick cost / cost of ``max_replicas`` for one tick
-6. episode progress: completed ticks / episode ticks
-7. ... 7 + k - 1: pending replicas that become active after 1 ... k more ticks,
-   each / ``max_replicas``
+0 ... h - 1. demand pressure of the latest ``h`` completed ticks, newest first
+   (``0`` = latest, ``h - 1`` = oldest; zero until enough ticks have run), each
+   ``rate / (rate + max_replicas * service_capacity_rps)``
+h. utilization of active capacity
+h + 1. queue pressure: ``queued / (queued + max-fleet capacity per tick)``
+h + 2. latency pressure: ``p95 / (p95 + latency_target)``
+h + 3. active replicas / ``max_replicas``
+h + 4. tick cost / cost of ``max_replicas`` for one tick
+h + 5. episode progress: completed ticks / episode ticks
+h + 6 ... h + 6 + k - 1. pending replicas that become active after 1 ... k more
+   ticks, each / ``max_replicas``
+
+``observation_features`` names every position. The traffic history holds only
+demand consumed by completed ticks, never the next workload value.
+``h = 1`` reproduces the earlier single-demand layout (``7 + k``).
 
 ``k = ceil(startup_delay_seconds / control_interval_seconds)`` (0 with no
 delay). Bucketing pending replicas by readiness keeps the observation Markov:
@@ -45,6 +52,7 @@ must span exactly one episode, is exhausted.
 from __future__ import annotations
 
 import math
+from collections import deque
 from typing import Any, SupportsFloat
 
 import gymnasium as gym
@@ -92,14 +100,25 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
 
         pending_buckets = len(self._pending_buckets())
         self.action_space = spaces.Discrete(3)
+        self._history_ticks = config.observation.traffic_history_ticks
+        self._demand_history: deque[float] = deque(maxlen=self._history_ticks)
+        self._observation_features = (
+            *(f"demand_pressure_t-{age}" for age in range(self._history_ticks)),
+            "utilization",
+            "queue_pressure",
+            "latency_pressure",
+            "active_replicas_fraction",
+            "tick_cost_fraction",
+            "episode_progress",
+            *(f"pending_ready_in_{ticks}" for ticks in range(1, pending_buckets + 1)),
+        )
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(7 + pending_buckets,), dtype=np.float32
+            low=0.0, high=1.0, shape=(len(self._observation_features),), dtype=np.float32
         )
         self._queue = RequestQueue(config.replicas, config.timing)
         self._max_service_rate = config.replicas.max_replicas * config.replicas.service_capacity_rps
         self._max_tick_capacity = max_tick_capacity_of(config)
         self._max_tick_cost = max_tick_cost_of(config)
-        self._last_request_rate = 0.0
         self._last_metrics: TickMetrics | None = None
         self._needs_reset = True
 
@@ -107,6 +126,11 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
     def episode_ticks(self) -> int:
         """Return the number of steps in one episode."""
         return self._episode_ticks
+
+    @property
+    def observation_features(self) -> tuple[str, ...]:
+        """Name of every observation position, in order."""
+        return self._observation_features
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
@@ -116,7 +140,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._replay.reset()
         self._pool.reset()
         self._queue.reset()
-        self._last_request_rate = 0.0
+        self._demand_history.clear()
         self._last_metrics = None
         self._needs_reset = False
         return self._observation(), self.replica_counts | {"tick": 0, "time_seconds": 0.0}
@@ -163,8 +187,8 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._pool.advance(self.config.timing.control_interval_seconds)
         self._clock.step()
 
-        # 8. next observation and info
-        self._last_request_rate = request_rate
+        # 8. next observation and info: history gains only the demand this tick consumed
+        self._demand_history.appendleft(self._demand_pressure(request_rate))
         self._last_metrics = metrics
         truncated = self._replay.is_exhausted
         self._needs_reset = truncated
@@ -192,8 +216,12 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         }
         return self._observation(), breakdown.reward, False, truncated, info
 
+    def _demand_pressure(self, rate: float) -> float:
+        return rate / (rate + self._max_service_rate)
+
     def _observation(self) -> Observation:
-        rate = self._last_request_rate
+        history = [*self._demand_history]
+        history += [0.0] * (self._history_ticks - len(history))
         queued = self._queue.queue_depth
         max_replicas = self.config.replicas.max_replicas
         metrics = self._last_metrics
@@ -213,7 +241,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
 
         return np.array(
             [
-                rate / (rate + self._max_service_rate),
+                *history,
                 utilization,
                 queued / (queued + self._max_tick_capacity),
                 latency_pressure,

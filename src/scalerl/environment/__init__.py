@@ -1,7 +1,13 @@
 """Simulation environment components for ScaleRL."""
 
 from scalerl.environment.clock import SimulationClock
-from scalerl.environment.config import ReplicaConfig, SimulatorConfig, SlaConfig, TimingConfig
+from scalerl.environment.config import (
+    ObservationConfig,
+    ReplicaConfig,
+    SimulatorConfig,
+    SlaConfig,
+    TimingConfig,
+)
 from scalerl.environment.gym_env import AutoscalingEnv
 from scalerl.environment.metrics import TickMetrics, compute_tick_metrics
 from scalerl.environment.queue import QueueStepResult, RequestQueue
@@ -15,6 +21,7 @@ from scalerl.environment.reward import (
 
 __all__ = [
     "MAX_REWARD_WEIGHT",
+    "ObservationConfig",
     "AutoscalingEnv",
     "QueueStepResult",
     "ReplicaConfig",

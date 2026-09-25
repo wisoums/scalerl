@@ -14,6 +14,23 @@ ScaleRL evaluates every controller under the same simulator configuration and wo
 
 Random/static are sanity/reference points. The tuned threshold and predictive controllers are the meaningful non-RL bars for deep RL.
 
+### Controller information sets
+
+| Controller | Decides from |
+|---|---|
+| Random / Static | nothing / current replica counts |
+| Threshold | current utilization and replica counts (reactive, no history) |
+| Predictive (#14) | its own explicit forecast from past demand |
+| DQN / PPO | the environment observation, including the recent traffic window below |
+
+### Recent traffic context
+
+For v1, learned policies receive the latest four completed demand observations, newest first: `t`, `t−1`, `t−2`, `t−3` (`observation.traffic_history_ticks = 4`). At the 30-second benchmark interval this is two minutes of short-term traffic context.
+
+No future workload values are exposed: the window only contains demand from ticks that have already run. It lets learned policies recognize short-term trends (rising, falling, stable demand) but does not make unpredictable future spikes knowable. The predictive baseline (#14) remains the explicit forecasting controller.
+
+The history length is a predeclared v1 design choice, not tuned, and never chosen on held-out test workloads. It is part of model compatibility, so the main comparison holds it fixed across learned controllers.
+
 ## Workloads
 
 ### Synthetic
