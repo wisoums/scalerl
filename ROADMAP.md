@@ -2,7 +2,7 @@
 
 **Portfolio-ready v1.0 target: October 31, 2026.**
 
-The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> recent-traffic RL observation -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> held-out multi-seed analysis -> portfolio demo.
+The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> recent-traffic RL observation -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> robustness scenarios -> held-out multi-seed analysis -> portfolio demo.
 
 ## Completed — M0/M1 foundations
 
@@ -68,7 +68,8 @@ DQN training is reproducible from config/container, produces an MLflow run and m
 ### Must have
 
 - #16 PPO training using the same run contract and #54 Optuna tuning infrastructure
-- #19 multi-seed evaluation/statistical summaries
+- #65 stochastic dynamics + delayed-telemetry robustness scenarios after DQN/PPO are available
+- #19 multi-seed evaluation/statistical summaries across nominal/robustness conditions
 - identical controller evaluation schema
 - model/environment compatibility checks
 
@@ -81,7 +82,8 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 ### Must have
 
 - #20 reward-function ablation
-- #46 held-out Azure trace comparison
+- #65 robustness settings frozen before held-out analysis
+- #46 held-out Azure trace comparison under nominal + predeclared robustness conditions
 - latency/SLA/cost/queue/churn analysis
 - per-seed raw results and dispersion
 - MLflow run IDs for reported results
@@ -122,7 +124,7 @@ ScaleRL v1.0 is portfolio-ready when:
 4. DQN and PPO train reproducibly;
 5. training/evaluation runs are tracked in MLflow with config/model artifacts;
 6. Docker and CI reproduce the relevant smoke pipeline on a clean machine, with ScaleRL, Optuna Dashboard, and MLflow available through the documented local platform stack;
-7. final evaluation uses held-out workloads and multiple seeds;
+7. final evaluation uses held-out workloads and multiple seeds, with predeclared stochastic/delayed-telemetry robustness checks;
 8. at least part of the final evaluation uses attributed real Azure production traces;
 9. results report raw systems metrics rather than only RL return;
 10. another developer can reproduce the principal benchmark from documented commands.
