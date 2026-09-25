@@ -62,6 +62,12 @@ class TrackedRun:
             entries.append(Metric(key, float(value), timestamp, step or 0))
         self._client.log_batch(self._run_id, metrics=entries)
 
+    def set_tag(self, key: str, value: str) -> None:
+        """Attach a searchable string tag, e.g. to link the run to a tuning trial."""
+        if not isinstance(value, str):
+            raise TypeError(f"tag {key!r} must be a string, got {value!r}")
+        self._client.set_tag(self._run_id, key, value)
+
     def log_artifact_dict(
         self, name: str, payload: Mapping[str, Any], *, artifact_path: str | None = None
     ) -> None:

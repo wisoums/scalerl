@@ -18,8 +18,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install project
-        # mlops and dashboard are included so the MLflow and Streamlit tests actually run.
-        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops,dashboard]"
+        # mlops, dashboard, and tuning are included so the MLflow, Streamlit, and Optuna
+        # tests actually run.
+        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops,dashboard,tuning]"
       - name: Lint
         run: ruff check .
       - name: Format check
@@ -48,6 +49,6 @@ jobs:
           /tmp/scalerl-wheel-smoke/bin/pip install dist/*.whl
           /tmp/scalerl-wheel-smoke/bin/python -c "import scalerl"
           cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
-          # Installed without extras: core, scalerl.mlops, and scalerl.dashboard must import
-          # without MLflow or Streamlit.
-          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard; assert 'mlflow' not in sys.modules and 'streamlit' not in sys.modules"
+          # Installed without extras: core, scalerl.mlops, scalerl.dashboard, and scalerl.tuning
+          # must import without MLflow, Streamlit, or Optuna.
+          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard, scalerl.tuning; assert not {'mlflow', 'streamlit', 'optuna'} & set(sys.modules)"

@@ -64,6 +64,16 @@ Azure capacity or other simulator calibration may use **train and validation wor
 
 Tracking enforces this: calibration workload IDs from the test split are rejected, and `train`/`tune` runs cannot target test workloads. Azure demand itself is never normalized or rescaled.
 
+## Hyperparameter tuning
+
+Threshold, predictive, DQN, and PPO tuning run as Optuna studies through `scalerl.tuning` (see [MLOPS.md](MLOPS.md#hyperparameter-search-optuna)):
+
+- Optuna proposes configurations; MLflow records every evaluation; the benchmark manifest decides which workloads may be used.
+- Studies may use **train and validation workloads only**. Held-out test workloads are rejected by `StudySpec` and never participate in tuning, pruning, or model selection.
+- A trial that evaluates several workloads creates one MLflow run per workload and aggregates them into its objective; the trial records all of its run IDs and every run records its study and trial.
+- Each consumer (#13, #15, #16) defines and versions its own objective, e.g. a documented combination of or constraint on cost, SLA violation rate, p95 latency, queue, churn, and reward. Highest reward alone is not assumed to be best.
+- Studies are seeded, sequential by default, and resumable from local SQLite storage.
+
 ## Fair comparison
 
 For every final comparison:

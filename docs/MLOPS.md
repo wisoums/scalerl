@@ -107,6 +107,105 @@ No URL is hard-coded. `tracking_uri=None` honors `MLFLOW_TRACKING_URI` and MLflo
 
 Unit tests use a temporary SQLite store and never contact a server.
 
+## Hyperparameter search (Optuna)
+
+Responsibilities stay separate:
+
+| Component | Answers |
+|---|---|
+| **Optuna** (`scalerl.tuning`) | What configuration should we try next? |
+| **MLflow** (`scalerl.mlops`) | What exactly happened when we tried it? (canonical lineage) |
+| **Benchmark manifest** (#18) | Which workloads may be used for tuning? (train/validation only) |
+| **Scenario Lab** ([CITY_VIEW.md](CITY_VIEW.md)) | What does one simulation look like, interactively? |
+
+Install with `pip install -e ".[tuning]"`, which brings Optuna 5.x and the `mlops` extra (MLflow), since trials log through `context.track`. `StudySpec` and `require_tuning_workloads` work without Optuna; `run_study` raises an `ImportError` with this install hint otherwise. ScaleRL does not use Optuna's deprecated `MLflowCallback`; trials log through `start_tracked_run` like every other run.
+
+### Running a study
+
+```python
+from scalerl.tuning import StudySpec, TrialContext, run_study
+
+spec = StudySpec(
+    name="threshold-v1",
+    objective_name="threshold-cost-sla",
+    objective_version="v1",
+    search_space_version="v1",
+    direction="minimize",
+    tuning_workload_ids=("syn-train-spike", "syn-val-bursty"),  # train/validation only
+    sampler="grid",  # grid | tpe | random
+    sampler_seed=42,
+    grid={
+        "high_threshold": [0.6, 0.7, 0.8],
+        "low_threshold": [0.2, 0.3],
+        "cooldown_ticks": [3, 5, 10],
+    },
+    storage="sqlite:///optuna.db",  # None = in-memory
+)
+
+
+def objective(context: TrialContext) -> float:
+    high = context.trial.suggest_categorical("high_threshold", [0.6, 0.7, 0.8])
+    ...
+    scores = []
+    for workload_id in spec.tuning_workload_ids:
+        with context.track(run_spec_for(workload_id), experiment_name="threshold-v1") as run:
+            ...  # evaluate one workload, log its metrics
+            scores.append(score)
+    return aggregate(scores)
+
+
+study = run_study(spec, objective)
+```
+
+The objective and its selection metric belong to the consumer (#13, #15, #16). The shared layer never assumes that the highest RL reward is the best autoscaler; it records the objective name, objective version, search-space version, and value.
+
+### One trial, many MLflow runs
+
+MLflow keeps its one-workload-per-run lineage (#17). A trial that evaluates several workloads opens one run per workload through `context.track(run_spec)`, then aggregates them into the trial value:
+
+```text
+Optuna trial 7 (high=0.8, low=0.2, cooldown=5)
+├── syn-train-spike   → MLflow run A
+├── syn-val-bursty    → MLflow run B
+└── azure-val-734400  → MLflow run C
+aggregate objective   → trial 7 value
+```
+
+Links go both ways:
+
+- the trial's `mlflow_run_ids` user attribute lists every run ID in order (recorded as soon as each run starts, so a failed trial still points to its runs);
+- when the trial ends, **every** one of its runs is tagged `scalerl.optuna.trial_state` with the final Optuna state (`COMPLETE`, `PRUNED`, or `FAIL`), including runs that closed before the trial was pruned or failed;
+- each run carries `scalerl.optuna.study` and `scalerl.optuna.trial` tags and `hp.optuna.*` params: study, trial, sampler, sampler seed, pruner, objective name/version, search-space version, storage (credentials stripped), and the trial's suggested parameters (`hp.optuna.params.*`).
+
+`context.track` only accepts `train`/`tune` runs on the study's declared tuning workloads.
+
+### Storage, resume, and determinism
+
+- `storage=None` is in-memory; `sqlite:///optuna.db` persists locally. No Optuna server is needed.
+- `n_trials` is the study's **total** budget. Re-running the same spec loads the existing study and runs only the remaining trials, so an interrupted study continues where it stopped without repeating finished trials. A grid study with `n_trials=None` runs until every combination is done.
+- The study stores its definition (objective, versions, workloads, sampler, seed, grid, pruner). Resuming with a different definition is refused; use a new study name.
+- Samplers are always seeded, and **a resumed study proposes exactly the same trials as an uninterrupted one**. Optuna does not persist a sampler's random state, so random and TPE sampling are seeded per trial from `(sampler_seed, trial number)`; the grid sampler reads visited combinations from storage. Without this, a resumed study would restart its random sequence and repeat earlier configurations.
+- Trials run sequentially by default (`n_jobs=1`). `n_jobs > 1` is available explicitly, but parallel completion order can change the history that adaptive samplers such as TPE see.
+- Multi-objective studies are deferred until a consumer needs them.
+
+### Trial states
+
+| Outcome | Optuna trial | MLflow run |
+|---|---|---|
+| objective returns | `COMPLETE` | `FINISHED` |
+| objective raises | `FAIL` (error re-raised unless its type is in `run_study(..., catch=...)`) | `FAILED` if raised inside `track`, otherwise `FINISHED` |
+| `context.prune()` | `PRUNED` | `FINISHED` |
+
+Every run of the trial is also tagged `scalerl.optuna.trial_state` with that Optuna state, so the trial outcome is visible on each run regardless of its own status.
+
+Pruning plumbing (`pruner="median"`, `context.report`, `context.should_prune`) is available but only meaningful once training exposes legitimate train/validation intermediate metrics (#15/#16). Never prune on held-out test results.
+
+### Tuning guardrails
+
+- `StudySpec` rejects any `tuning_workload_ids` outside the manifest's train/validation splits; `azure-test-993600` or any other held-out workload fails immediately.
+- Each tracked run is additionally validated by `RunSpec` (#17), including simulator-config provenance: calibrated configs cite train/validation workloads only.
+- Final held-out evaluation is never part of an Optuna study.
+
 ## Docker
 
 Two container concerns are intentionally separate:
@@ -127,12 +226,12 @@ PR / push
 ├── Ruff lint
 ├── Ruff format check
 ├── mypy
-├── pytest + coverage (installed with dev,mlops,dashboard, so MLflow tracking and
-│   Streamlit City View tests run; MLflow uses a temporary SQLite store)
+├── pytest + coverage (installed with dev,mlops,dashboard,tuning, so MLflow,
+│   Streamlit City View, and tiny Optuna study tests run on temporary SQLite stores)
 ├── sdist/wheel build
-└── clean wheel install/import smoke (no extras: core, scalerl.mlops, and
-    scalerl.dashboard import without MLflow or Streamlit; packaged benchmark
-    manifest loads)
+└── clean wheel install/import smoke (no extras: core, scalerl.mlops,
+    scalerl.dashboard, and scalerl.tuning import without MLflow, Streamlit, or
+    Optuna; packaged benchmark manifest loads)
 ```
 
 ### Planned in Issue #45
