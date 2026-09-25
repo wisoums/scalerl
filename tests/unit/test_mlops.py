@@ -542,6 +542,18 @@ def test_invalid_metric_values_are_rejected(
             run.log_metric("infrastructure_cost", 1.0, step=-1)
 
 
+def test_caller_tags_are_logged(tracking_uri: str) -> None:
+    with start_tracked_run(make_spec(), tracking_uri=tracking_uri) as run:
+        run.set_tag("scalerl.optuna.study", "threshold-v1")
+        with pytest.raises(TypeError, match="must be a string"):
+            run.set_tag("scalerl.optuna.trial", 7)  # type: ignore[arg-type]
+        run_id = run.run_id
+
+    tags = MlflowClient(tracking_uri).get_run(run_id).data.tags
+    assert tags["scalerl.optuna.study"] == "threshold-v1"
+    assert "scalerl.optuna.trial" not in tags
+
+
 def test_caller_artifacts_are_logged(tracking_uri: str, tmp_path: Path) -> None:
     evaluation = tmp_path / "evaluation.csv"
     evaluation.write_text("tick,reward\n0,-1.0\n")
