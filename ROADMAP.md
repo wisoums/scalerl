@@ -39,7 +39,7 @@ The critical path is now: deterministic environment -> fair baselines -> frozen 
 - **#37 Streamlit Scenario Lab City View foundation immediately after #17**
 - #54 shared Optuna hyperparameter optimization infrastructure
 - #58 four-tick recent traffic history in the RL observation contract
-- #44 reproducible Docker training + MLflow/PostgreSQL/MinIO stack
+- #44 reproducible Docker training + Optuna Dashboard + MLflow/PostgreSQL/MinIO stack
 - #45 full CI pipeline including package, container, short SB3, and MLflow smoke tests
 
 ### Exit condition
@@ -98,7 +98,8 @@ There is reproducible evidence to answer the research question on both controlle
 - architecture/results diagrams
 - polish the earlier #37 Scenario Lab City View and #56 Live City playback
 - #38 controller replay/comparison if time permits
-- #39 MLflow-backed saved Results Explorer if time permits
+- #59 unified ScaleRL platform navigation + native Optuna/MLflow integration
+- #39 ScaleRL Experiment Hub / MLflow-backed saved Results Explorer if time permits
 - tagged v1.0 release
 
 ### Production-inspired follow-ups
@@ -119,7 +120,7 @@ ScaleRL v1.0 is portfolio-ready when:
 3. training/validation/test workloads are explicitly separated before final tuning;
 4. DQN and PPO train reproducibly;
 5. training/evaluation runs are tracked in MLflow with config/model artifacts;
-6. Docker and CI reproduce the relevant smoke pipeline on a clean machine;
+6. Docker and CI reproduce the relevant smoke pipeline on a clean machine, with ScaleRL, Optuna Dashboard, and MLflow available through the documented local platform stack;
 7. final evaluation uses held-out workloads and multiple seeds;
 8. at least part of the final evaluation uses attributed real Azure production traces;
 9. results report raw systems metrics rather than only RL return;
