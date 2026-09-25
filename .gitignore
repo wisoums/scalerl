@@ -33,6 +33,8 @@ models/
 mlruns/
 mlartifacts/
 mlflow.db
+optuna.db
+outputs/
 postgres-data/
 minio-data/
 
