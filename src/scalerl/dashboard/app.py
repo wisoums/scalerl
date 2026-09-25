@@ -49,6 +49,29 @@ SPLIT_LABELS = {
 }
 ACTION_DELTAS = {SCALE_DOWN: -1, HOLD: 0, SCALE_UP: 1}
 
+SOURCE_HELP = (
+    "Benchmark v1 uses the frozen, versioned workload suite from Issue #18 so experiments "
+    "can be reproduced. Custom synthetic creates an exploratory traffic pattern from the "
+    "parameters you choose and is not part of the frozen benchmark."
+)
+WORKLOAD_HELP = (
+    "A workload is the request-rate pattern the simulated service receives over time. "
+    "Benchmark workloads are preconfigured and frozen; selecting one does not change its "
+    "traffic parameters."
+)
+WORKLOAD_SHAPE_HELP = {
+    "steady": "Steady: a constant request rate for the whole episode.",
+    "diurnal": "Seasonal/diurnal: demand rises and falls smoothly in a repeating pattern.",
+    "ramp": "Ramp: demand gradually increases or decreases over the episode.",
+    "spike": "Spike: normal traffic interrupted by a sudden temporary surge.",
+    "bursty": "Bursty: random bursts around a baseline request rate.",
+}
+MANAGER_HELP = (
+    "The manager/controller chooses one action each tick: scale down, hold, or scale up. "
+    "Manual lets you choose; Random is a sanity-check baseline; Static targets a fixed fleet; "
+    "Threshold reacts to utilization."
+)
+
 # Starting values for custom generators (same shapes as the v1 training scenarios).
 CUSTOM_DEFAULTS: dict[str, dict[str, float | int]] = {
     "steady": {"rate": 100.0},
@@ -101,7 +124,9 @@ def main() -> None:
 def _sidebar() -> tuple[BuildRequest, bool]:
     bar = st.sidebar
     bar.header("Scenario")
-    source = bar.radio("Source", ["Benchmark v1", "Custom synthetic"], key="source")
+    source = bar.radio(
+        "Source", ["Benchmark v1", "Custom synthetic"], key="source", help=SOURCE_HELP
+    )
     duration, interval = _timing(source)
     build_scenario = (
         _benchmark_form() if source == "Benchmark v1" else _custom_form(duration, interval)
@@ -109,13 +134,21 @@ def _sidebar() -> tuple[BuildRequest, bool]:
 
     bar.header("Simulator")
     defaults = SimulatorConfig().replicas
-    min_replicas = bar.number_input("Min replicas", 1, 100, defaults.min_replicas, key="min")
-    initial_replicas = bar.number_input(
-        "Initial replicas", 1, 100, defaults.initial_replicas, key="initial"
+    min_replicas = bar.number_input(
+        "Min replicas", 1, 100, defaults.min_replicas, key="min",
+        help="Lowest replica count the simulated deployment is allowed to have.",
     )
-    max_replicas = bar.number_input("Max replicas", 1, 100, defaults.max_replicas, key="max")
+    initial_replicas = bar.number_input(
+        "Initial replicas", 1, 100, defaults.initial_replicas, key="initial",
+        help="Number of active replicas available when the episode begins.",
+    )
+    max_replicas = bar.number_input(
+        "Max replicas", 1, 100, defaults.max_replicas, key="max",
+        help="Highest replica count the controller is allowed to request.",
+    )
     startup_delay = bar.number_input(
-        "Startup delay (s)", 0.0, 3600.0, defaults.startup_delay_seconds, 30.0, key="delay"
+        "Startup delay (s)", 0.0, 3600.0, defaults.startup_delay_seconds, 30.0, key="delay",
+        help="Simulated time between requesting a new replica and that replica becoming able to serve traffic.",
     )
     capacity = bar.number_input(
         "Service capacity per replica (RPS)",
@@ -123,9 +156,11 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         10_000.0,
         defaults.service_capacity_rps,
         key="capacity",
+        help="Maximum request rate one active replica can process. Demand above total active capacity builds a queue.",
     )
     cost = bar.number_input(
-        "Cost per replica-hour ($)", 0.0, 1000.0, defaults.cost_per_hour, 0.05, key="cost"
+        "Cost per replica-hour ($)", 0.0, 1000.0, defaults.cost_per_hour, 0.05, key="cost",
+        help="Simulated infrastructure price for keeping one replica active for one hour.",
     )
     sla = bar.number_input(
         "SLA p95 target (s)",
@@ -134,11 +169,13 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         SimulatorConfig().sla.latency_target_seconds,
         0.05,
         key="sla",
+        help="Maximum acceptable p95 latency. A completed tick violates the SLA when p95 latency exceeds this target.",
     )
 
     bar.header("Manager")
     kind: ManagerKind = bar.selectbox(
-        "City manager", list(MANAGERS), format_func=MANAGERS.__getitem__, key="manager"
+        "City manager", list(MANAGERS), format_func=MANAGERS.__getitem__, key="manager",
+        help=MANAGER_HELP,
     )
     manager = _manager_form(
         kind,
@@ -173,7 +210,10 @@ def _sidebar() -> tuple[BuildRequest, bool]:
 def _benchmark_form() -> Callable[[], Scenario]:
     bar = st.sidebar
     manifest = load_benchmark_manifest()
-    show_test = bar.checkbox("Show held-out final-evaluation scenarios", key="show_test")
+    show_test = bar.checkbox(
+        "Show held-out final-evaluation scenarios", key="show_test",
+        help="Reveals the frozen test split. These scenarios are reserved for final evaluation and must not be used to tune controllers, rewards, models, or simulator settings.",
+    )
     if show_test:
         bar.warning(HELD_OUT_WARNING)
     entries = {entry.id: entry for entry in benchmark_choices(manifest, include_test=show_test)}
@@ -182,12 +222,21 @@ def _benchmark_form() -> Callable[[], Scenario]:
         list(entries),
         format_func=lambda id_: f"{id_} · {SPLIT_LABELS[entries[id_].split]}",
         key="workload",
+        help=WORKLOAD_HELP,
     )
     entry = entries[workload_id]
     bar.caption(
         f"Source: {entry.source} · split: {SPLIT_LABELS[entry.split]} · "
         f"{entry.duration_seconds:g} s at {entry.control_interval_seconds:g} s ticks"
     )
+    if isinstance(entry, AzureWorkload):
+        bar.caption("Real Azure Functions trace window with frozen start/duration parameters.")
+    else:
+        shape = getattr(entry, "generator", "")
+        bar.caption(
+            f"{WORKLOAD_SHAPE_HELP.get(shape, 'Frozen synthetic traffic pattern.')} "
+            "Its parameters are already fixed by Benchmark v1."
+        )
     azure_path: str | None = None
     if isinstance(entry, AzureWorkload):
         azure_path = bar.text_input(
@@ -201,7 +250,11 @@ def _benchmark_form() -> Callable[[], Scenario]:
 
 def _custom_form(duration: float, interval: float) -> Callable[[], Scenario]:
     bar = st.sidebar
-    generator: str = bar.selectbox("Generator", list(CUSTOM_GENERATORS), key="generator")
+    generator: str = bar.selectbox(
+        "Generator", list(CUSTOM_GENERATORS), key="generator",
+        help="Choose the shape of the synthetic request-rate pattern you want to create.",
+    )
+    bar.caption(WORKLOAD_SHAPE_HELP[generator])
     parameters: dict[str, Any] = {}
     for name, default in CUSTOM_DEFAULTS[generator].items():
         label = name.replace("_", " ")
@@ -237,7 +290,10 @@ def _manager_form(
 ) -> ManagerSpec:
     bar = st.sidebar
     if kind == "random":
-        seed = int(bar.number_input("Seed", 0, 2**31 - 1, 0, key="random_seed"))
+        seed = int(bar.number_input(
+            "Seed", 0, 2**31 - 1, 0, key="random_seed",
+            help="Makes the Random controller reproduce the same action sequence when reset.",
+        ))
         return ManagerSpec(kind, seed=seed)
     if kind == "static":
         target_default = min(max(initial_replicas, min_replicas), max_replicas)
@@ -248,13 +304,20 @@ def _manager_form(
                 max_replicas,
                 target_default,
                 key="target",
+                help="Fixed total replica target. Static does not react to traffic; it moves toward this fleet size and then holds.",
             )
         )
         return ManagerSpec(kind, target_replicas=target)
     if kind == "threshold":
-        low = float(bar.number_input("Low utilization threshold", 0.0, 0.99, 0.3, 0.05, key="low"))
+        low = float(bar.number_input(
+            "Low utilization threshold", 0.0, 0.99, 0.3, 0.05, key="low",
+            help="When utilization falls below this value, Threshold tends to scale down if replica bounds allow it.",
+        ))
         high = float(
-            bar.number_input("High utilization threshold", 0.01, 0.99, 0.8, 0.05, key="high")
+            bar.number_input(
+                "High utilization threshold", 0.01, 0.99, 0.8, 0.05, key="high",
+                help="When utilization rises above this value, Threshold tends to scale up if replica bounds allow it.",
+            )
         )
         bar.caption("Replica bounds follow the simulator min/max.")
         return ManagerSpec(kind, low_threshold=low, high_threshold=high)
@@ -300,6 +363,7 @@ def _render(session: ScenarioSession) -> None:
     with panel:
         _render_manager(session)
     _render_history(session)
+    _render_guidance()
 
 
 def _render_city(session: ScenarioSession) -> None:
@@ -399,6 +463,41 @@ def _render_history(session: ScenarioSession) -> None:
         st.caption("Cumulative infrastructure cost ($)")
         st.line_chart(frame[["cumulative_cost"]])
 
+
+def _render_guidance() -> None:
+    with st.expander("❓ How to read this lab"):
+        st.markdown(
+            """
+**Core terms**
+
+- **Traffic / RPS:** incoming requests per second.
+- **Active replicas:** service capacity available right now.
+- **Pending replicas:** replicas that were requested but are still inside startup delay.
+- **Queue:** requests waiting because current active capacity was not enough.
+- **p95 latency:** a tail-latency proxy; roughly, 95% of requests are at or below this value.
+- **SLA:** violated when p95 latency is above the configured target.
+- **Cumulative cost:** simulated infrastructure cost accumulated across completed ticks.
+- **Requested action vs applied change:** what the manager asked for versus what actually changed after replica bounds were enforced.
+- **Reward:** a combined RL signal and secondary diagnostic; do not interpret it instead of latency, SLA, queue, and cost.
+
+**Typical cause/effect**
+
+`traffic rises → utilization/queue rise → manager may scale up → startup delay → pending replica becomes active → queue/latency may recover → cost increases`
+"""
+        )
+
+    with st.expander("🧪 MLflow and this lab"):
+        st.markdown(
+            """
+The **Scenario Lab is an interactive sandbox**. Clicking Step, Scale up, or Run to end does **not** automatically create an MLflow run.
+
+**MLflow (#17)** records reproducible `train`, `tune`, and `evaluate` experiment runs produced by the experiment pipeline: their configuration, workload, seed, metrics, Git version, and artifacts.
+
+A later **Results Explorer (#39)** will let this dashboard browse those saved MLflow runs.
+
+So it is normal for MLflow to stay empty while you only experiment here. Final benchmark/report numbers should come from MLflow-tracked runs, not from an ad-hoc City View session.
+"""
+        )
 
 # --- button callbacks (run before the page re-renders) ---------------------------
 
