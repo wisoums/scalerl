@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import statistics
 import sys
 from collections.abc import Mapping, Sequence
@@ -372,9 +373,21 @@ def _select_and_record(
 # --- command line ------------------------------------------------------------------------
 
 
+LOCAL_STORAGE = "sqlite:///outputs/threshold-optuna.db"
+
+
+def default_storage() -> str:
+    """``OPTUNA_STORAGE_URI`` (set in the Docker Compose trainer), else local SQLite."""
+    return os.environ.get("OPTUNA_STORAGE_URI") or LOCAL_STORAGE
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Tune the threshold autoscaler (#13).")
-    parser.add_argument("--storage", default="sqlite:///outputs/threshold-optuna.db")
+    parser.add_argument(
+        "--storage",
+        default=default_storage(),
+        help=f"Optuna storage URI; defaults to $OPTUNA_STORAGE_URI, else {LOCAL_STORAGE}",
+    )
     parser.add_argument("--tracking-uri", default=None, help="defaults to MLFLOW_TRACKING_URI")
     parser.add_argument("--experiment-name", default="scalerl-threshold-tuning")
     parser.add_argument("--study-name", default="threshold-v1")
