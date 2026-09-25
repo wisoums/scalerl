@@ -27,6 +27,7 @@ from scalerl.tuning.threshold import (
     run_threshold_study,
     select_trial,
     threshold_study_spec,
+    workload_fingerprint,
 )
 from scalerl.workloads import WorkloadTrace
 
@@ -252,6 +253,69 @@ def test_rerunning_the_study_adds_no_duplicate_configurations(study_run: StudyRu
     combinations = [params_tuple(t.params) for t in study_run.study().trials]
     assert len(combinations) == len(set(combinations)) == 18
     assert again.selected_trial_number == study_run.result.selected_trial_number
+
+
+def rerun(study_run: StudyRun, **overrides: Any) -> ThresholdTuningResult:
+    previous = Path.cwd()
+    os.chdir(study_run.directory)
+    try:
+        return run_threshold_study(
+            **{
+                "workload_ids": WORKLOADS,
+                "storage": study_run.storage,
+                "tracking_uri": study_run.tracking_uri,
+                **overrides,
+            }
+        )
+    finally:
+        os.chdir(previous)
+
+
+def test_resuming_with_a_different_simulator_config_is_refused(study_run: StudyRun) -> None:
+    other = SimulatorConfig(replicas=ReplicaConfig(service_capacity_rps=5.0, max_replicas=20))
+
+    with pytest.raises(ValueError, match=r"identity_context\.simulator_config\b"):
+        rerun(study_run, config=other, config_source="predeclared")
+    assert len(study_run.study().trials) == 18  # nothing was added under the new config
+
+
+def test_resuming_with_changed_workload_data_is_refused(tmp_path: Path) -> None:
+    changed = tmp_path / "changed.csv"
+    changed.write_text(AZURE_FIXTURE.read_text() + "app-x,func-x,734410.0,1.0\n")
+    common: dict[str, Any] = {
+        "workload_ids": ("syn-train-spike", "azure-val-734400"),
+        "storage": f"sqlite:///{tmp_path / 'optuna.db'}",
+        "tracking_uri": f"sqlite:///{tmp_path / 'mlflow.db'}",
+    }
+    previous = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        run_threshold_study(azure_csv_path=AZURE_FIXTURE, **common)
+        with pytest.raises(ValueError, match="identity_context.workload_fingerprint"):
+            run_threshold_study(azure_csv_path=changed, **common)
+    finally:
+        os.chdir(previous)
+
+
+def test_invalid_provenance_fails_before_the_study_is_created(tmp_path: Path) -> None:
+    storage = f"sqlite:///{tmp_path / 'optuna.db'}"
+
+    with pytest.raises(ValueError, match="must list calibration_workload_ids"):
+        run_threshold_study(
+            workload_ids=WORKLOADS,
+            config=SimulatorConfig(replicas=ReplicaConfig(service_capacity_rps=5.0)),
+            config_source="calibrated_train_validation",
+            storage=storage,
+        )
+    assert optuna.study.get_all_study_names(storage=storage) == []
+
+
+def test_workload_fingerprint_tracks_the_trace_data() -> None:
+    a = {"w": WorkloadTrace([1.0, 2.0], control_interval_seconds=30.0)}
+    b = {"w": WorkloadTrace([1.0, 2.5], control_interval_seconds=30.0)}
+
+    assert workload_fingerprint(a) == workload_fingerprint(dict(a))
+    assert workload_fingerprint(a) != workload_fingerprint(b)
 
 
 # --- selection rule -------------------------------------------------------------------

@@ -28,6 +28,8 @@ Run a synthetic train/validation study locally::
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import statistics
 import sys
 from collections.abc import Mapping, Sequence
@@ -46,7 +48,7 @@ from scalerl.benchmarks import (
 )
 from scalerl.controllers import ThresholdController, run_episode
 from scalerl.environment import AutoscalingEnv, SimulatorConfig
-from scalerl.environment.reward import max_tick_capacity_of, max_tick_cost_of
+from scalerl.environment.reward import RewardWeights, max_tick_capacity_of, max_tick_cost_of
 from scalerl.mlops import RunSpec, SimulatorConfigSource
 from scalerl.tuning.spec import (
     GridValue,
@@ -206,8 +208,13 @@ def threshold_study_spec(
     name: str = "threshold-v1",
     storage: str | None = None,
     sampler_seed: int = 0,
+    identity_context: Mapping[str, Any] | None = None,
 ) -> StudySpec:
-    """The exact 18-point grid study over ``workload_ids``."""
+    """The exact 18-point grid study over ``workload_ids``.
+
+    ``identity_context`` (simulator config, provenance, workload fingerprint)
+    is stored with the study, so it cannot be resumed with different inputs.
+    """
     return StudySpec(
         name=name,
         objective_name=OBJECTIVE_NAME,
@@ -219,6 +226,7 @@ def threshold_study_spec(
         sampler_seed=sampler_seed,
         grid=THRESHOLD_GRID,
         storage=storage,
+        identity_context=dict(identity_context or {}),
     )
 
 
@@ -239,7 +247,8 @@ def run_threshold_study(
 
     Workload traces are built once (Azure entries in one pass over
     ``azure_csv_path``); each trial gets fresh environments. Resuming a
-    persisted study runs only grid points not yet evaluated.
+    persisted study runs only grid points not yet evaluated; resuming it with a
+    different simulator config, provenance, or workload data is refused.
     """
     config = config or SimulatorConfig()
     ids = tuple(workload_ids) if workload_ids is not None else default_tuning_workload_ids()
@@ -247,8 +256,21 @@ def run_threshold_study(
     validation = tuple(entry for entry in entries if entry.split == "validation")
     if not validation:
         raise ValueError("threshold tuning needs at least one validation workload for selection")
+    # Validate simulator-config provenance before any study state is created.
+    _run_spec(entries[0], {}, config, config_source, calibration_workload_ids, calibration_note)
     traces = build_workloads(entries, azure_csv_path=azure_csv_path)
-    spec = threshold_study_spec(ids, name=study_name, storage=storage)
+    spec = threshold_study_spec(
+        ids,
+        name=study_name,
+        storage=storage,
+        identity_context={
+            "simulator_config": config.model_dump(mode="json"),
+            "simulator_config_source": config_source,
+            "calibration_workload_ids": list(calibration_workload_ids),
+            "reward_weights": RewardWeights().model_dump(mode="json"),
+            "workload_fingerprint": workload_fingerprint(traces),
+        },
+    )
 
     def objective(context: TrialContext) -> float:
         params = {
@@ -293,17 +315,8 @@ def _evaluate_workload(
     tracking_uri: str | None,
     experiment_name: str,
 ) -> WorkloadMetrics:
-    run_spec = RunSpec(
-        run_kind="tune",
-        controller="threshold",
-        workload_id=entry.id,
-        workload_split=entry.split,
-        simulator_config=config,
-        simulator_config_source=config_source,
-        calibration_workload_ids=tuple(calibration_workload_ids),
-        calibration_note=calibration_note,
-        seed=0,
-        hyperparameters=dict(params),
+    run_spec = _run_spec(
+        entry, params, config, config_source, calibration_workload_ids, calibration_note
     )
     controller = ThresholdController(
         low_threshold=params["low_threshold"],
@@ -316,6 +329,38 @@ def _evaluate_workload(
         metrics = evaluate_episode(AutoscalingEnv(config, trace), controller)
         run.log_metrics(metrics.as_metrics())
     return metrics
+
+
+def _run_spec(
+    entry: WorkloadEntry,
+    params: Mapping[str, Any],
+    config: SimulatorConfig,
+    config_source: SimulatorConfigSource,
+    calibration_workload_ids: Sequence[str],
+    calibration_note: str | None,
+) -> RunSpec:
+    return RunSpec(
+        run_kind="tune",
+        controller="threshold",
+        workload_id=entry.id,
+        workload_split=entry.split,
+        simulator_config=config,
+        simulator_config_source=config_source,
+        calibration_workload_ids=tuple(calibration_workload_ids),
+        calibration_note=calibration_note,
+        reward_weights=RewardWeights(),
+        seed=0,
+        hyperparameters=dict(params),
+    )
+
+
+def workload_fingerprint(traces: Mapping[str, WorkloadTrace]) -> str:
+    """SHA-256 of the exact traces a study evaluates (catches changed source data)."""
+    payload = {
+        workload_id: [trace.control_interval_seconds, list(trace.request_rates)]
+        for workload_id, trace in traces.items()
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def _aggregate(results: Sequence[WorkloadMetrics]) -> dict[str, float]:
