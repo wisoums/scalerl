@@ -127,11 +127,11 @@ git clone https://github.com/wisoums/scalerl.git
 cd scalerl
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,mlops,dashboard]"
+pip install -e ".[dev,mlops,dashboard,tuning]"
 pytest
 ```
 
-The `mlops` extra installs MLflow and the `dashboard` extra installs Streamlit; their tests need them, but the core simulator, controllers, and workloads work without either. To browse tracked runs locally:
+The `mlops`, `dashboard`, and `tuning` extras install MLflow, Streamlit, and Optuna; their tests need them, but the core simulator, controllers, and workloads work without any of them. To browse tracked runs locally:
 
 ```bash
 export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
