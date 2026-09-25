@@ -13,11 +13,19 @@ from scalerl.tuning.spec import (
     require_tuning_workloads,
     safe_storage_label,
 )
-from scalerl.tuning.study import INSTALL_HINT, RUN_IDS_ATTR, Objective, TrialContext, run_study
+from scalerl.tuning.study import (
+    INSTALL_HINT,
+    RUN_IDS_ATTR,
+    TRIAL_STATE_TAG,
+    Objective,
+    TrialContext,
+    run_study,
+)
 
 __all__ = [
     "INSTALL_HINT",
     "RUN_IDS_ATTR",
+    "TRIAL_STATE_TAG",
     "GridValue",
     "Objective",
     "PrunerName",

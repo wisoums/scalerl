@@ -7,7 +7,9 @@ Responsibilities stay separate: Optuna proposes parameters and records trial
 values; every workload evaluation is its own ``start_tracked_run`` MLflow run
 (one workload per run, #17). A trial may therefore own several run IDs,
 stored on the trial as the ``mlflow_run_ids`` user attribute and linked back
-through ``hp.optuna.*`` params and ``scalerl.optuna.*`` tags on each run.
+through ``hp.optuna.*`` params and ``scalerl.optuna.*`` tags on each run. When
+the trial ends, every one of its runs is tagged with the final Optuna state
+(``scalerl.optuna.trial_state`` = ``COMPLETE``, ``PRUNED``, or ``FAIL``).
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
 INSTALL_HINT = 'Optuna tuning requires the tuning extra: pip install -e ".[tuning]"'
 RUN_IDS_ATTR = "mlflow_run_ids"
 IDENTITY_ATTR = "scalerl_study_identity"
+TRIAL_STATE_TAG = "scalerl.optuna.trial_state"
 _TUNING_RUN_KINDS = ("train", "tune")
 
 
@@ -36,7 +39,7 @@ class TrialContext:
     def __init__(self, spec: StudySpec, trial: optuna.Trial) -> None:
         self._spec = spec
         self._trial = trial
-        self._run_ids: list[str] = []
+        self._runs: list[tuple[str, str | None]] = []  # (run ID, tracking URI)
 
     @property
     def trial(self) -> optuna.Trial:
@@ -59,7 +62,7 @@ class TrialContext:
     @property
     def mlflow_run_ids(self) -> tuple[str, ...]:
         """MLflow runs started by this trial, in order."""
-        return tuple(self._run_ids)
+        return tuple(run_id for run_id, _ in self._runs)
 
     @contextmanager
     def track(self, run_spec: RunSpec, **tracking: Any) -> Iterator[TrackedRun]:
@@ -68,8 +71,9 @@ class TrialContext:
         ``run_spec`` must be a ``train`` or ``tune`` run on one of the study's
         tuning workloads. The trial's Optuna metadata and suggested parameters
         are added to its hyperparameters; ``tracking`` is passed to
-        ``start_tracked_run``. A pruned trial ends its run ``FINISHED`` with a
-        ``scalerl.optuna.trial_state=PRUNED`` tag; other errors mark it ``FAILED``.
+        ``start_tracked_run``. Pruning inside the block ends the run ``FINISHED``
+        (other errors mark it ``FAILED``); the trial's final state is tagged on
+        all its runs when the trial ends.
         """
         import optuna
 
@@ -99,14 +103,13 @@ class TrialContext:
 
         pruned: optuna.TrialPruned | None = None
         with start_tracked_run(spec, **tracking) as run:
-            self._run_ids.append(run.run_id)
-            self._trial.set_user_attr(RUN_IDS_ATTR, list(self._run_ids))
+            self._runs.append((run.run_id, tracking.get("tracking_uri")))
+            self._trial.set_user_attr(RUN_IDS_ATTR, list(self.mlflow_run_ids))
             run.set_tag("scalerl.optuna.study", self._spec.name)
             run.set_tag("scalerl.optuna.trial", str(self.number))
             try:
                 yield run
             except optuna.TrialPruned as error:
-                run.set_tag("scalerl.optuna.trial_state", "PRUNED")
                 pruned = error
         if pruned is not None:
             raise pruned
@@ -123,6 +126,15 @@ class TrialContext:
         import optuna
 
         raise optuna.TrialPruned()
+
+    def _tag_trial_state(self, state: str) -> None:
+        """Tag every run this trial opened with the trial's final state."""
+        if not self._runs:
+            return
+        from mlflow import MlflowClient
+
+        for run_id, tracking_uri in self._runs:
+            MlflowClient(tracking_uri=tracking_uri).set_tag(run_id, TRIAL_STATE_TAG, state)
 
 
 Objective = Callable[[TrialContext], float]
@@ -158,9 +170,26 @@ def run_study(
     if remaining is not None and remaining <= 0:
         return study
 
+    contexts: dict[int, TrialContext] = {}
+
     def run_trial(trial: optuna.Trial) -> float:
         trial.set_user_attr(RUN_IDS_ATTR, [])
-        return objective(TrialContext(spec, trial))
+        context = contexts[trial.number] = TrialContext(spec, trial)
+        try:
+            return objective(context)
+        except optuna.TrialPruned:
+            raise  # Optuna records PRUNED and calls tag_runs
+        except Exception as error:
+            if not isinstance(error, catch):
+                # Uncaught errors end optimize() before callbacks run.
+                failed = contexts.pop(trial.number)
+                failed._tag_trial_state(optuna.trial.TrialState.FAIL.name)
+            raise
+
+    def tag_runs(_: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
+        context = contexts.pop(trial.number, None)
+        if context is not None:
+            context._tag_trial_state(trial.state.name)
 
     study.optimize(
         run_trial,
@@ -168,6 +197,7 @@ def run_study(
         timeout=spec.timeout_seconds,
         n_jobs=spec.n_jobs,
         catch=catch,
+        callbacks=[tag_runs],
     )
     return study
 
@@ -181,7 +211,15 @@ def _require_optuna() -> None:
 
 
 def _sampler(spec: StudySpec) -> optuna.samplers.BaseSampler:
+    """Seeded sampler that behaves the same whether or not the study was resumed.
+
+    GridSampler reads visited combinations from storage, so resuming never
+    repeats a grid point. Random and TPE samplers keep an in-memory RNG that
+    Optuna does not persist, so they are seeded per trial instead.
+    """
     import optuna
+
+    from scalerl.tuning._sampler import TrialSeededSampler
 
     if spec.sampler == "grid":
         assert spec.grid is not None
@@ -189,8 +227,12 @@ def _sampler(spec: StudySpec) -> optuna.samplers.BaseSampler:
             {name: list(values) for name, values in spec.grid.items()}, seed=spec.sampler_seed
         )
     if spec.sampler == "tpe":
-        return optuna.samplers.TPESampler(seed=spec.sampler_seed)
-    return optuna.samplers.RandomSampler(seed=spec.sampler_seed)
+        return TrialSeededSampler(
+            lambda seed: optuna.samplers.TPESampler(seed=seed), spec.sampler_seed
+        )
+    return TrialSeededSampler(
+        lambda seed: optuna.samplers.RandomSampler(seed=seed), spec.sampler_seed
+    )
 
 
 def _pruner(spec: StudySpec) -> optuna.pruners.BasePruner:
