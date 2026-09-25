@@ -1,40 +1,80 @@
 name: CI
 
+# ScaleRL's reproducibility gate:
+#   quality ─┐
+#   tests ───┼─→ docker-mlops (Docker images + full Compose stack + SB3 smoke)
+#   package ─┘
+# Also called by release.yml, so a tagged image is only published after this passes.
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new commit on the same PR cancels the older run; main and tag runs are never cancelled.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  quality:
+    name: quality (ruff, format, mypy)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           cache: pip
       - name: Install project
-        # mlops, dashboard, and tuning are included so the MLflow, Streamlit, and Optuna
-        # tests actually run.
+        # All extras, so mypy checks MLflow, Streamlit, and Optuna code paths like the tests do.
         run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops,dashboard,tuning]"
       - name: Lint
         run: ruff check .
       - name: Format check
         run: ruff format --check .
-      - name: Type check
+      - name: Type check (strict)
         run: mypy src
+
+  tests:
+    name: tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project
+        # mlops, dashboard, and tuning are included so the MLflow, Streamlit, and Optuna
+        # tests actually run (on temporary SQLite stores).
+        run: python -m pip install --upgrade pip && pip install -e ".[dev,mlops,dashboard,tuning]"
       - name: Test
-        run: pytest --cov=scalerl --cov-report=term-missing
+        run: pytest --cov=scalerl --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-python-${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 14
 
   package:
+    name: package (build + clean wheel install)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -43,12 +83,80 @@ jobs:
           python -m pip install --upgrade pip
           pip install build
           python -m build
-      - name: Smoke-install built wheel
+          ls -l dist
+          test -n "$(ls dist/*.tar.gz)" && test -n "$(ls dist/*.whl)"
+      - name: Install the built wheel (no extras) in a clean venv
         run: |
           python -m venv /tmp/scalerl-wheel-smoke
           /tmp/scalerl-wheel-smoke/bin/pip install dist/*.whl
-          /tmp/scalerl-wheel-smoke/bin/python -c "import scalerl"
-          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
+      - name: Smoke the installed wheel outside the checkout
+        working-directory: /tmp
+        run: |
+          py=/tmp/scalerl-wheel-smoke/bin/python
+          # Imports the installed wheel, not the source tree.
+          $py -c "import scalerl, sys; assert 'site-packages' in scalerl.__file__, scalerl.__file__"
+          # Distribution metadata is readable and matches pyproject.toml.
+          expected=$(python -c "import tomllib; print(tomllib.load(open('${{ github.workspace }}/pyproject.toml', 'rb'))['project']['version'])")
+          $py -c "from importlib.metadata import version; v = version('scalerl'); print('scalerl', v); assert v == '$expected', v"
+          # The packaged benchmark manifest loads.
+          $py -c "from scalerl.benchmarks import load_benchmark_manifest; load_benchmark_manifest()"
           # Installed without extras: core, scalerl.mlops, scalerl.dashboard, and scalerl.tuning
           # must import without MLflow, Streamlit, or Optuna.
-          cd /tmp && /tmp/scalerl-wheel-smoke/bin/python -c "import sys, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard, scalerl.tuning; assert not {'mlflow', 'streamlit', 'optuna'} & set(sys.modules)"
+          $py -c "import sys, scalerl, scalerl.environment, scalerl.controllers, scalerl.benchmarks, scalerl.mlops, scalerl.dashboard, scalerl.tuning; leaked = {'mlflow', 'streamlit', 'optuna'} & set(sys.modules); assert not leaked, leaked"
+
+  docker-mlops:
+    name: docker-mlops (images, Compose stack, SB3 smoke)
+    needs: [quality, tests, package]
+    runs-on: ubuntu-latest  # native linux/amd64 only; release.yml builds arm64 too
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare local stack state
+        # .env from .env.example (local development values; no repository secrets),
+        # the runner's UID/GID, and user-owned outputs/ and data/raw/ (empty: no Azure data).
+        run: scripts/setup-local-stack.sh
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - uses: docker/setup-buildx-action@v4
+      - name: Build Compose images (BuildKit, GitHub Actions cache)
+        # compose.yaml stays the single source of image definitions; Bake reads it
+        # directly. The cache only speeds builds up: a miss rebuilds from the
+        # hash-pinned requirements.
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: compose.yaml
+          targets: scalerl-ui,mlflow,optuna-dashboard
+          load: true
+          set: |
+            scalerl-ui.cache-from=type=gha,scope=scalerl
+            scalerl-ui.cache-to=type=gha,scope=scalerl,mode=max
+            mlflow.cache-from=type=gha,scope=mlflow
+            mlflow.cache-to=type=gha,scope=mlflow,mode=max
+            optuna-dashboard.cache-from=type=gha,scope=optuna-dashboard
+            optuna-dashboard.cache-to=type=gha,scope=optuna-dashboard,mode=max
+      - name: Compose smoke (the same script developers run locally)
+        # Starts the stack from empty volumes, waits for health, then checks:
+        # ScaleRL tracked run → MLflow (PostgreSQL metadata, Garage artifacts downloaded
+        # back through the proxy), Optuna → PostgreSQL seen by the Dashboard, Scenario Lab
+        # health, trainer write access to outputs/, and a tiny CPU SB3 DQN learning run.
+        run: scripts/compose-smoke.sh
+      - name: Collect Compose diagnostics
+        if: failure()
+        run: |
+          mkdir -p compose-logs
+          docker compose --profile trainer ps --all > compose-logs/ps.txt 2>&1 || true
+          docker compose --profile trainer logs --no-color --timestamps > compose-logs/compose.log 2>&1 || true
+      - name: Upload Compose diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-logs
+          path: compose-logs/
+          retention-days: 14
+      - name: Tear down the stack and its volumes
+        if: always()
+        run: |
+          if [ -f .env ]; then
+            docker compose --profile trainer down --volumes --remove-orphans
+          fi

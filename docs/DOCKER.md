@@ -170,14 +170,14 @@ MLFLOW_UI_PORT=5001 scripts/compose-smoke.sh   # shell variables override .env
 It first runs `scripts/setup-local-stack.sh`, waits for every health check, and checks the three browser URLs. From the trainer on the Compose network, it then:
 
 - checks the trainer can write the bind-mounted `outputs/` (the Linux UID/GID setup);
-
 - runs a real tracked ScaleRL evaluation: the predictive baseline on `syn-train-steady-moderate`, a synthetic TRAIN workload that needs no Azure data;
 - checks the run finished with params and metrics;
 - lists and downloads its `scalerl/` metadata artifacts through the MLflow proxy (so they were stored in Garage);
 - creates a throwaway Optuna study in PostgreSQL, confirms the Optuna Dashboard lists it, and deletes it;
-- checks the Scenario Lab health endpoint.
+- checks the Scenario Lab health endpoint;
+- finally, runs the tiny CPU Stable-Baselines3 DQN smoke ([`scripts/sb3_smoke.py`](../scripts/sb3_smoke.py)) in the trainer image, without services. It can also run on its own: `python scripts/sb3_smoke.py`.
 
-The tiny MLflow run stays in the `scalerl-compose-smoke` experiment as evidence. It needs no GPU, Azure data, or DQN training; it is meant for CI in #45.
+The tiny MLflow run stays in the `scalerl-compose-smoke` experiment as evidence. It needs no GPU, Azure data, or benchmark training. **The same script is the CI integration smoke** (`docker-mlops` job in [`ci.yml`](../.github/workflows/ci.yml), see [MLOPS.md](MLOPS.md#cicd)); CI then deletes the volumes. Locally it leaves the stack running.
 
 ### Pinned versions
 

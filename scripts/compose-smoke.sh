@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke-test the local Docker Compose stack (reusable by CI in #45).
+# Smoke-test the local Docker Compose stack: the same path locally and in CI (#45).
 #
 #   scripts/compose-smoke.sh            # start (if needed) and check the stack
 #   SMOKE_BUILD=1 scripts/compose-smoke.sh   # rebuild images first
@@ -43,5 +43,8 @@ check_url "Optuna Dashboard" "http://localhost:${OPTUNA_DASHBOARD_PORT:-8080}/ap
 
 echo "== ScaleRL run, MLflow artifacts, and Optuna storage from the trainer"
 docker compose run --rm -T trainer python - < scripts/compose_smoke.py
+
+echo "== tiny Stable-Baselines3 DQN learning smoke in the trainer image (CPU, no services)"
+docker compose run --rm -T --no-deps trainer python - < scripts/sb3_smoke.py
 
 echo "compose smoke: passed"
