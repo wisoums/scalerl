@@ -28,12 +28,15 @@ class Controller(Protocol):
 
 
 def decision_info(env: AutoscalingEnv, info: Mapping[str, Any]) -> dict[str, Any]:
-    """Return ``info`` with replica counts as of now rather than as of the last tick.
+    """Return what a controller may know now, given the latest ``reset()``/``step()`` info.
 
-    A step's ``info`` reports the replicas that served that tick; pending
-    replicas may have activated at its end. Tick metrics are left unchanged.
+    Replica counts are current (a step's ``info`` reports the replicas that
+    served that tick; pending replicas may have activated at its end).
+    Measurements (load, queue, latency, cost) are the ones visible under the
+    environment's telemetry delay (#65); with no delay they are ``info``'s own.
+    See :meth:`AutoscalingEnv.decision_info`.
     """
-    return {**info, **env.replica_counts}
+    return env.decision_info(info)
 
 
 def run_episode(
@@ -42,7 +45,8 @@ def run_episode(
     """Run one full episode and return the raw ``info`` dict of every step.
 
     The same ``seed`` resets both the environment and the controller. The
-    controller sees :func:`decision_info`; the returned infos are unmodified.
+    controller sees :func:`decision_info` (delayed telemetry, current replica
+    counts); the returned infos are the unmodified physical step infos.
     """
     observation, info = env.reset(seed=seed)
     controller.reset(seed=seed)

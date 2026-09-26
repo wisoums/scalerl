@@ -37,12 +37,16 @@ class RequestQueue:
         """Return the requests waiting after the most recent tick."""
         return self._queue_depth
 
-    def step(self, request_rate: float, active_replicas: int) -> QueueStepResult:
+    def step(
+        self, request_rate: float, active_replicas: int, capacity_multiplier: float = 1.0
+    ) -> QueueStepResult:
         """Process one tick of ``request_rate`` demand with ``active_replicas`` serving.
 
         Tick capacity is ``active_replicas * service_capacity_rps *
-        control_interval_seconds`` requests, applied to the existing backlog and
-        this tick's arrivals together.
+        capacity_multiplier * control_interval_seconds`` requests, applied to the
+        existing backlog and this tick's arrivals together. ``capacity_multiplier``
+        is the tick's realized capacity factor (1.0 in the nominal simulator,
+        which leaves the arithmetic unchanged).
         """
         request_rate = float(request_rate)
         if not math.isfinite(request_rate) or request_rate < 0:
@@ -51,9 +55,10 @@ class RequestQueue:
             raise TypeError("active_replicas must be an integer")
         if active_replicas < 0:
             raise ValueError("active_replicas must be non-negative")
+        _check_multiplier(capacity_multiplier)
 
         arrived = request_rate * self._control_interval_seconds
-        capacity = active_replicas * self._requests_per_replica
+        capacity = active_replicas * (self._requests_per_replica * capacity_multiplier)
         work = self._queue_depth + arrived
         # Finite inputs can still overflow; fail before mutating the queue.
         if not (math.isfinite(work) and math.isfinite(capacity)):
@@ -71,3 +76,10 @@ class RequestQueue:
     def reset(self) -> None:
         """Clear all queued work."""
         self._queue_depth = 0.0
+
+
+def _check_multiplier(multiplier: float) -> None:
+    if isinstance(multiplier, bool) or not isinstance(multiplier, int | float):
+        raise TypeError("capacity_multiplier must be a number")
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        raise ValueError("capacity_multiplier must be finite and positive")
