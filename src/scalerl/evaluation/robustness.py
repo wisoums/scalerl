@@ -35,7 +35,7 @@ import statistics
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from pydantic import JsonValue
 
@@ -52,7 +52,7 @@ from scalerl.evaluation.metrics import EpisodeMetrics, evaluate_controller_episo
 from scalerl.mlops import RunSpec, SimulatorConfigSource
 from scalerl.workloads import WorkloadTrace
 
-ROBUSTNESS_SCENARIO_VERSION = "robustness-v1"
+ROBUSTNESS_SCENARIO_VERSION: Final = "robustness-v1"
 # Optional, predeclared jitter levels for a later sensitivity plot; the main
 # robustness comparison uses only the scenarios below (0.10).
 JITTER_SENSITIVITY_LEVELS = (0.0, 0.05, 0.10, 0.20)
@@ -139,6 +139,7 @@ class RobustnessResult:
 
     scenario: RobustnessScenario
     dynamics_seed: int
+    evaluation_seed: int
     metrics: EpisodeMetrics
     dynamics: DynamicsSummary
     infos: tuple[Mapping[str, Any], ...]  # raw physical step infos, for per-seed storage
@@ -150,22 +151,26 @@ def evaluate_robustness(
     *,
     scenario: RobustnessScenario,
     dynamics_seed: int,
+    evaluation_seed: int = 0,
     config: SimulatorConfig | None = None,
     reward_weights: RewardWeights | None = None,
 ) -> RobustnessResult:
     """Evaluate a fixed controller for one episode under ``scenario``.
 
     Metrics are computed from the physical step infos (never from the stale
-    telemetry the controller saw). The controller is reset by the runner.
+    telemetry the controller saw). ``evaluation_seed`` resets the episode and
+    the controller (it matters for stochastic controllers such as Random);
+    the capacity-jitter realization depends only on ``dynamics_seed``.
     """
     scenario_config = apply_scenario(
         config or SimulatorConfig(), scenario, dynamics_seed=dynamics_seed
     )
     env = AutoscalingEnv(scenario_config, trace, reward_weights)
-    evaluation = evaluate_controller_episode(env, controller, seed=0)
+    evaluation = evaluate_controller_episode(env, controller, seed=evaluation_seed)
     return RobustnessResult(
         scenario=scenario,
         dynamics_seed=dynamics_seed,
+        evaluation_seed=evaluation_seed,
         metrics=evaluation.metrics,
         dynamics=summarize_dynamics(evaluation.infos),
         infos=evaluation.infos,
@@ -183,6 +188,8 @@ def robustness_run_spec(
     calibration_workload_ids: Sequence[str] = (),
     calibration_note: str | None = None,
     hyperparameters: Mapping[str, JsonValue] | None = None,
+    evaluation_seed: int = 0,
+    reward_weights: RewardWeights | None = None,
 ) -> RunSpec:
     """The ``evaluate`` RunSpec of a robustness evaluation.
 
@@ -205,7 +212,8 @@ def robustness_run_spec(
         simulator_config_source=source,
         calibration_workload_ids=tuple(calibration_workload_ids),
         calibration_note=calibration_note,
-        evaluation_seeds=(0,),
+        evaluation_seeds=(evaluation_seed,),
+        reward_weights=reward_weights or RewardWeights(),
         hyperparameters=dict(hyperparameters or {}),
         robustness_scenario=scenario.name,
         robustness_version=scenario.version,
@@ -220,12 +228,16 @@ def evaluate_robustness_tracked(
     entry: WorkloadEntry,
     scenario: RobustnessScenario,
     dynamics_seed: int,
+    evaluation_seed: int = 0,
     config: SimulatorConfig | None = None,
     base_config_source: SimulatorConfigSource = "default",
     calibration_workload_ids: Sequence[str] = (),
     calibration_note: str | None = None,
+    reward_weights: RewardWeights | None = None,
     hyperparameters: Mapping[str, JsonValue] | None = None,
     model_source_run_id: str | None = None,
+    extra_tags: Mapping[str, str] | None = None,
+    run_name: str | None = None,
     perturbed_compatibility: Sequence[str] = (),
     tracking_uri: str | None = None,
     experiment_name: str = "scalerl-robustness",
@@ -261,14 +273,20 @@ def evaluate_robustness_tracked(
         calibration_workload_ids=calibration_workload_ids,
         calibration_note=calibration_note,
         hyperparameters=hyperparameters,
+        evaluation_seed=evaluation_seed,
+        reward_weights=reward_weights,
     )
     with start_tracked_run(
         spec,
         tracking_uri=tracking_uri,
         experiment_name=experiment_name,
-        run_name=f"robustness-{controller_name}-{entry.id}-{scenario.name}-seed{dynamics_seed}",
+        run_name=run_name
+        or f"robustness-{controller_name}-{entry.id}-{scenario.name}-seed{dynamics_seed}",
     ) as run:
         run.set_tag("scalerl.dynamics_seed", str(dynamics_seed))
+        run.set_tag("scalerl.evaluation_seed", str(evaluation_seed))
+        for key, value in (extra_tags or {}).items():
+            run.set_tag(key, value)
         run.set_tag("scalerl.capacity_jitter_model", CAPACITY_JITTER_MODEL)
         if model_source_run_id is not None:
             run.set_tag("scalerl.model_source_run_id", model_source_run_id)
@@ -279,7 +297,9 @@ def evaluate_robustness_tracked(
             trace,
             scenario=scenario,
             dynamics_seed=dynamics_seed,
+            evaluation_seed=evaluation_seed,
             config=config,
+            reward_weights=reward_weights,
         )
         run.log_metrics({**result.metrics.as_metrics(), **result.dynamics.as_metrics()})
         if raw_infos_path is not None:
