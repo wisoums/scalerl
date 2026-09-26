@@ -148,7 +148,7 @@ def main() -> None:
     session: ScenarioSession | None = st.session_state.get(SESSION_KEY)
     if session is None:
         st.title("🏙️ ScaleRL Scenario Lab")
-        st.info("Fix the scenario settings in the sidebar and press **Build / Reset Scenario**.")
+        st.info("Fix the scenario settings in the sidebar and press **Apply settings & restart**.")
         return
     _render(session, playback)
 
@@ -271,8 +271,11 @@ def _sidebar() -> tuple[BuildRequest, bool]:
         )
         return ScenarioSession(build_scenario(), config, manager)
 
-    clicked = bar.button("Build / Reset Scenario", type="primary", key="build")
-    bar.caption("Form changes apply only when you build; the running episode is not changed.")
+    clicked = bar.button("Apply settings & restart", type="primary", key="build")
+    bar.caption(
+        "Applies sidebar changes and rebuilds from tick 0. "
+        "Use Reset episode to restart the current built scenario without applying sidebar edits."
+    )
     return request, clicked
 
 
@@ -513,22 +516,50 @@ def _render(session: ScenarioSession, playback: PlaybackState) -> None:
 
 
 def _render_controls(session: ScenarioSession, playback: PlaybackState) -> None:
-    with st.container(border=True):
-        st.radio(
-            "View mode",
-            list(MODES),
-            format_func=MODES.__getitem__,
-            key=MODE_KEY,
-            horizontal=True,
-            on_change=_on_mode_change,
-            help=MODE_HELP,
-        )
-        if playback.mode == "inspect":
+    if playback.mode == "inspect":
+        mode, actions = st.columns([2, 6])
+        with mode:
+            st.radio(
+                "Mode",
+                list(MODES),
+                format_func=MODES.__getitem__,
+                key=MODE_KEY,
+                horizontal=True,
+                on_change=_on_mode_change,
+                help=MODE_HELP,
+            )
+        with actions:
             _inspect_controls(session)
-        else:
+    else:
+        mode, actions, speed = st.columns([2, 5, 2])
+        with mode:
+            st.radio(
+                "Mode",
+                list(MODES),
+                format_func=MODES.__getitem__,
+                key=MODE_KEY,
+                horizontal=True,
+                on_change=_on_mode_change,
+                help=MODE_HELP,
+            )
+        with actions:
             _live_controls(session, playback)
-        if session.done:
-            st.success("Episode complete. Build or reset to run again.")
+        with speed:
+            st.radio(
+                "Speed",
+                list(SPEEDS),
+                index=SPEEDS.index(playback.speed),
+                format_func=speed_label,
+                key=SPEED_KEY,
+                horizontal=True,
+                on_change=_on_speed_change,
+                help=SPEED_HELP,
+            )
+        if session.controller is None:
+            st.info(MANUAL_AUTOPLAY_MESSAGE)
+
+    if session.done:
+        st.success("Episode complete. Reset the episode or apply settings to run again.")
 
 
 def _inspect_controls(session: ScenarioSession) -> None:
@@ -551,8 +582,6 @@ def _inspect_controls(session: ScenarioSession) -> None:
 
 def _live_controls(session: ScenarioSession, playback: PlaybackState) -> None:
     blocker = autoplay_blocker(session)
-    if session.controller is None:
-        st.info(MANUAL_AUTOPLAY_MESSAGE)
     play, pause, step, reset = st.columns(4)
     play.button(
         "▶ Play",
@@ -570,16 +599,6 @@ def _live_controls(session: ScenarioSession, playback: PlaybackState) -> None:
         help="Advance exactly one tick while paused.",
     )
     reset.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
-    st.radio(
-        "Playback speed",
-        list(SPEEDS),
-        index=SPEEDS.index(playback.speed),  # the widget is recreated after Inspect mode
-        format_func=speed_label,
-        key=SPEED_KEY,
-        horizontal=True,
-        on_change=_on_speed_change,
-        help=SPEED_HELP,
-    )
 
 
 def _live_region() -> None:
@@ -598,17 +617,13 @@ def _live_region() -> None:
 
 def _render_live(session: ScenarioSession, playback: PlaybackState) -> None:
     st.markdown(f"#### {_status(session, playback)}")
-    tick, time_, manager = st.columns(3)
+    tick, time_ = st.columns(2)
     tick.metric("Tick", f"{session.tick} / {session.episode_ticks}")
     minutes, seconds = divmod(int(session.simulated_seconds), 60)
     time_.metric("Simulated time", f"{minutes:02d}:{seconds:02d}")
-    manager.metric("Manager", MANAGERS[session.manager.kind])
     if playback.mode == "live":
         interval = session.config.timing.control_interval_seconds
-        st.caption(
-            f"Each frame is one real {interval:g} s simulated control tick; playback speed "
-            "only changes how often frames are shown, not simulated time."
-        )
+        st.caption(f"1 frame = {interval:g} s simulated · speed changes display cadence only.")
 
     city, panel = st.columns([3, 2])
     with city:
@@ -679,11 +694,10 @@ def _render_city(session: ScenarioSession) -> None:
 def _render_manager(session: ScenarioSession) -> None:
     last = session.history[-1] if session.history else None
     with st.container(border=True):
-        st.subheader(f"👔 {MANAGERS[session.manager.kind]}")
+        st.subheader(MANAGERS[session.manager.kind])
         if last is None:
             st.caption("No decision yet.")
         else:
-            st.markdown(f"### {ACTION_LABELS[last['requested_action']]}")
             requested, applied = st.columns(2)
             requested.metric("Decision", ACTION_LABELS[last["requested_action"]])
             applied.metric("Applied change", f"{last['applied_replica_change']:+d}")
