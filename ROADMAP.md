@@ -82,8 +82,8 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 ### Must have
 
 - #78 freeze constrained cost-aware model selection after #19 exposed the SLA-first full-fleet failure mode
-- #79 compare delta-v1 with direct desired-replica actions and freeze the final action contract
-- #80 add a stronger cloud-style proactive predictive baseline
+- #79 compare existing `Discrete(3)` codes 0/1/2 (effects -1/0/+1) with direct desired-replica actions and freeze the final action contract
+- #80 preserve existing `predictive-v1` / `forecast-plus-backlog-v1` lineage and add a stronger cloud-style proactive predictive baseline
 - #81 add a separate seeded startup-delay robustness extension while preserving robustness-v1
 - #20 reward-function ablation on the final #79 action contract using the frozen #78 selection rule
 - #72 freeze canonical controller artifacts and sim-to-real protocol before held-out outcomes can influence them
