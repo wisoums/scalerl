@@ -100,6 +100,8 @@ A **View mode** switch offers two ways to watch the **same** `ScenarioSession`: 
 - **How it cannot double-step.** The live region is a Streamlit fragment re-run by `st.fragment(run_every=period)` only while playing. A pure `PlaybackState` (`scalerl.dashboard.playback`, no Streamlit import) decides whether a tick is due, using monotonic time. One due timer run advances at most one tick, with no catch-up bursts. Ordinary reruns from clicks and widget changes never step. The fragment always reads the current session from Streamlit state, so a replaced city is never advanced by an old timer.
 - **Accessibility.** Exact numbers, status text (for example `LIVE CITY • PLAYING • 2x` or `LIVE CITY • PAUSED`), and the SLA label never rely on motion; nothing flashes, and Inspect mode stays the non-animated alternative.
 
+**Robustness dynamics (#65).** The Scenario Lab runs the nominal simulator; capacity jitter and telemetry delay are not exposed as Lab controls yet. Everything the City View shows comes from physical step `info`, i.e. what actually happened. If delayed telemetry is shown in a later issue, it must be labeled as the controller's view, distinct from the physical city.
+
 ## History
 
 After each tick the page charts traffic, replicas serving each tick (active and pending), queue depth, p95 latency against the SLA target, requested versus applied replica change, and cumulative infrastructure cost. Each history row is the step's raw environment `info` plus a few presentation fields (SLA target, cumulative cost, next-decision replica counts).
