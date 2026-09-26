@@ -154,7 +154,7 @@ Issue #80 therefore adds a stronger **cloud-style proactive predictive baseline*
 
 DQN is ScaleRL's first deep-RL controller, using Stable-Baselines3's DQN. It fits the problem directly:
 
-- **Actions:** `Discrete(3)`: 0 scale down, 1 hold, 2 scale up. DQN learns one Q-value per action and, when evaluated, picks the highest.
+- **Actions:** `Discrete(3)` under the historical `delta-v1` contract: 0 scale down, 1 hold, 2 scale up. DQN learns one Q-value per action and, when evaluated, picks the highest. #79 adds the discrete `desired-replicas-v1` contract (`Discrete(10)` at the default bounds); DQN is equally valid there, since replica counts are discrete.
 - **Observation:** the frozen v1 vector from #58, unchanged. Its 12 values (default config) are:
   - the 4 most recent completed request rates, newest first;
   - utilization, queue pressure, latency pressure, active replicas, cost, and episode progress;
@@ -435,28 +435,106 @@ DQN seeds 1–4 are cheaper (mean cost 0.81–0.85) but exceed the Threshold SLA
 
 ### #79 — action granularity, not "continuous vs discrete"
 
-The current Gymnasium action space is discrete:
+**Old contract, `delta-v1`** (every run and model before #79, still `SimulatorConfig()`'s default): `Discrete(3)`, action codes `0/1/2` = scale down / hold / scale up. Their replica-count **effects** are `-1/0/+1`; effects are not codes, so `AutoscalingEnv.step(-1)` is invalid.
 
-```text
-scale down by 1 | hold | scale up by 1
+**New contract, `desired-replicas-v1`**: `Discrete(max_replicas - min_replicas + 1)`, where code `c` requests `min_replicas + c` committed replicas. At the benchmark defaults, codes `0..9` map to targets `1..10`.
+
+**Why.** Under `delta-v1`, a controller that needs six more replicas needs six control decisions, which makes burst recovery artificially sequential. Real horizontal autoscalers set an integer **desired replica count** directly. Kubernetes HPA computes `desiredReplicas = ceil(currentReplicas × currentMetricValue / desiredMetricValue)` and updates the scale target: <https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/>.
+
+**How the target is actuated.** The environment compares the target with committed capacity (`active + pending`) and starts or cancels `|target - committed|` replicas in one step, through the unchanged lifecycle:
+- New replicas start pending and still wait out the 60 s startup delay. For example, `2 → 8` gives `+6` pending, not 8 active.
+- A reduction cancels the newest pending replicas first, then terminates active ones.
+- Bounds hold.
+
+`info` records `requested_action` (the code), `requested_replica_target`, and `applied_replica_change`, which can now be `+6` or `-4`. The code-to-target encoding lives in one place, `scalerl.environment.actions.ActionContract`; see [ARCHITECTURE.md](ARCHITECTURE.md#action-space-versioned-action-contracts-79).
+
+**DQN vs PPO.** Horizontal replica counts are discrete, so DQN is fully valid under both contracts, and PPO uses its categorical policy. It is **not** true that "PPO is needed because cloud autoscaling actions are continuous"; continuous or hybrid actions would be a different problem, such as vertical CPU/RAM sizing.
+
+**Reward unchanged.** The churn term still penalizes a scaling *event* (`applied_replica_change != 0`), so `+6` in one tick costs the same as `+1`. #79 keeps it that way and reports magnitude separately (`action.*` diagnostics; see [REWARD_DESIGN.md](REWARD_DESIGN.md)). Fewer scaling ticks do not mean less scaling. #20 owns any reward change.
+
+**Historical reproducibility.** Every pre-#79 model, bundle and run is `delta-v1`:
+- Compatibility contracts without `action_semantics_version` load as `delta-v1`.
+- The default config serializes exactly as before, so v1 study identities and the #19 plan ID are unchanged.
+- `delta-v1` episodes match the pre-#79 code. They were bit-identical when compared on one machine, and the committed fingerprint tests (computed from commit `c69c672`) compare them to 10 significant digits, so they hold across platforms.
+- A model never loads under the other contract, even at the same action count. The #65 robustness loader never relaxes this.
+
+**Controllers.**
+- **Threshold** keeps its law and its canonical parameters (0.6/0.2, cooldown 3). Under `desired-replicas-v1` it encodes the same ±1/hold decision as the target `committed±1` or `committed`. There is no HPA-style redesign.
+- **Predictive** (`predictive-v1`, `linear-trend`, `forecast-plus-backlog-v1`, all unchanged) encodes its already-computed `desired_replicas` directly, or `committed` when it holds (e.g. `backlog_hold`). Under `delta-v1` it steps one replica toward it, as before.
+- **Static** requests its fixed target.
+- **Random** is a sanity reference only; random targets and random ±1 steps are not comparable.
+- **Config-driven builders** always act under the config's own contract: `PredictiveController.from_config` (which rejects a mismatching explicit contract), the Scenario Lab managers, threshold tuning, and #19's `make_controller`. A `desired-replicas-v1` config can therefore never receive `delta-v1` codes.
+
+#### Experiment design (`action-semantics-experiment-v1`, frozen before training)
+
+The only variable is the action contract. The spec [`benchmarks/v1/action-semantics-experiment-v1.json`](../benchmarks/v1/action-semantics-experiment-v1.json) (ID `899dfbb64217`) and the candidate set [`benchmarks/v1/action-semantics-candidates-v1.json`](../benchmarks/v1/action-semantics-candidates-v1.json) (`matched-action-candidates-v1`, ID `cbe3c1c0719b`) were committed before any of its models were trained.
+
+- **Workloads:** train on `syn-train-bursty`; validate on `syn-val-steady-high`, `syn-val-ramp-down`, `syn-val-bursty`. **No test workload.**
+- **Held fixed:** simulator config (only `action.semantics` differs), reward weights (unchanged), budgets (DQN 200,000 / PPO 204,800 timesteps).
+- **Matched candidates:** 20 DQN and 20 PPO configurations from `dqn-search-v1` / `ppo-search-v1`, drawn by a seeded Optuna `RandomSampler` (seed 42) with **nothing trained or evaluated**. Both contracts train exactly these configurations, so they are paired by candidate ID. Two independent adaptive TPE studies would have confounded the contract with search luck.
+- **Screening:** every candidate is trained with training seed 0 under each contract and validated on all three workloads (80 models).
+- **Selection:** the frozen #78 rule `selection-v2-cost-under-sla` (spec `418876d6c8e9`), now at the *configuration* level, within each of the four families `{DQN, PPO} × {delta-v1, desired-replicas-v1}`. It needs SLA ≤ Threshold on every workload and then the lowest cost. There is no cross-algorithm winner, reward is never used, and nothing is selected when nothing is feasible.
+- **Retraining:** every selected configuration is retrained with seeds 0–4, and all five are kept.
+- **Evaluation:** nominal only (dynamics seed 0, evaluation seed 0). Robustness scenarios take no part.
+- **Decision principle (predeclared):** adopt the more faithful `desired-replicas-v1` if the action/lifecycle invariants pass, DQN and PPO train and infer against it, and the experiment completes without a systematic failure attributable to the encoding. Otherwise leave the contract unresolved. Validation metrics characterize the consequence of the change; they do **not** choose the contract.
+
+```bash
+python -m scalerl.evaluation.action_semantics check        # prints the frozen plan
+python -m scalerl.evaluation.action_semantics screen --family dqn-delta-v1   # and the other 3
+python -m scalerl.evaluation.action_semantics select
+python -m scalerl.evaluation.action_semantics retrain --family dqn-delta-v1  # each selected family
+python -m scalerl.evaluation.action_semantics evaluate
+python -m scalerl.evaluation.action_semantics decide --freeze
 ```
 
-That can make burst recovery artificially sequential: a controller needing six additional replicas may require six control decisions.
+Every phase is resumable: completed results are files, and evaluation rows are recovered from finished MLflow runs (experiment `scalerl-action-semantics`) instead of being rerun. Evaluation, the decision, and the frozen artifact accept only the exact predeclared retraining matrix: for every selected family, seeds 0–4 of its selected candidate from this experiment. Missing, extra, or mismatched model files are refused. Outputs are written to `outputs/action-semantics-v1/` and are not committed.
 
-Real horizontal autoscalers commonly calculate an integer **desired replica count** directly. Kubernetes HPA documents:
+#### Results (validation only)
 
-`desiredReplicas = ceil(currentReplicas × currentMetricValue / desiredMetricValue)`
+**Configuration selection (#78 rule, 20 matched candidates per family):**
 
-and then updates the scale target: <https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/>.
+| Family | Feasible | Selected | Mean cost / queue / churn / SLA |
+|---|---|---|---|
+| DQN `delta-v1` | 4/20 | `dqn-c11` | 0.749 / 0.078 / 0.125 / 0.172 |
+| DQN `desired-replicas-v1` | **0/20** | **none** (diagnostic only: `dqn-c01`) | — |
+| PPO `delta-v1` | 8/20 | `ppo-c11` | 0.845 / 0.047 / 0.064 / 0.114 |
+| PPO `desired-replicas-v1` | 14/20 | `ppo-c08` | 0.692 / 0.039 / 0.011 / 0.139 |
 
-So #79 compares:
+**DQN under `desired-replicas-v1` has no feasible configuration.** Its policies train, act validly (`Discrete(10)`), and do use multi-replica jumps (up to 7–9 replicas per tick). However, with this budget and search space they either thrash or under-provision. 17/20 have churn ≥ 0.18 (up to 0.49) and move up to 224 replicas per episode, where `delta-v1` candidates move at most 65. Five violate the SLA on every tick of `syn-val-steady-high` (rate 1.0). Every candidate violates the Threshold SLA on at least one workload. The closest, `dqn-c01`, fails only on `syn-val-bursty` (0.250 vs 0.208, +0.042), with a mean SLA excess of −0.114. Per #78, nothing is selected, the fallback is not a model of record, and no DQN `desired-replicas-v1` seeds exist. This is a learning outcome, not an encoding failure: the invariants hold, PPO learns well under the same encoding, and every learned evaluation reproduces its training-time validation exactly. It means a DQN configuration for the final contract still has to be found under a predeclared search (#20).
 
-- `delta-v1`: the existing `Discrete(3)` action codes `0/1/2` = scale-down/hold/scale-up, with replica-count effects `-1/0/+1`;
-- `desired-replicas-v1`: discrete action codes mapped directly to an integer target fleet size.
+Matched PPO candidates tell the opposite story. All 8 candidates feasible under `delta-v1` are also feasible under `desired-replicas-v1`, and 6 more become feasible. The selected desired configuration is cheaper (0.692 vs 0.845) at a comparable SLA; its main difference is much lower churn.
 
-The values `-1/0/+1` are **effects on replica count**, not the values accepted by `AutoscalingEnv.step()`; under the current contract `-1` is an invalid action code.
+**Nominal evaluation, five retrained seeds per selected family** (mean ± SD over training seeds; rules are single deterministic runs):
 
-This does **not** mean DQN is invalid because it lacks continuous actions. Horizontal replica counts are discrete. Continuous/hybrid action spaces would be a different problem, such as vertical CPU/RAM allocation.
+| Controller | Contract | Workload | SLA | Cost | Queue pressure | Churn | Replicas moved | Max per tick |
+|---|---|---|---|---|---|---|---|---|
+| Threshold | both | steady-high / ramp-down / bursty | 0.275 / 0.350 / 0.208 | 0.872 / 0.839 / 0.823 | 0.186 / 0.269 / 0.106 | 0.075 / 0.108 / 0.117 | 9 / 13 / 14 | 1 |
+| Predictive | `delta-v1` | steady-high / ramp-down / bursty | 0.100 / 0.150 / 0.408 | 0.698 / 0.536 / 0.507 | 0.052 / 0.092 / 0.146 | 0.100 / 0.142 / 0.800 | 12 / 17 / 96 | 1 |
+| Predictive | `desired-replicas-v1` | steady-high / ramp-down / bursty | 0.042 / 0.067 / 0.600 | 0.708 / 0.550 / 0.600 | 0.015 / 0.030 / 0.162 | 0.017 / 0.075 / 0.592 | 12 / 17 / 249 | 9 |
+| DQN (`dqn-c11`) | `delta-v1` | bursty | 0.237 ± 0.045 | 0.661 ± 0.056 | 0.061 ± 0.018 | 0.383 ± 0.110 | 46 ± 13 | 1 |
+| PPO (`ppo-c11`) | `delta-v1` | bursty | 0.132 ± 0.078 | 0.782 ± 0.134 | 0.028 ± 0.022 | 0.058 ± 0.012 | 7 ± 1 | 1 |
+| PPO (`ppo-c08`) | `desired-replicas-v1` | bursty | 0.092 ± 0.086 | 0.792 ± 0.111 | 0.015 ± 0.017 | 0.020 ± 0.026 | 10 ± 5 | 7 ± 1 |
+
+Per-workload, per-seed rows, descriptive summaries, desired − delta paired deltas (same controller, seed, and workload) and matched-candidate pairs are in `raw-results.*`, `summary.*`, `paired-deltas.csv` and `candidate-pairs.csv`. No p-values or significance claims are made.
+
+- **Threshold** is identical under both contracts: its law is ±1 by design, so this is a contract-equivalence control that the encoding passes.
+- **Predictive** improves on steady-high and ramp-down under `desired-replicas-v1`, where it reaches its computed capacity immediately. It is worse on `syn-val-bursty` (SLA 0.600 vs 0.408, 249 vs 96 replicas moved). There, its linear-trend forecast of a noisy burst is actuated at full size each tick instead of being rate-limited by ±1 steps, and it oscillates. The `delta-v1` actuator was implicitly smoothing a weak forecaster; that is a finding for #80, not something to tune away here.
+- **PPO seeds vary.** Under `delta-v1`, seed 3 learns a cheap policy that fails ramp-down (SLA 0.742) and seed 4 runs near full fleet. Under `desired-replicas-v1`, the five seeds span cost 0.68–0.90 with SLA ≤ 0.19 on every workload.
+- **DQN `delta-v1` seeds 1–4** miss the bursty threshold (0.24–0.27) even though the selected configuration's seed 0 passed. Seed variability is real, and the retrained seeds are reported, not re-selected.
+
+#### Decision: `desired-replicas-v1` is the final action contract
+
+All three predeclared criteria passed:
+- the action/lifecycle invariants hold;
+- DQN and PPO train and infer against `desired-replicas-v1`, 20/20 candidates each, with finite metrics and strict compatibility;
+- the experiment completed: 80 screening models, 15 retrained models, 57/57 evaluation rows, and 45/45 learned evaluations identical to their training-time validation.
+
+The decision is frozen in [`benchmarks/v1/action-contract-v2.json`](../benchmarks/v1/action-contract-v2.json) (ID `0eb5562b01e6`), with the selection outcome, all retrained model run IDs, and a validation summary. It was not chosen for better metrics: the contract was preferred before the run, and its consequences are mixed (better PPO, worse DQN selection, and worse Predictive on bursty).
+
+Implications:
+- #20, #72 and #46 use `desired-replicas-v1` explicitly, with models trained under it. `SimulatorConfig()` stays `delta-v1` for historical reproducibility.
+- There is currently **no selected DQN configuration** under the final contract; #20's predeclared study must find one or report that it cannot.
+- Provenance note: all 320 screening runs and the 57 evaluation runs ran from a clean commit (`fc9cd73`). Ten of the 15 retraining models ran while three documentation files were uncommitted, so they are tagged `git_dirty=true` with the same code SHA. Two interrupted retraining attempts are marked `KILLED` with a `scalerl.superseded` tag and are not models of record.
 
 ### #80 — stronger proactive predictive baseline
 
@@ -481,7 +559,7 @@ The pre-held-out sequence is:
   ↓
 #78 constrained selection rule
   ↓
-#79 final action semantics
+#79 final action semantics (desired-replicas-v1, frozen)
   ├─→ #80 stronger predictive baseline
   └─→ #81 startup-delay robustness extension
           ↓

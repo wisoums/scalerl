@@ -38,3 +38,9 @@ The project should include ablations for:
 4. sensitivity to each reward weight.
 
 The final weights should be justified empirically rather than selected only because they produce the highest training reward.
+
+## Churn counts scaling events, not replica magnitude (#79 note)
+
+The implemented churn term is `weights.churn * (applied_replica_change != 0)`: one penalty per tick whose applied replica change is non-zero, whatever its size. Under the historical `delta-v1` contract every scaling tick moves exactly one replica, so events and magnitude coincide. Under `desired-replicas-v1` one decision can move several replicas (`+6` in one tick costs the same churn penalty as `+1`).
+
+#79 deliberately does **not** change the reward: the action-contract comparison must not be confounded with a reward change. Instead it reports magnitude separately as `action.*` diagnostics (`total_absolute_replica_change`, `mean_absolute_replica_change_when_scaling`, `max_absolute_replica_change_in_one_tick`, `max_pending_replicas`) next to the event-based `scaling_actions`/`churn_rate`. Fewer scaling ticks therefore do not imply less total scaling. Whether churn should become magnitude-sensitive is a reward-design question for #20.

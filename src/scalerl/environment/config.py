@@ -6,9 +6,16 @@ deployment and are always internally valid.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Any, Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 
 class _FrozenConfig(BaseModel):
@@ -129,11 +136,51 @@ class DynamicsConfig(_FrozenConfig):
     )
 
 
+DELTA_V1: Final = "delta-v1"
+DESIRED_REPLICAS_V1: Final = "desired-replicas-v1"
+ActionSemantics = Literal["delta-v1", "desired-replicas-v1"]
+
+
+class ActionConfig(_FrozenConfig):
+    """Which versioned action contract ``AutoscalingEnv`` exposes (#79).
+
+    * ``delta-v1`` (default; every run and model before #79): ``Discrete(3)``,
+      action **codes** 0/1/2 = scale down / hold / scale up, whose replica-count
+      **effects** are -1/0/+1. The effects are not valid codes: ``step(-1)`` is
+      rejected.
+    * ``desired-replicas-v1``: ``Discrete(max_replicas - min_replicas + 1)``;
+      code ``c`` requests the integer fleet size ``min_replicas + c``, reached
+      in one decision by starting or cancelling replicas through the normal
+      lifecycle (new replicas still wait out their startup delay).
+
+    See :mod:`scalerl.environment.actions` for the encoding.
+    """
+
+    semantics: ActionSemantics = Field(
+        default=DELTA_V1, description="Versioned action contract identifier."
+    )
+
+
 class SimulatorConfig(_FrozenConfig):
-    """Complete simulator configuration composed from focused sub-configs."""
+    """Complete simulator configuration composed from focused sub-configs.
+
+    ``action`` defaults to ``delta-v1`` and is serialized only when it differs
+    from that default, so every config (and every hash, study identity, or
+    plan ID derived from one) created before #79 serializes exactly as before;
+    a config without ``action`` loads as ``delta-v1``. Run tags and the
+    compatibility contract always record the action semantics explicitly.
+    """
 
     timing: TimingConfig = Field(default_factory=TimingConfig)
     replicas: ReplicaConfig = Field(default_factory=ReplicaConfig)
     sla: SlaConfig = Field(default_factory=SlaConfig)
     observation: ObservationConfig = Field(default_factory=ObservationConfig)
     dynamics: DynamicsConfig = Field(default_factory=DynamicsConfig)
+    action: ActionConfig = Field(default_factory=ActionConfig)
+
+    @model_serializer(mode="wrap")
+    def _omit_default_action(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.action == ActionConfig():
+            data.pop("action", None)
+        return data

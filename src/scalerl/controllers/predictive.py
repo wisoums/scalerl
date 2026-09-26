@@ -26,7 +26,16 @@ Each decision (v1 defaults in parentheses):
    otherwise hold, and scale down only when no requests are queued (a
    scale-down cancels the newest pending replica first). Never removing
    capacity while backlog remains may keep capacity longer, trading cost for
-   backlog/SLA recovery. The environment moves at most one replica per tick.
+   backlog/SLA recovery.
+
+**Action contracts (#79).** Under ``delta-v1`` (the default, and the only
+contract before #79) the decision is emitted as one step toward ``desired``:
+code 2 / 0 / 1, i.e. at most one replica per tick. Under
+``desired-replicas-v1`` the *same* computed ``desired`` is encoded directly as
+the target (``committed`` when the decision holds, e.g. ``backlog_hold``), so
+the whole correction is requested in one decision and still waits out the
+startup delay. Forecast, history, target utilization and backlog recovery are
+identical under both contracts.
 
 With an empty queue the rule is exactly the forecast-only sizing of #14.
 
@@ -51,8 +60,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from scalerl.environment.config import SimulatorConfig
-from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
+from scalerl.environment.actions import HOLD, SCALE_DOWN, SCALE_UP, ActionContract
+from scalerl.environment.config import DELTA_V1, SimulatorConfig
+from scalerl.environment.gym_env import Observation
 from scalerl.environment.replicas import startup_ticks
 
 PredictiveReason = Literal[
@@ -89,7 +99,9 @@ class PredictiveDecision:
     adds ``backlog_recovery_rps`` for requests already queued. Reasons:
     ``scale_up`` (the forecast alone needs more capacity), ``queue_recovery``
     (only the backlog term does), ``backlog_hold`` (a scale-down blocked
-    because requests are still queued).
+    because requests are still queued). ``action`` is the emitted environment
+    action code; ``target_replicas`` is the committed capacity it requests
+    (set only when the controller was given an action contract).
     """
 
     latest_request_rate: float | None
@@ -103,6 +115,7 @@ class PredictiveDecision:
     pending_replicas: int
     action: int
     reason: PredictiveReason
+    target_replicas: int | None = None
 
 
 class PredictiveController:
@@ -118,6 +131,7 @@ class PredictiveController:
         control_interval_seconds: float,
         history_window_ticks: int = 4,
         target_utilization: float = 0.8,
+        action_contract: ActionContract | None = None,
     ) -> None:
         for name, count in (("min_replicas", min_replicas), ("max_replicas", max_replicas)):
             _require_int(name, count)
@@ -143,6 +157,7 @@ class PredictiveController:
 
         self._min_replicas = min_replicas
         self._max_replicas = max_replicas
+        self._contract = action_contract
         self._capacity_per_replica = float(service_capacity_rps) * float(target_utilization)
         self._control_interval = float(control_interval_seconds)
         self._history_window = history_window_ticks
@@ -162,8 +177,20 @@ class PredictiveController:
         *,
         history_window_ticks: int = 4,
         target_utilization: float = 0.8,
+        action_contract: ActionContract | None = None,
     ) -> PredictiveController:
-        """Take bounds, capacity, and timing from the simulator configuration."""
+        """Take bounds, capacity, timing, and the action contract from ``config``.
+
+        The controller always acts under ``config``'s action contract, so it
+        can never emit ``delta-v1`` codes into a ``desired-replicas-v1``
+        environment. An explicit ``action_contract`` is accepted only if it is
+        exactly that contract.
+        """
+        derived = ActionContract.from_config(config)
+        if action_contract is not None and action_contract != derived:
+            raise ValueError(
+                f"action_contract {action_contract} does not match the config's {derived}"
+            )
         return cls(
             min_replicas=config.replicas.min_replicas,
             max_replicas=config.replicas.max_replicas,
@@ -172,7 +199,12 @@ class PredictiveController:
             control_interval_seconds=config.timing.control_interval_seconds,
             history_window_ticks=history_window_ticks,
             target_utilization=target_utilization,
+            action_contract=derived,
         )
+
+    @property
+    def action_contract(self) -> ActionContract | None:
+        return self._contract
 
     @property
     def history_window_ticks(self) -> int:
@@ -213,6 +245,7 @@ class PredictiveController:
         active, pending = int(info["active_replicas"]), int(info["pending_replicas"])
 
         if not self._samples:
+            code, target = self._encode(HOLD, active + pending, active + pending)
             self._last_decision = PredictiveDecision(
                 None,
                 None,
@@ -223,10 +256,11 @@ class PredictiveController:
                 None,
                 active,
                 pending,
-                HOLD,
+                code,
                 "no_sample",
+                target,
             )
-            return HOLD
+            return code
 
         source_tick, latest = self._samples[-1]
         forecast = self._forecast(source_tick + self._horizon)
@@ -265,6 +299,7 @@ class PredictiveController:
         else:
             action, reason = HOLD, "at_target"
 
+        action, target = self._encode(action, desired if action != HOLD else committed, committed)
         return PredictiveDecision(
             latest_request_rate=latest,
             forecast_rps=forecast,
@@ -277,7 +312,22 @@ class PredictiveController:
             pending_replicas=pending,
             action=action,
             reason=reason,
+            target_replicas=target,
         )
+
+    def _encode(self, delta_code: int, target: int, committed: int) -> tuple[int, int | None]:
+        """Emit the decision under the action contract: ``(code, requested target)``.
+
+        Without a contract, or under ``delta-v1``, the historical one-step code is
+        emitted unchanged; under ``desired-replicas-v1`` the target itself.
+        """
+        if self._contract is None:
+            return delta_code, None
+        if self._contract.semantics == DELTA_V1:
+            code = delta_code
+        else:
+            code = self._contract.code_for_target(target, committed)
+        return code, self._contract.target_for(code, committed)
 
     def _size(self, demand_rps: float) -> tuple[int, int]:
         """Return ``(needed, desired)`` replicas for ``demand_rps`` with headroom."""

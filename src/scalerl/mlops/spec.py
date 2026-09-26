@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 import scalerl
 from scalerl.benchmarks import load_benchmark_manifest
 from scalerl.benchmarks.manifest import Split
-from scalerl.environment.config import CAPACITY_JITTER_MODEL, SimulatorConfig
+from scalerl.environment.config import CAPACITY_JITTER_MODEL, DELTA_V1, SimulatorConfig
 from scalerl.environment.gym_env import AutoscalingEnv
 from scalerl.environment.reward import RewardWeights
 from scalerl.workloads import steady_workload
@@ -144,6 +144,15 @@ class EnvironmentCompatibility(_Strict):
     realization and are deliberately excluded, so a model can be evaluated
     across jitter levels and seeds. Both new fields default to the nominal
     values, so contracts saved before #65 still load as nominal.
+
+    Action contract (#79): ``action_semantics_version`` names what an action
+    code means. ``action_count`` alone is not enough: ``delta-v1`` and a
+    ``desired-replicas-v1`` environment with three replica levels both have
+    ``Discrete(3)`` but opposite meanings. It defaults to ``delta-v1``, so
+    contracts saved before #79 load as ``delta-v1``, and it is never a
+    robustness perturbation. Under ``desired-replicas-v1`` the replica range
+    is ``[max_replicas - action_count + 1, max_replicas]``, fixed by the two
+    recorded fields.
     """
 
     observation_shape: tuple[int, ...]
@@ -158,6 +167,7 @@ class EnvironmentCompatibility(_Strict):
     traffic_history_ticks: int
     telemetry_delay_ticks: int = 0
     capacity_jitter_model: str = CAPACITY_JITTER_MODEL
+    action_semantics_version: str = DELTA_V1
     benchmark_version: str | None = None
 
     @classmethod
@@ -181,6 +191,7 @@ class EnvironmentCompatibility(_Strict):
             traffic_history_ticks=env.config.observation.traffic_history_ticks,
             telemetry_delay_ticks=env.config.dynamics.telemetry_delay_ticks,
             capacity_jitter_model=CAPACITY_JITTER_MODEL,
+            action_semantics_version=env.action_semantics,
             benchmark_version=benchmark_version,
         )
 

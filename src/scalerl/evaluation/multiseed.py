@@ -489,10 +489,14 @@ def make_controller(
     """
     config = env.config
     params = variant.params
+    contract = env.action_contract
     if variant.controller == "static":
-        return StaticController(int(_number(params["target_replicas"])), config.replicas)
+        return StaticController(
+            int(_number(params["target_replicas"])), config.replicas, action_contract=contract
+        )
     if variant.controller == "random":
-        return RandomController()  # seeded by the runner's reset(evaluation_seed)
+        # seeded by the runner's reset(evaluation_seed)
+        return RandomController(action_contract=contract)
     if variant.controller == "threshold":
         return ThresholdController(
             low_threshold=_number(params["low_threshold"]),
@@ -500,6 +504,7 @@ def make_controller(
             cooldown_ticks=int(_number(params["cooldown_ticks"])),
             min_replicas=config.replicas.min_replicas,
             max_replicas=config.replicas.max_replicas,
+            action_contract=contract,
         )
     if variant.controller == "predictive":
         return PredictiveController.from_config(

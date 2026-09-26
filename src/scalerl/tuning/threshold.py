@@ -48,7 +48,7 @@ from scalerl.benchmarks import (
     load_benchmark_manifest,
 )
 from scalerl.controllers import ThresholdController
-from scalerl.environment import AutoscalingEnv, SimulatorConfig
+from scalerl.environment import ActionContract, AutoscalingEnv, SimulatorConfig
 from scalerl.environment.reward import RewardWeights
 from scalerl.evaluation import EpisodeMetrics, evaluate_controller_episode
 from scalerl.mlops import RunSpec, SimulatorConfigSource
@@ -279,6 +279,7 @@ def _evaluate_workload(
         cooldown_ticks=params["cooldown_ticks"],
         min_replicas=config.replicas.min_replicas,
         max_replicas=config.replicas.max_replicas,
+        action_contract=ActionContract.from_config(config),
     )
     with context.track(run_spec, tracking_uri=tracking_uri, experiment_name=experiment_name) as run:
         metrics = evaluate_episode(AutoscalingEnv(config, trace), controller)

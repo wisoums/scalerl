@@ -1,0 +1,384 @@
+{
+  "decision_version": "action-contract-v2",
+  "final_action_semantics": "desired-replicas-v1",
+  "action_space": "Discrete(max_replicas - min_replicas + 1); Discrete(10) at 1..10",
+  "code_mapping": "code c -> target committed replicas min_replicas + c (0..9 -> 1..10); |target - (active + pending)| replicas started or cancelled in one step through the startup lifecycle",
+  "experiment_version": "action-semantics-experiment-v1",
+  "experiment_spec_id": "899dfbb64217",
+  "candidate_set_id": "cbe3c1c0719b",
+  "selection_version": "selection-v2-cost-under-sla",
+  "selection_spec_id": "418876d6c8e9",
+  "decision_rule": "predeclared: adopt the preferred desired-replicas-v1 if invariants pass, DQN/PPO train and infer against it, and the experiment completes without an encoding failure; validation metrics characterize, they do not choose",
+  "criteria": {
+    "action_lifecycle_invariants_pass": true,
+    "dqn_and_ppo_train_and_infer_with_desired_replicas_v1": true,
+    "experiment_completed_without_encoding_failure": true
+  },
+  "selected_configurations": {
+    "dqn-delta-v1": {
+      "feasible_candidate_count": 4,
+      "candidate_count": 20,
+      "feasible_candidate_ids": [
+        "dqn-c06",
+        "dqn-c08",
+        "dqn-c11",
+        "dqn-c16"
+      ],
+      "selection_succeeded": true,
+      "selected_candidate_id": "dqn-c11",
+      "selected_objective_values": {
+        "sla_violation_rate": 0.1722222222222222,
+        "normalized_cost": 0.7486111111111112,
+        "queue_pressure": 0.07756895850476629,
+        "churn_rate": 0.125
+      },
+      "diagnostic_fallback_candidate_id": null
+    },
+    "dqn-desired-replicas-v1": {
+      "feasible_candidate_count": 0,
+      "candidate_count": 20,
+      "feasible_candidate_ids": [],
+      "selection_succeeded": false,
+      "selected_candidate_id": null,
+      "selected_objective_values": null,
+      "diagnostic_fallback_candidate_id": "dqn-c01"
+    },
+    "ppo-delta-v1": {
+      "feasible_candidate_count": 8,
+      "candidate_count": 20,
+      "feasible_candidate_ids": [
+        "ppo-c01",
+        "ppo-c06",
+        "ppo-c08",
+        "ppo-c09",
+        "ppo-c11",
+        "ppo-c13",
+        "ppo-c18",
+        "ppo-c19"
+      ],
+      "selection_succeeded": true,
+      "selected_candidate_id": "ppo-c11",
+      "selected_objective_values": {
+        "sla_violation_rate": 0.11388888888888889,
+        "normalized_cost": 0.8452777777777779,
+        "queue_pressure": 0.04734107426186429,
+        "churn_rate": 0.06388888888888888
+      },
+      "diagnostic_fallback_candidate_id": null
+    },
+    "ppo-desired-replicas-v1": {
+      "feasible_candidate_count": 14,
+      "candidate_count": 20,
+      "feasible_candidate_ids": [
+        "ppo-c01",
+        "ppo-c03",
+        "ppo-c04",
+        "ppo-c05",
+        "ppo-c06",
+        "ppo-c08",
+        "ppo-c09",
+        "ppo-c10",
+        "ppo-c11",
+        "ppo-c12",
+        "ppo-c13",
+        "ppo-c15",
+        "ppo-c18",
+        "ppo-c19"
+      ],
+      "selection_succeeded": true,
+      "selected_candidate_id": "ppo-c08",
+      "selected_objective_values": {
+        "sla_violation_rate": 0.1388888888888889,
+        "normalized_cost": 0.6922222222222224,
+        "queue_pressure": 0.03866191295848905,
+        "churn_rate": 0.011111111111111112
+      },
+      "diagnostic_fallback_candidate_id": null
+    }
+  },
+  "retrained_models": [
+    {
+      "family": "dqn-delta-v1",
+      "training_seed": 0,
+      "selected_candidate_id": "dqn-c11",
+      "training_run_id": "23fc94dd19bc4f428c4277f3ee144b9f",
+      "model_artifact_uri": "runs:/23fc94dd19bc4f428c4277f3ee144b9f/model"
+    },
+    {
+      "family": "dqn-delta-v1",
+      "training_seed": 1,
+      "selected_candidate_id": "dqn-c11",
+      "training_run_id": "8d22a0f8577640faaf507e8357adcea2",
+      "model_artifact_uri": "runs:/8d22a0f8577640faaf507e8357adcea2/model"
+    },
+    {
+      "family": "dqn-delta-v1",
+      "training_seed": 2,
+      "selected_candidate_id": "dqn-c11",
+      "training_run_id": "83711db66aa647efa0b3375261c8ed27",
+      "model_artifact_uri": "runs:/83711db66aa647efa0b3375261c8ed27/model"
+    },
+    {
+      "family": "dqn-delta-v1",
+      "training_seed": 3,
+      "selected_candidate_id": "dqn-c11",
+      "training_run_id": "7003303a073a4d78b902903cfae20741",
+      "model_artifact_uri": "runs:/7003303a073a4d78b902903cfae20741/model"
+    },
+    {
+      "family": "dqn-delta-v1",
+      "training_seed": 4,
+      "selected_candidate_id": "dqn-c11",
+      "training_run_id": "8e41f60fba9b42bd93f33127fdebc39c",
+      "model_artifact_uri": "runs:/8e41f60fba9b42bd93f33127fdebc39c/model"
+    },
+    {
+      "family": "ppo-delta-v1",
+      "training_seed": 0,
+      "selected_candidate_id": "ppo-c11",
+      "training_run_id": "fd4150d0d2de4c8fa6249a84c86bcd5e",
+      "model_artifact_uri": "runs:/fd4150d0d2de4c8fa6249a84c86bcd5e/model"
+    },
+    {
+      "family": "ppo-delta-v1",
+      "training_seed": 1,
+      "selected_candidate_id": "ppo-c11",
+      "training_run_id": "5a6c7efb09624fe3b33ba342a6a1fd7d",
+      "model_artifact_uri": "runs:/5a6c7efb09624fe3b33ba342a6a1fd7d/model"
+    },
+    {
+      "family": "ppo-delta-v1",
+      "training_seed": 2,
+      "selected_candidate_id": "ppo-c11",
+      "training_run_id": "4214e8f0ae54438da934ead70b8e6baa",
+      "model_artifact_uri": "runs:/4214e8f0ae54438da934ead70b8e6baa/model"
+    },
+    {
+      "family": "ppo-delta-v1",
+      "training_seed": 3,
+      "selected_candidate_id": "ppo-c11",
+      "training_run_id": "f0d226e1988d48e28e9137da4ce7b0a0",
+      "model_artifact_uri": "runs:/f0d226e1988d48e28e9137da4ce7b0a0/model"
+    },
+    {
+      "family": "ppo-delta-v1",
+      "training_seed": 4,
+      "selected_candidate_id": "ppo-c11",
+      "training_run_id": "3fd5bb950b45455eb6931ed7108b851a",
+      "model_artifact_uri": "runs:/3fd5bb950b45455eb6931ed7108b851a/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 0,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "47da383ccf324d468c58214000a3cd0c",
+      "model_artifact_uri": "runs:/47da383ccf324d468c58214000a3cd0c/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 1,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "bcdb78ceca944bf8be428e82e19a1e94",
+      "model_artifact_uri": "runs:/bcdb78ceca944bf8be428e82e19a1e94/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 2,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "c4a087c1c87e4937be8d2a11f5fc76bf",
+      "model_artifact_uri": "runs:/c4a087c1c87e4937be8d2a11f5fc76bf/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 3,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "fa795d09f04d4974aad862abcdd26460",
+      "model_artifact_uri": "runs:/fa795d09f04d4974aad862abcdd26460/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 4,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "11f632851e91409a85c4dcdd69d00aeb",
+      "model_artifact_uri": "runs:/11f632851e91409a85c4dcdd69d00aeb/model"
+    }
+  ],
+  "validation_evidence_summary": {
+    "threshold|delta-v1|syn-val-steady-high": {
+      "normalized_cost": 0.8724999999999999,
+      "n": 1,
+      "sla_violation_rate": 0.275,
+      "queue_pressure": 0.18578683109568414,
+      "churn_rate": 0.075,
+      "action_total_absolute_replica_change": 9.0
+    },
+    "predictive|delta-v1|syn-val-steady-high": {
+      "normalized_cost": 0.6975,
+      "n": 1,
+      "sla_violation_rate": 0.1,
+      "queue_pressure": 0.052010458677125344,
+      "churn_rate": 0.1,
+      "action_total_absolute_replica_change": 12.0
+    },
+    "threshold|desired-replicas-v1|syn-val-steady-high": {
+      "normalized_cost": 0.8724999999999999,
+      "n": 1,
+      "sla_violation_rate": 0.275,
+      "queue_pressure": 0.18578683109568414,
+      "churn_rate": 0.075,
+      "action_total_absolute_replica_change": 9.0
+    },
+    "predictive|desired-replicas-v1|syn-val-steady-high": {
+      "normalized_cost": 0.7075,
+      "n": 1,
+      "sla_violation_rate": 0.041666666666666664,
+      "queue_pressure": 0.015450372068019127,
+      "churn_rate": 0.016666666666666666,
+      "action_total_absolute_replica_change": 12.0
+    },
+    "dqn|delta-v1|syn-val-steady-high": {
+      "normalized_cost": 0.7028333333333333,
+      "n": 5,
+      "sla_violation_rate": 0.08499999999999999,
+      "queue_pressure": 0.040399125833908436,
+      "churn_rate": 0.15666666666666668,
+      "action_total_absolute_replica_change": 18.8
+    },
+    "ppo|delta-v1|syn-val-steady-high": {
+      "normalized_cost": 0.7896666666666667,
+      "n": 5,
+      "sla_violation_rate": 0.10166666666666666,
+      "queue_pressure": 0.045968904996953865,
+      "churn_rate": 0.06,
+      "action_total_absolute_replica_change": 7.2
+    },
+    "ppo|desired-replicas-v1|syn-val-steady-high": {
+      "normalized_cost": 0.7955,
+      "n": 5,
+      "sla_violation_rate": 0.05166666666666666,
+      "queue_pressure": 0.016530333772980833,
+      "churn_rate": 0.011666666666666667,
+      "action_total_absolute_replica_change": 7.8
+    },
+    "threshold|delta-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.8391666666666666,
+      "n": 1,
+      "sla_violation_rate": 0.35,
+      "queue_pressure": 0.26915665777663095,
+      "churn_rate": 0.10833333333333334,
+      "action_total_absolute_replica_change": 13.0
+    },
+    "predictive|delta-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.5358333333333334,
+      "n": 1,
+      "sla_violation_rate": 0.15,
+      "queue_pressure": 0.09167207839384241,
+      "churn_rate": 0.14166666666666666,
+      "action_total_absolute_replica_change": 17.0
+    },
+    "threshold|desired-replicas-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.8391666666666666,
+      "n": 1,
+      "sla_violation_rate": 0.35,
+      "queue_pressure": 0.26915665777663095,
+      "churn_rate": 0.10833333333333334,
+      "action_total_absolute_replica_change": 13.0
+    },
+    "predictive|desired-replicas-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.55,
+      "n": 1,
+      "sla_violation_rate": 0.06666666666666667,
+      "queue_pressure": 0.03013586111585351,
+      "churn_rate": 0.075,
+      "action_total_absolute_replica_change": 17.0
+    },
+    "dqn|delta-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.6626666666666667,
+      "n": 5,
+      "sla_violation_rate": 0.16333333333333333,
+      "queue_pressure": 0.09302380235280319,
+      "churn_rate": 0.13166666666666665,
+      "action_total_absolute_replica_change": 15.8
+    },
+    "ppo|delta-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.7768333333333334,
+      "n": 5,
+      "sla_violation_rate": 0.28833333333333333,
+      "queue_pressure": 0.19288933764027144,
+      "churn_rate": 0.058333333333333334,
+      "action_total_absolute_replica_change": 7.0
+    },
+    "ppo|desired-replicas-v1|syn-val-ramp-down": {
+      "normalized_cost": 0.8066666666666666,
+      "n": 5,
+      "sla_violation_rate": 0.11499999999999999,
+      "queue_pressure": 0.045326802457575935,
+      "churn_rate": 0.021666666666666667,
+      "action_total_absolute_replica_change": 9.6
+    },
+    "threshold|delta-v1|syn-val-bursty": {
+      "normalized_cost": 0.8225,
+      "n": 1,
+      "sla_violation_rate": 0.20833333333333334,
+      "queue_pressure": 0.10634022391123521,
+      "churn_rate": 0.11666666666666667,
+      "action_total_absolute_replica_change": 14.0
+    },
+    "predictive|delta-v1|syn-val-bursty": {
+      "normalized_cost": 0.5066666666666667,
+      "n": 1,
+      "sla_violation_rate": 0.4083333333333333,
+      "queue_pressure": 0.14600578149478935,
+      "churn_rate": 0.8,
+      "action_total_absolute_replica_change": 96.0
+    },
+    "threshold|desired-replicas-v1|syn-val-bursty": {
+      "normalized_cost": 0.8225,
+      "n": 1,
+      "sla_violation_rate": 0.20833333333333334,
+      "queue_pressure": 0.10634022391123521,
+      "churn_rate": 0.11666666666666667,
+      "action_total_absolute_replica_change": 14.0
+    },
+    "predictive|desired-replicas-v1|syn-val-bursty": {
+      "normalized_cost": 0.6,
+      "n": 1,
+      "sla_violation_rate": 0.6,
+      "queue_pressure": 0.1623274243842663,
+      "churn_rate": 0.5916666666666667,
+      "action_total_absolute_replica_change": 249.0
+    },
+    "dqn|delta-v1|syn-val-bursty": {
+      "normalized_cost": 0.6613333333333333,
+      "n": 5,
+      "sla_violation_rate": 0.23666666666666666,
+      "queue_pressure": 0.06136252978585126,
+      "churn_rate": 0.38333333333333336,
+      "action_total_absolute_replica_change": 46.0
+    },
+    "ppo|delta-v1|syn-val-bursty": {
+      "normalized_cost": 0.7815000000000001,
+      "n": 5,
+      "sla_violation_rate": 0.13166666666666665,
+      "queue_pressure": 0.028060149223078534,
+      "churn_rate": 0.058333333333333334,
+      "action_total_absolute_replica_change": 7.0
+    },
+    "ppo|desired-replicas-v1|syn-val-bursty": {
+      "normalized_cost": 0.7916666666666667,
+      "n": 5,
+      "sla_violation_rate": 0.09166666666666666,
+      "queue_pressure": 0.014766025824935239,
+      "churn_rate": 0.02,
+      "action_total_absolute_replica_change": 9.6
+    }
+  },
+  "result_references": {
+    "mlflow_experiment": "scalerl-action-semantics",
+    "local_outputs": "outputs/action-semantics-v1",
+    "raw_results": "raw-results.jsonl (one nominal evaluate run per row, MLflow run IDs)"
+  },
+  "simulator_default_note": "SimulatorConfig() keeps delta-v1 as its default for historical reproducibility; downstream final experiments (#20/#72/#46) request desired-replicas-v1 explicitly",
+  "held_out_data_used": false,
+  "reward_changed": false
+}

@@ -29,7 +29,7 @@ from scalerl.controllers import (
     ThresholdDecision,
     decision_info,
 )
-from scalerl.environment import AutoscalingEnv, SimulatorConfig
+from scalerl.environment import ActionContract, AutoscalingEnv, SimulatorConfig
 from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
 from scalerl.workloads import (
     WorkloadTrace,
@@ -160,10 +160,11 @@ class ManagerSpec:
         duplicated manager settings.
         """
         replicas = config.replicas
+        contract = ActionContract.from_config(config)
         if self.kind == "manual":
             return None
         if self.kind == "random":
-            return RandomController(seed=self.seed)
+            return RandomController(seed=self.seed, action_contract=contract)
         if self.kind == "predictive":
             return PredictiveController.from_config(
                 config,
@@ -173,13 +174,14 @@ class ManagerSpec:
         if self.kind == "static":
             if self.target_replicas is None:
                 raise ValueError("static manager needs target_replicas")
-            return StaticController(self.target_replicas, replicas)
+            return StaticController(self.target_replicas, replicas, action_contract=contract)
         return ThresholdController(
             low_threshold=self.low_threshold,
             high_threshold=self.high_threshold,
             min_replicas=replicas.min_replicas,
             max_replicas=replicas.max_replicas,
             cooldown_ticks=self.cooldown_ticks,
+            action_contract=contract,
         )
 
 

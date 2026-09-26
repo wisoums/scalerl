@@ -75,6 +75,52 @@ def summarize_episode(
     )
 
 
+@dataclass(frozen=True)
+class ActionMagnitudeMetrics:
+    """How much capacity an episode's scaling decisions moved (#79 diagnostics).
+
+    ``scaling_events`` is the existing ``scaling_actions`` (ticks with a
+    non-zero applied change), which is also what the reward's churn term
+    counts: one event per scaling tick, whatever its size. Under
+    ``desired-replicas-v1`` one event can move several replicas, so the
+    magnitude is reported separately and fewer scaling ticks do not imply less
+    total scaling. These are diagnostics only; they do not enter the reward
+    or any selection rule.
+
+    * ``total_absolute_replica_change``: sum of ``|applied_replica_change|``;
+    * ``mean_absolute_replica_change_when_scaling``: that sum per scaling event
+      (0.0 when the episode never scaled);
+    * ``max_absolute_replica_change_in_one_tick``;
+    * ``max_pending_replicas``: most replicas starting up at once (after a
+      tick's action).
+    """
+
+    scaling_events: int
+    total_absolute_replica_change: int
+    mean_absolute_replica_change_when_scaling: float
+    max_absolute_replica_change_in_one_tick: int
+    max_pending_replicas: int
+
+    def as_metrics(self) -> dict[str, float]:
+        return {f"action.{name}": float(value) for name, value in vars(self).items()}
+
+
+def summarize_action_magnitude(infos: Sequence[Mapping[str, Any]]) -> ActionMagnitudeMetrics:
+    """Summarize the applied replica changes of completed step ``info`` dicts."""
+    if not infos:
+        raise ValueError("cannot summarize an empty episode")
+    changes = [abs(int(info["applied_replica_change"])) for info in infos]
+    events = sum(1 for change in changes if change)
+    total = sum(changes)
+    return ActionMagnitudeMetrics(
+        scaling_events=events,
+        total_absolute_replica_change=total,
+        mean_absolute_replica_change_when_scaling=total / events if events else 0.0,
+        max_absolute_replica_change_in_one_tick=max(changes),
+        max_pending_replicas=max(int(info["pending_replicas"]) for info in infos),
+    )
+
+
 def evaluate_controller_episode(
     env: AutoscalingEnv, controller: Controller, *, seed: int | None = 0
 ) -> EpisodeEvaluation:

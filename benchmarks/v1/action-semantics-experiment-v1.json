@@ -1,0 +1,156 @@
+{
+  "experiment_version": "action-semantics-experiment-v1",
+  "benchmark_version": "v1",
+  "action_contracts": [
+    {
+      "semantics": "delta-v1",
+      "action_space": "Discrete(3)",
+      "code_mapping": "code 0 = scale down (effect -1), 1 = hold (0), 2 = scale up (+1); effects are not codes: step(-1) is invalid"
+    },
+    {
+      "semantics": "desired-replicas-v1",
+      "action_space": "Discrete(max_replicas - min_replicas + 1); Discrete(10) at 1..10",
+      "code_mapping": "code c -> target committed replicas min_replicas + c (0..9 -> 1..10); |target - (active + pending)| replicas started or cancelled in one step through the startup lifecycle"
+    }
+  ],
+  "base_simulator_config": {
+    "timing": {
+      "control_interval_seconds": 30.0,
+      "episode_duration_seconds": 3600.0
+    },
+    "replicas": {
+      "min_replicas": 1,
+      "max_replicas": 10,
+      "initial_replicas": 1,
+      "startup_delay_seconds": 60.0,
+      "service_capacity_rps": 50.0,
+      "cost_per_hour": 0.1
+    },
+    "sla": {
+      "latency_target_seconds": 0.5
+    },
+    "observation": {
+      "traffic_history_ticks": 4
+    },
+    "dynamics": {
+      "capacity_jitter_fraction": 0.0,
+      "dynamics_seed": 0,
+      "telemetry_delay_ticks": 0
+    }
+  },
+  "simulator_difference": "action.semantics only",
+  "train_workload_id": "syn-train-bursty",
+  "validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "test_workload_ids": [],
+  "candidate_set_version": "matched-action-candidates-v1",
+  "candidate_set_id": "cbe3c1c0719b",
+  "candidate_generation_method": "optuna-random-sampler-v1",
+  "candidate_generation_seed": 42,
+  "candidates_per_algorithm": 20,
+  "search_space_versions": {
+    "dqn": "dqn-search-v1",
+    "ppo": "ppo-search-v1"
+  },
+  "algorithm_config_versions": {
+    "dqn": "dqn-v1",
+    "ppo": "ppo-v1"
+  },
+  "timesteps": {
+    "dqn": 200000,
+    "ppo": 204800
+  },
+  "screening_training_seed": 0,
+  "retraining_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "evaluation_seed": 0,
+  "dynamics_condition": {
+    "scenario": "nominal",
+    "robustness_version": "robustness-v1",
+    "dynamics_seed": 0,
+    "robustness_scenarios_used_for_selection_or_decision": false
+  },
+  "reward_weights": {
+    "latency": 1.0,
+    "cost": 1.0,
+    "sla": 1.0,
+    "queue": 1.0,
+    "churn": 0.1
+  },
+  "reward_definition": "scalerl.environment.reward.compute_reward, unchanged by #79: the churn term is weights.churn * (applied_replica_change != 0), i.e. per scaling event, not per replica; magnitude is reported separately (action.* diagnostics); #20 owns any reward change",
+  "selection_version": "selection-v2-cost-under-sla",
+  "selection_spec_id": "418876d6c8e9",
+  "selection_level": "hyperparameter-configuration candidates, within each algorithm x contract family; per-workload evidence of the seed-0 screening run of every candidate",
+  "families": [
+    "dqn-delta-v1",
+    "dqn-desired-replicas-v1",
+    "ppo-delta-v1",
+    "ppo-desired-replicas-v1"
+  ],
+  "rule_controllers": {
+    "threshold": {
+      "variant": "threshold-v1",
+      "controller_version": "threshold-sla-first-v1",
+      "params": {
+        "high_threshold": 0.6,
+        "low_threshold": 0.2,
+        "cooldown_ticks": 3
+      },
+      "desired_replicas_v1_encoding": "same ±1/hold law, encoded as target committed±1"
+    },
+    "predictive": {
+      "variant": "predictive-v1",
+      "forecast_method": "linear-trend",
+      "capacity_policy": "forecast-plus-backlog-v1",
+      "params": {
+        "history_window_ticks": 4,
+        "target_utilization": 0.8
+      },
+      "desired_replicas_v1_encoding": "its computed desired replicas as the target"
+    }
+  },
+  "primary_metrics": [
+    "infrastructure_cost",
+    "normalized_cost",
+    "sla_violation_rate",
+    "mean_p95_latency_seconds",
+    "max_p95_latency_seconds",
+    "mean_queue_depth",
+    "max_queue_depth",
+    "queue_pressure",
+    "scaling_actions",
+    "churn_rate",
+    "episode_reward"
+  ],
+  "action_magnitude_diagnostics": [
+    "scaling_events",
+    "total_absolute_replica_change",
+    "mean_absolute_replica_change_when_scaling",
+    "max_absolute_replica_change_in_one_tick",
+    "max_pending_replicas"
+  ],
+  "decision_principle": {
+    "preferred_contract": "desired-replicas-v1",
+    "rationale": "Horizontal autoscalers set an integer desired replica count; forcing every policy through ±1 steps makes multi-replica corrections artificially sequential. desired-replicas-v1 is the more faithful actuator model.",
+    "adopt_if": [
+      "all action/lifecycle invariants pass",
+      "DQN and PPO train and infer against desired-replicas-v1 (every screening candidate trains, loads through the strict compatibility check, and validates with finite metrics)",
+      "the validation experiment completes without a systematic implementation or numerical failure attributable to the action encoding"
+    ],
+    "if_criteria_fail": "do not silently revert to delta-v1: report the failure and leave the final action contract unresolved for review",
+    "not_decided_by": [
+      "which contract has better validation metrics",
+      "any held-out test outcome",
+      "retraining or re-tuning until one contract wins"
+    ]
+  },
+  "held_out_rule": "no syn-test-* or azure-test-* workload, #46 output, or held-out Azure result is read; the CLI accepts no workload arguments and the spec rejects test workloads"
+}

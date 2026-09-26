@@ -1,8 +1,20 @@
 """Simulation environment components for ScaleRL."""
 
+from scalerl.environment.actions import (
+    ACTION_SEMANTICS,
+    DELTA_EFFECTS,
+    HOLD,
+    SCALE_DOWN,
+    SCALE_UP,
+    ActionContract,
+)
 from scalerl.environment.clock import SimulationClock
 from scalerl.environment.config import (
     CAPACITY_JITTER_MODEL,
+    DELTA_V1,
+    DESIRED_REPLICAS_V1,
+    ActionConfig,
+    ActionSemantics,
     DynamicsConfig,
     ObservationConfig,
     ReplicaConfig,
@@ -22,7 +34,17 @@ from scalerl.environment.reward import (
 )
 
 __all__ = [
+    "ACTION_SEMANTICS",
     "CAPACITY_JITTER_MODEL",
+    "DELTA_EFFECTS",
+    "DELTA_V1",
+    "DESIRED_REPLICAS_V1",
+    "HOLD",
+    "SCALE_DOWN",
+    "SCALE_UP",
+    "ActionConfig",
+    "ActionContract",
+    "ActionSemantics",
     "MAX_REWARD_WEIGHT",
     "DynamicsConfig",
     "ObservationConfig",
