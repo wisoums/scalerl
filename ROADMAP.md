@@ -140,6 +140,7 @@ Concrete presentation issues:
 - #97 — beginner/research architecture diagrams and final evidence figures
 - #98 — repository metadata, community files, contributor UX, and citation
 - #99 — final polished v1.0.0 release
+- #103 — public Streamlit Community Cloud Scenario Lab demo
 
 Final presentation order:
 
@@ -152,6 +153,8 @@ stable learning/framework capabilities
             ↓
 demo + docs + ADRs + metadata
             ↓
+public Streamlit demo (#103)
+            ↓
 final README
             ↓
 v1.0.0 release
@@ -161,7 +164,8 @@ The README must remain truthful: no BYO Controller until #88/#89, no live Knativ
 
 ### Must have
 
-- polished README with clear Learn / Experiment / Research / Extend entry points, final tables, limitations, dataset citation, and reproduction commands
+- polished README with clear Learn / Experiment / Research / Extend entry points, a prominent live Streamlit demo link, final tables, limitations, dataset citation, and reproduction commands
+- #103 public Streamlit Community Cloud demo for zero-install Learn/Playground/controller-comparison use; training/tuning/MLflow remain in the local Docker research stack
 - architecture/results diagrams
 - polish the earlier #37 Scenario Lab City View and #56 Live City playback
 - #38 controller replay/comparison if time permits
@@ -193,4 +197,5 @@ ScaleRL v1.0 is portfolio-ready when:
 9. results report raw systems metrics rather than only RL return;
 10. another developer can reproduce the principal benchmark from documented commands;
 11. a beginner can follow the #86/#87 learning path without prior cloud/RL knowledge;
-12. a researcher can implement and evaluate a custom Python controller through the stable #88/#89 extension path without modifying ScaleRL core.
+12. a researcher can implement and evaluate a custom Python controller through the stable #88/#89 extension path without modifying ScaleRL core;
+13. a visitor can open the #103 public Streamlit demo from the README and run a built-in Scenario Lab experience without installing ScaleRL locally.
