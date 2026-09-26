@@ -7,7 +7,8 @@ ScaleRL evaluates every controller under the same simulator configuration and wo
 - Random policy — sanity check
 - Static capacity — fixed-capacity reference
 - Threshold/target-tracking autoscaler — tuned reactive baseline
-- Predictive autoscaler — explicit forecasting baseline
+- Predictive autoscaler (`predictive-v1`) — explicit short-window forecasting baseline
+- Cloud-style proactive predictive (`predictive-seasonal-v1`, #80) — historical profile + linear trend, proactive scale-out, conservative scale-in
 - Tabular Q-learning — optional educational learned baseline
 - DQN — discrete deep-RL policy
 - PPO — policy-gradient comparison
@@ -21,6 +22,7 @@ Random/static are sanity/reference points. The tuned threshold and predictive co
 | Random / Static | nothing / current replica counts |
 | Threshold | current utilization and replica counts (reactive, no history) |
 | Predictive (#14, #63) | a linear-trend forecast of its own window of past completed demand (`info["request_rate"]`), plus the current waiting queue (`info["queued_requests"]`, sizing only, never the forecast) and replica counts |
+| Proactive predictive (#80) | the same completed demand and queue as Predictive, plus an immutable per-tick median profile of TRAIN traces (when recurring history exists); never the current trace or generator parameters |
 | DQN (#15) / PPO (#16) | **only** the environment observation (recent traffic window + system state) through the `SB3Controller` adapter, which ignores `info`; learned sequential policies |
 
 ### Recent traffic context
@@ -536,11 +538,71 @@ Implications:
 - There is currently **no selected DQN configuration** under the final contract; #20's predeclared study must find one or report that it cannot.
 - Provenance note: all 320 screening runs and the 57 evaluation runs ran from a clean commit (`fc9cd73`). Ten of the 15 retraining models ran while three documentation files were uncommitted, so they are tagged `git_dirty=true` with the same code SHA. Two interrupted retraining attempts are marked `KILLED` with a `scalerl.superseded` tag and are not models of record.
 
-### #80 — stronger proactive predictive baseline
+### #80 — cloud-style proactive predictive baseline
 
-The current predictor is startup-aware but intentionally simple. Its existing lineage remains `predictive-v1` with forecast method `linear-trend` and capacity policy `forecast-plus-backlog-v1`; #80 must not invent or rename it to a different identifier. #80 adds a separate stronger recurring-pattern / proactive pre-provisioning baseline so the final RL comparison is not against an artificially weak forecaster.
+`predictive-v1` stays exactly as it was: forecast method `linear-trend` (4-sample OLS trend), capacity policy `forecast-plus-backlog-v1`, startup-aware and queue-aware. Its fingerprint tests still pass after #80 extracted its trend and sizing formulas as shared pure helpers. #80 adds a **separate** controller, `predictive-seasonal-v1` (`scalerl.controllers.proactive_predictive`). It is a *cloud-style proactive predictive baseline*: it applies the same core idea as cloud predictive scaling (recurring history plus capacity launched ahead of startup delay). It is **not** an emulation of AWS predictive scaling or any other provider's service.
 
-The stronger baseline must still use past information only. An optional oracle may be used only as a clearly labeled future-peeking upper bound, never as a fair deployable competitor.
+- **Historical profile (`historical-demand-profile-v1`):** `profile[tick] = median(train_1[tick], …, train_n[tick])` over **TRAIN** traces with the same control interval and aligned ticks. Validation and test workloads are refused as history. The profile is immutable and content-hashed.
+- **Forecast method `historical-profile-plus-linear-v1`:**
+  - Horizon: `h = 1 + startup_ticks(startup_delay, control_interval)`, the `predictive-v1` arithmetic (3 ticks / 90 s by default). The linear and profile forecasts target the same tick `t = s + h`.
+  - Level adaptation: `level_factor = median(observed_i / profile[tick_i])` over the latest ≤4 completed samples. Profile values below 1e-3 rps are skipped, and the factor is 1.0 when no ratio is valid.
+  - Proactive forecast: `max(linear, profile[t] × level_factor)`, or `linear` when no profile value exists. There is no blend weight.
+- **Capacity policy `proactive-scaleout-conservative-scalein-v1`:**
+  - Sizing: `desired = ceil((proactive + queued / control_interval) / (50 rps × 0.8))`, clamped. This keeps the #63 backlog recovery.
+  - Scale-out: when `desired > active + pending`, the full target is requested at once under `desired-replicas-v1`, and the new replicas still start pending.
+  - Scale-in: never while requests are queued. Otherwise the target is `max(max(observed_desired, desired), committed − 1)`, so capacity never drops below observed *or* forecast need and falls by at most one replica per decision.
+- **Everything is predeclared and nothing was tuned:** 4 samples, 0.8 utilization, median, `max`, one-replica scale-in. There was no Optuna run and no grid.
+
+**Scientific limitation.** Benchmark v1's synthetic validation workloads (steady-high, ramp-down, bursty) contain **no recurring history**. `predictive-seasonal-v1` therefore runs there **without** a profile, which isolates its actuation policy: direct scale-out plus conservative scale-in, the same forecast as `predictive-v1`. No seasonal claim is made from them. Recurring history is evaluated on Azure, whose benchmark windows are the same hour (12:00–13:00) of different days. `syn-test-seasonal-shifted` is held out and was not used. Random bursts are not inherently predictable.
+
+**Experiment `predictive-baseline-experiment-v1`** ([spec](../benchmarks/v1/predictive-baseline-experiment-v1.json), ID `096b04ef953a`, committed before any validation run):
+- Threshold, `predictive-v1` and `predictive-seasonal-v1`, all under an **explicit** `desired-replicas-v1` (`action-contract-v2`); `SimulatorConfig()` still defaults to `delta-v1`, and the run refuses it.
+- Nominal dynamics, dynamics seed 0, evaluation seed 0, unchanged reward.
+- Workloads: the three synthetic validation workloads, plus `azure-val-734400` with the TRAIN-only profile `azure-historical-profile-v1` (sources `azure-train-129600/302400/475200`, profile ID `d050d3b8ca0f`).
+- Command: `python -m scalerl.evaluation.predictive_baseline check | run | freeze`. Results go to the MLflow experiment `scalerl-predictive-baseline` and to `outputs/predictive-baseline-v1/`.
+
+**Results (validation only; one deterministic run per cell):**
+
+| Workload | Controller | SLA | Norm. cost | Queue pressure | Churn | Replicas moved | Max per tick |
+|---|---|---|---|---|---|---|---|
+| steady-high | Threshold | 0.275 | 0.872 | 0.186 | 0.075 | 9 | 1 |
+| steady-high | predictive-v1 | 0.042 | 0.708 | 0.015 | 0.017 | 12 | 9 |
+| steady-high | predictive-seasonal-v1 | 0.042 | 0.710 | 0.015 | 0.033 | 12 | 9 |
+| ramp-down | Threshold | 0.350 | 0.839 | 0.269 | 0.108 | 13 | 1 |
+| ramp-down | predictive-v1 | 0.067 | 0.550 | 0.030 | 0.075 | 17 | 9 |
+| ramp-down | predictive-seasonal-v1 | 0.067 | 0.568 | 0.030 | 0.075 | 17 | 9 |
+| bursty | Threshold | 0.208 | 0.823 | 0.106 | 0.117 | 14 | 1 |
+| bursty | predictive-v1 | 0.600 | 0.600 | 0.162 | 0.592 | 249 | 9 |
+| bursty | predictive-seasonal-v1 | **0.267** | 0.609 | **0.097** | 0.608 | **115** | 7 |
+| azure-val | all three | 0.000 | 0.100 | 0.000 | 0.000 | 0 | 0 |
+
+- **`syn-val-bursty`: conservative scale-in fixes most of the oscillation #79 exposed, without any history.** The forecasts are identical, but asymmetric actuation cuts replica movement from 249 to 115 and SLA from 0.600 to 0.267, and queue pressure falls from 0.162 to 0.097.
+  - Cost is almost the same (0.609 vs 0.600).
+  - The number of scaling ticks is about the same (churn 0.608 vs 0.592): the new policy makes about as many, smaller moves.
+  - Threshold still has the lower bursty SLA (0.208), at 0.823 cost. Neither dominates, and no winner is declared.
+- **steady-high and ramp-down:** SLA and queue are identical. One-at-a-time scale-in costs slightly more (0.710 vs 0.708; 0.568 vs 0.550) and adds two scaling events on steady-high.
+- **Azure (recurring history; the profile was used in 117 of 119 issued forecasts, 98%):** every controller stays at `min_replicas` (1). As predeclared, one replica serves 50 rps and this window peaks at about 2.5 rps, so the system metrics cannot discriminate. The forecast diagnostics show **no accuracy gain from the historical profile here** (next table). The level factor, estimated from four tiny, quantized per-tick counts, ranged from 0.09 to 4.54, and the `max` rule biases forecasts upward by design.
+
+| Workload | Forecaster | n | MAE (rps) | RMSE | Bias (forecast − actual) |
+|---|---|---|---|---|---|
+| steady-high | both (identical linear) | 117 | 0.000 | 0.000 | 0.000 |
+| ramp-down | both (identical linear) | 117 | 0.062 | 0.676 | +0.062 |
+| bursty | both (identical linear) | 117 | 152.2 | 236.7 | +19.8 |
+| azure-val | predictive-v1 (linear) | 117 | 0.790 | 1.081 | +0.167 |
+| azure-val | predictive-seasonal-v1 (max rule) | 117 | 1.240 | 1.965 | +0.916 |
+| azure-val | its profile component alone | 117 | 1.137 | — | — |
+
+Forecast accuracy is reported separately from control quality: on bursty, identical forecasts produce very different control outcomes. The frozen baseline artifact [`benchmarks/v1/predictive-baseline-v1.json`](../benchmarks/v1/predictive-baseline-v1.json) (ID `162b6fb3e9c9`) records the identity, parameters, profile definition, per-workload metrics and MLflow run IDs that #72 and #46 must include. It declares no overall winner.
+
+**Not included:**
+- #79's PPO models (the primary question here is predictive-baseline quality);
+- any DQN: no desired-replicas-v1 DQN was selected in #79, and the diagnostic fallback `dqn-c01` is not a model of record;
+- an oracle (optional; not built);
+- any RL retraining.
+
+**Follow-ups:**
+- Azure capacity calibration on train/validation, so that recurring-history evidence can also move system metrics;
+- whether level adaptation needs more than 4 samples for low-rate traces. That would be a new predeclared version, not a post-hoc change to v1.
 
 ### #81 — stochastic startup delay
 

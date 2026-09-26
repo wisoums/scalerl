@@ -56,7 +56,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -331,8 +331,12 @@ class PredictiveController:
 
     def _size(self, demand_rps: float) -> tuple[int, int]:
         """Return ``(needed, desired)`` replicas for ``demand_rps`` with headroom."""
-        needed = math.ceil(demand_rps / self._capacity_per_replica - _CEIL_TOLERANCE)
-        return needed, min(max(needed, self._min_replicas), self._max_replicas)
+        return size_replicas(
+            demand_rps,
+            capacity_per_replica_rps=self._capacity_per_replica,
+            min_replicas=self._min_replicas,
+            max_replicas=self._max_replicas,
+        )
 
     def _record_sample(self, info: Mapping[str, Any]) -> None:
         """Add the latest completed tick's demand once, keyed by its tick."""
@@ -349,12 +353,41 @@ class PredictiveController:
 
     def _forecast(self, target_tick: int) -> float:
         """Persistence for one sample, else an OLS line extrapolated to ``target_tick``."""
-        ticks = [float(tick) for tick, _ in self._samples]
-        rates = [rate for _, rate in self._samples]
-        if len(rates) == 1:
-            return max(0.0, rates[0])
-        slope, intercept = statistics.linear_regression(ticks, rates)
-        return max(0.0, intercept + slope * target_tick)
+        return linear_trend_forecast(tuple(self._samples), target_tick)
+
+
+def linear_trend_forecast(samples: Sequence[tuple[int, float]], target_tick: int) -> float:
+    """The ``linear-trend`` forecast of ``predictive-v1`` from ``(tick, rate)`` samples.
+
+    Persistence with one sample, otherwise an ordinary least-squares line over
+    the samples, extrapolated to ``target_tick``; negative values clamp to 0.
+    """
+    if not samples:
+        raise ValueError("a linear-trend forecast needs at least one sample")
+    ticks = [float(tick) for tick, _ in samples]
+    rates = [rate for _, rate in samples]
+    if len(rates) == 1:
+        return max(0.0, rates[0])
+    slope, intercept = statistics.linear_regression(ticks, rates)
+    return max(0.0, intercept + slope * target_tick)
+
+
+def size_replicas(
+    demand_rps: float,
+    *,
+    capacity_per_replica_rps: float,
+    min_replicas: int,
+    max_replicas: int,
+) -> tuple[int, int]:
+    """``(needed, desired)`` replicas serving ``demand_rps`` at the per-replica sizing capacity.
+
+    ``needed = ceil(demand / capacity_per_replica)`` (with a small tolerance so
+    exact multiples do not round up); ``desired`` is ``needed`` clamped to
+    ``[min_replicas, max_replicas]``. ``capacity_per_replica_rps`` already
+    includes the target utilization.
+    """
+    needed = math.ceil(demand_rps / capacity_per_replica_rps - _CEIL_TOLERANCE)
+    return needed, min(max(needed, min_replicas), max_replicas)
 
 
 def backlog_recovery_rate(queued_requests: float, control_interval_seconds: float) -> float:

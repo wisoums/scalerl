@@ -1,0 +1,155 @@
+{
+  "experiment_version": "predictive-baseline-experiment-v1",
+  "benchmark_version": "v1",
+  "action_decision_version": "action-contract-v2",
+  "action_semantics": "desired-replicas-v1",
+  "action_experiment_spec_id": "899dfbb64217",
+  "action_candidate_set_id": "cbe3c1c0719b",
+  "selection_spec_id": "418876d6c8e9",
+  "simulator_config": {
+    "timing": {
+      "control_interval_seconds": 30.0,
+      "episode_duration_seconds": 3600.0
+    },
+    "replicas": {
+      "min_replicas": 1,
+      "max_replicas": 10,
+      "initial_replicas": 1,
+      "startup_delay_seconds": 60.0,
+      "service_capacity_rps": 50.0,
+      "cost_per_hour": 0.1
+    },
+    "sla": {
+      "latency_target_seconds": 0.5
+    },
+    "observation": {
+      "traffic_history_ticks": 4
+    },
+    "dynamics": {
+      "capacity_jitter_fraction": 0.0,
+      "dynamics_seed": 0,
+      "telemetry_delay_ticks": 0
+    },
+    "action": {
+      "semantics": "desired-replicas-v1"
+    }
+  },
+  "existing_baseline": {
+    "variant": "predictive-v1",
+    "forecast_method": "linear-trend",
+    "capacity_policy": "forecast-plus-backlog-v1"
+  },
+  "new_baseline": {
+    "variant": "predictive-seasonal-v1",
+    "forecast_method": "historical-profile-plus-linear-v1",
+    "capacity_policy": "proactive-scaleout-conservative-scalein-v1"
+  },
+  "reference_controllers": {
+    "threshold-v1": {
+      "controller_version": "threshold-sla-first-v1",
+      "params": {
+        "high_threshold": 0.6,
+        "low_threshold": 0.2,
+        "cooldown_ticks": 3
+      },
+      "encoding": "same ±1/hold law encoded as a desired-replicas-v1 target"
+    },
+    "predictive-v1": {
+      "history_window_ticks": 4,
+      "target_utilization": 0.8,
+      "encoding": "its computed desired replicas as the target (unchanged since #79)"
+    }
+  },
+  "fixed_policy": {
+    "recent_history_window_ticks": 4,
+    "target_utilization": 0.8,
+    "profile_aggregation": "median",
+    "profile_alignment": "tick position within equally aligned windows",
+    "level_adaptation": "median of observed/profile over the latest <=4 completed samples whose profile value >= min_profile_rps_for_ratio; 1.0 when none",
+    "min_profile_rps_for_ratio": 0.001,
+    "proactive_forecast": "max(linear, profile * level_factor); linear when no profile",
+    "profile_beyond_its_ticks": "no profile value: linear only for that decision",
+    "backlog_recovery": "queued_requests / control_interval_seconds (#63)",
+    "sizing": "ceil((proactive + backlog_recovery) / (service_capacity_rps * 0.8))",
+    "scale_out": "direct desired target when desired > active + pending",
+    "scale_in": "never with queued requests; else target max(max(observed_desired, desired), committed - 1) when that is below committed: at most one replica per decision",
+    "blend_weight": null,
+    "tunable_scale_in_step": null
+  },
+  "forecast_horizon_rule": "1 + startup_ticks(startup_delay_seconds, control_interval_seconds), the predictive-v1 arithmetic: 3 ticks (90 s) at 60 s startup and 30 s ticks; linear and profile forecasts target the same tick",
+  "synthetic_validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "synthetic_profile": "none: no recurring history exists for these workloads",
+  "azure_profile_name": "azure-historical-profile-v1",
+  "azure_profile_train_workload_ids": [
+    "azure-train-129600",
+    "azure-train-302400",
+    "azure-train-475200"
+  ],
+  "azure_validation_workload_ids": [
+    "azure-val-734400"
+  ],
+  "azure_capacity_note": "Azure windows are the same hour (12:00-13:00) of different days, so tick position is a recurring time of day. Under the canonical config one replica serves 50 rps; the train/validation characterization peaks at 2.5-4.9 rps, so every controller is expected to stay at min_replicas and Azure system metrics are not expected to discriminate. Azure evidence is primarily forecast quality. No Azure capacity calibration is done in #80. If the Azure CSV is absent, Azure is reported as unavailable_external_data and never substituted.",
+  "test_workload_ids": [],
+  "dynamics": {
+    "scenario": "nominal",
+    "robustness_version": "robustness-v1",
+    "capacity_jitter_fraction": 0.0,
+    "telemetry_delay_ticks": 0,
+    "dynamics_seed": 0
+  },
+  "evaluation_seed": 0,
+  "reward_weights": {
+    "latency": 1.0,
+    "cost": 1.0,
+    "sla": 1.0,
+    "queue": 1.0,
+    "churn": 0.1
+  },
+  "reward_changed": false,
+  "tuning": "none: every value is predeclared; no Optuna, grid, or post-hoc change",
+  "system_metrics": [
+    "infrastructure_cost",
+    "normalized_cost",
+    "sla_violation_rate",
+    "mean_p95_latency_seconds",
+    "max_p95_latency_seconds",
+    "mean_queue_depth",
+    "max_queue_depth",
+    "queue_pressure",
+    "scaling_actions",
+    "churn_rate",
+    "episode_reward"
+  ],
+  "action_magnitude_metrics": [
+    "scaling_events",
+    "total_absolute_replica_change",
+    "mean_absolute_replica_change_when_scaling",
+    "max_absolute_replica_change_in_one_tick",
+    "max_pending_replicas"
+  ],
+  "forecast_metrics": [
+    "forecast_count",
+    "forecast_mae_rps",
+    "forecast_rmse_rps",
+    "forecast_bias_rps (forecast - actual)",
+    "horizon_ticks",
+    "horizon_seconds",
+    "profile_used_count",
+    "profile_used_fraction"
+  ],
+  "learned_context": {
+    "ppo": "#79 PPO desired-replicas-v1 (ppo-c08, seeds 0-4) is not evaluated in #80; no RL retraining",
+    "dqn": "no selected desired-replicas-v1 DQN exists from #79 (0/20 feasible); the diagnostic fallback dqn-c01 is not a model of record and is not used"
+  },
+  "interpretation_rules": [
+    "random bursts are not inherently predictable",
+    "forecast accuracy is reported separately from control quality",
+    "no global winner from one metric or workload",
+    "synthetic validation has no recurring history: no seasonal claim from it"
+  ],
+  "held_out_rule": "no syn-test-* or azure-test-* workload is read, run, plotted, or used; the CLI accepts no workload arguments and the spec rejects test workloads"
+}
