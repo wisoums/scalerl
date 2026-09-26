@@ -549,3 +549,95 @@ def test_reference_variants_are_fixed_not_tuned() -> None:
     assert variants["static-v1"].params == {"target_replicas": 5}
     assert variants["predictive-v1"].params["history_window_ticks"] == 4
     assert variants["predictive-v1"].params["target_utilization"] == 0.8
+
+
+# --- review fixes: prep integrity and tracking URI -----------------------------------------
+
+
+def copy_prep(prep: tuple[Path, str], tmp_path: Path) -> Path:
+    target = tmp_path / "prep"
+    target.mkdir()
+    for path in prep[0].glob("*.json"):
+        (target / path.name).write_text(path.read_text())
+    return target
+
+
+def test_a_misnamed_seed_file_is_rejected(prep: tuple[Path, str], tmp_path: Path) -> None:
+    copied = copy_prep(prep, tmp_path)
+    (copied / "dqn-seed1.json").write_text((copied / "dqn-seed0.json").read_text())
+
+    with pytest.raises(ValueError, match="dqn-seed1.json records training seed 0, expected 1"):
+        build_manifest(copied)
+
+
+def test_the_same_model_cannot_count_as_two_seeds(prep: tuple[Path, str], tmp_path: Path) -> None:
+    copied = copy_prep(prep, tmp_path)
+    payload = json.loads((copied / "ppo-seed0.json").read_text())
+    payload["seed"] = 2  # relabeled, but still seed 0's training run and model
+    (copied / "ppo-seed2.json").write_text(json.dumps(payload))
+
+    with pytest.raises(ValidationError, match="training_run_id must be unique"):
+        build_manifest(copied)
+
+
+def test_prep_results_must_use_the_selected_hyperparameters(
+    prep: tuple[Path, str], tmp_path: Path
+) -> None:
+    copied = copy_prep(prep, tmp_path)
+    tuning = json.loads((copied / "dqn-tuning-v1.json").read_text())
+    tuning["selected_hyperparameters"]["learning_rate"] = 0.123
+    (copied / "dqn-tuning-v1.json").write_text(json.dumps(tuning))
+
+    with pytest.raises(ValueError, match="not trained with the selected hyperparameters"):
+        build_manifest(copied)
+
+
+def test_manifest_rejects_duplicate_learned_seeds(manifest: ControllerManifest) -> None:
+    seed0, seed1 = manifest.get("dqn-seed0"), manifest.get("dqn-seed1")
+    twin = ControllerVariant(**{**dict(seed1), "training_seed": 0})
+
+    with pytest.raises(ValidationError, match=r"\(controller, training_seed\) must be unique"):
+        ControllerManifest(benchmark_version="v1", variants=(seed0, twin))
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ({"MLFLOW_TRACKING_URI": "http://mlflow:5000"}, "http://mlflow:5000"),
+        (
+            {"MLFLOW_TRACKING_URI": "http://mlflow:5000", "TRACKING_URI": "sqlite:///x.db"},
+            "sqlite:///x.db",
+        ),
+        ({}, "sqlite:///outputs/mlflow.db"),
+    ],
+)
+def test_prepare_script_honors_the_standard_tracking_environment(
+    tmp_path: Path, environment: dict[str, str], expected: str
+) -> None:
+    import os
+    import shutil
+    import subprocess
+
+    root = Path(__file__).parents[2]
+    work = tmp_path / "repo"
+    (work / "scripts").mkdir(parents=True)
+    shutil.copy(root / "scripts" / "multiseed_prepare.sh", work / "scripts")
+    calls = tmp_path / "calls.txt"
+    stub = tmp_path / "python"
+    # Records every invocation and creates its --output file, like the real CLIs.
+    stub.write_text(
+        '#!/usr/bin/env bash\necho "$@" >> "$CALLS"\n'
+        'while [[ $# -gt 0 ]]; do if [[ $1 == --output ]]; then touch "$2"; fi; shift; done\n'
+    )
+    stub.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("MLFLOW_TRACKING_URI", "TRACKING_URI")}
+    subprocess.run(
+        [str(work / "scripts" / "multiseed_prepare.sh")],
+        env={**env, **environment, "PYTHON": str(stub), "CALLS": str(calls)},
+        check=True,
+        capture_output=True,
+    )
+
+    invocations = calls.read_text().splitlines()
+    assert len(invocations) == 3 + 10  # three studies, then five seeds per algorithm
+    assert all(f"--tracking-uri {expected} " in line for line in invocations)

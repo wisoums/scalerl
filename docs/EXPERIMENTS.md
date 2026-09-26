@@ -372,6 +372,8 @@ python -m scalerl.evaluation.multiseed run \
     --tracking-uri sqlite:///outputs/mlflow.db --output-dir outputs/multiseed-v1   # add --resume after an interruption
 ```
 
+The preparation script tracks to `TRACKING_URI`, else the standard `MLFLOW_TRACKING_URI` (e.g. `http://mlflow:5000` in the Compose trainer), else `sqlite:///outputs/mlflow.db`. Run the evaluation against the same tracking URI, because the manifest points at those training runs. Building the manifest refuses a prep file whose recorded training seed differs from its file name, or that was not trained with the selected hyperparameters. It also refuses any duplicated training run or seed, so one model can never count twice in a seed distribution.
+
 The outputs are `evaluation-plan.json`, `controller-manifest.json`, `raw-results.jsonl`/`.csv`, `summary.json`/`.csv`, and `paired-deltas.csv`. They live under `outputs/` and are not committed. Each case is also an MLflow `evaluate` run in the experiment `scalerl-multiseed`. `--resume` skips completed case IDs, recovers cases whose MLflow run finished but whose local row was lost, and never counts a case twice.
 
 ## Fair comparison

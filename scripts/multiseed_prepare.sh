@@ -4,6 +4,9 @@
 #   scripts/multiseed_prepare.sh                          # everything, resumable
 #   PYTHON=.venv/bin/python scripts/multiseed_prepare.sh  # a specific interpreter
 #
+# Tracking: TRACKING_URI, else MLFLOW_TRACKING_URI, else sqlite:///outputs/mlflow.db.
+# Run the evaluation against the same tracking URI, since the manifest points at its runs.
+#
 # 1. Threshold: the exact #13 18-point grid (threshold-sla-first v1) on the synthetic
 #    train/validation workloads; resumes the persisted study if interrupted.
 # 2. DQN and PPO: the predeclared v1 Optuna studies (dqn-search-v1 / ppo-search-v1,
@@ -20,7 +23,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PYTHON="${PYTHON:-python}"
-TRACKING="${TRACKING_URI:-sqlite:///outputs/mlflow.db}"
+# The standard MLFLOW_TRACKING_URI wins (e.g. http://mlflow:5000 in the Compose trainer),
+# so the manifest and the later evaluation see the same tracking server.
+TRACKING="${TRACKING_URI:-${MLFLOW_TRACKING_URI:-sqlite:///outputs/mlflow.db}}"
 PREP=outputs/multiseed-v1/prep
 TRAIN=syn-train-bursty
 VALIDATION=(--validation-workload syn-val-steady-high --validation-workload syn-val-ramp-down --validation-workload syn-val-bursty)

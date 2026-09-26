@@ -200,6 +200,14 @@ class ControllerManifest(_Strict):
     @model_validator(mode="after")
     def _check(self) -> Self:
         _unique("variant_id", [variant.variant_id for variant in self.variants])
+        learned = [v for v in self.variants if v.controller in LEARNED]
+        # One model can only count once: a duplicated run or seed would silently
+        # evaluate the same policy twice as two members of the seed distribution.
+        _unique("learned training_run_id", [v.training_run_id for v in learned])
+        _unique(
+            "learned (controller, training_seed)",
+            [(v.controller, v.training_seed) for v in learned],
+        )
         return self
 
     def get(self, variant_id: str) -> ControllerVariant:
@@ -296,8 +304,11 @@ def build_manifest(prep_dir: str | Path) -> ControllerManifest:
             )
         }
         tuning_lineage["selected_validation_metrics"] = tuning["selected_validation_metrics"]
+        selected = tuning["selected_hyperparameters"]
         for seed in TRAINING_SEEDS:
-            result: Any = result_type.load(prep / f"{algorithm}-seed{seed}.json")
+            path = prep / f"{algorithm}-seed{seed}.json"
+            result: Any = result_type.load(path)
+            _check_prep_result(path, result, seed=seed, selected=selected)
             variants.append(
                 ControllerVariant(
                     variant_id=f"{algorithm}-seed{seed}",
@@ -322,6 +333,19 @@ def build_manifest(prep_dir: str | Path) -> ControllerManifest:
     return ControllerManifest(
         benchmark_version=load_benchmark_manifest().version, variants=tuple(variants)
     )
+
+
+def _check_prep_result(path: Path, result: Any, *, seed: int, selected: JsonValue) -> None:
+    """A prep file must be the retraining of the selected config with its own seed.
+
+    Guards against stale or misnamed files in a resumable prep directory (e.g. a
+    copied ``dqn-seed0.json`` saved as ``dqn-seed1.json``).
+    """
+    if result.seed != seed:
+        raise ValueError(f"{path.name} records training seed {result.seed}, expected {seed}")
+    expected = type(result.hyperparameters).model_validate(selected, strict=False)
+    if result.hyperparameters != expected:
+        raise ValueError(f"{path.name} was not trained with the selected hyperparameters")
 
 
 # --- evaluation plan ---------------------------------------------------------------------------
