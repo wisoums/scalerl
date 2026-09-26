@@ -327,6 +327,53 @@ Optional predeclared jitter levels for a later sensitivity plot are 0.00, 0.05, 
 
 **No cold-start penalty.** ScaleRL already models replica startup delay. A provider-specific extra first-request latency would double-count startup effects without a more specific runtime model.
 
+## Multi-seed evaluation (#19)
+
+One training seed or one lucky noise realization is not evidence. #19 evaluates fixed controllers, including **every** training seed of each learned policy, across validation workloads × `robustness-v1` scenarios × seeds. It keeps one raw row per episode and reports distributions. It does not pick a winner or a "best seed". This is **single-seed development result ≠ multi-seed evidence**, and it is still **validation only**: held-out test workloads are rejected before anything runs and stay sealed until #46.
+
+**Three seeds, three meanings:**
+
+| Seed | What it changes | v1 values |
+|---|---|---|
+| training seed | which learned policy exists (network init, exploration): DQN seed 0 and seed 1 are two different models | 0, 1, 2, 3, 4 |
+| evaluation seed | the episode/controller reset; matters for stochastic controllers (Random). Learned policies and rule controllers are deterministic | 0 (Random: 0–4) |
+| dynamics seed | the #65 physical-world realization: the capacity-jitter sequence | jitter scenarios: 0–4; others: 0 only |
+
+**Matched dynamics ("same weather").** For a given workload, scenario, and dynamics seed, every controller (Threshold, Predictive, each DQN/PPO seed, …) experiences the identical exogenous capacity-multiplier sequence, independent of evaluation order. Controller actions still change queues and latency.
+
+**No pseudo-replication.** In `nominal` and `delayed-telemetry` there is no capacity jitter, so a deterministic controller produces the same episode for every dynamics seed. Those scenarios therefore run dynamics seed 0 only, instead of five identical copies counted as five samples. Zero spread there is a valid result.
+
+**Canonical controller preparation** (`scripts/multiseed_prepare.sh`, train/validation only):
+- **Threshold:** the exact #13 18-point grid (`threshold-sla-first` v1) on the synthetic train/validation workloads.
+- **Predictive:** the fixed #63 policy (`forecast-plus-backlog-v1`, 4-tick history, target utilization 0.8); not tuned.
+- **DQN / PPO:** the predeclared v1 Optuna studies. Each uses `dqn-search-v1` / `ppo-search-v1`, seeded TPE (seed 42), 20 trials of 200,000 / 204,800 timesteps, trained on `syn-train-bursty`, and selected with the SLA-first rule on `syn-val-steady-high`, `syn-val-ramp-down`, and `syn-val-bursty`. The selected configuration is then retrained with training seeds 0–4, and all five models are kept.
+- **Static:** `static-v1` holds 5 replicas (half of the default `max_replicas`), a fixed cost reference predeclared and not tuned.
+- **Random:** a sanity reference, never a target.
+
+**Controller manifest** (`controller-manifest.json`, schema `controllers-multiseed-v1`) names every variant (`threshold-v1`, `predictive-v1`, `static-v1`, `random-v1`, `dqn-seed0` … `ppo-seed4`) with its parameters, tuning lineage (study, trial, validation metrics, MLflow run IDs) and, for learned models, the training seed, training run, `runs:/<id>/model` URI, hyperparameter source, and compatibility contract. It selects no seed. #72 will freeze a deployment artifact later, under a rule declared before any held-out or live evaluation.
+
+**Plan and cases.** `EvaluationPlan` (`multiseed-v1`) records the benchmark version, workloads, scenarios and robustness version, dynamics seeds, the resolved variants (with their training and evaluation seeds), simulator config and provenance, reward weights, and summary method; `plan_id` is a hash of all of that. The plan is saved before anything runs. Cases are the Cartesian product in a fixed order, with stable IDs `variant|workload|scenario|dyn<d>|eval<e>`. Each case gets a fresh controller; learned bundles are loaded strictly, or via the #65 robustness-only path under delayed telemetry.
+
+**Statistics (`descriptive-v1`).** Each row reports n, mean, median, sample SD, min, max, Q1, Q3, and IQR (linear-interpolation quartiles). With n = 1, the SD is reported as unavailable rather than 0. Summaries are per workload and scenario, never pooled across them, at two levels:
+- **variant:** one configuration or model over its raw runs (dynamics seeds × evaluation seeds);
+- **controller:** across a controller's variants, each represented by its variant mean. For DQN/PPO this is the spread across the five training seeds, the primary model variability. A single-configuration rule controller has n = 1 here, and its dynamics spread is in its variant row.
+
+Every row names its raw MLflow runs. There are no p-values or significance claims; a bootstrap CI is not part of `descriptive-v1`.
+
+**Paired deltas** (`paired-deltas.csv`): `controller − threshold-v1` for SLA violation, cost, queue pressure, p95 latency, and churn, computed only for rows sharing a workload, scenario, and dynamics seed. They are descriptive, not a ranking.
+
+**Reproduce the canonical #19 development run:**
+
+```bash
+scripts/multiseed_prepare.sh                         # tuning + 5-seed retraining (resumable)
+python -m scalerl.evaluation.multiseed manifest      # -> outputs/multiseed-v1/controller-manifest.json
+python -m scalerl.evaluation.multiseed run \
+    --manifest outputs/multiseed-v1/controller-manifest.json \
+    --tracking-uri sqlite:///outputs/mlflow.db --output-dir outputs/multiseed-v1   # add --resume after an interruption
+```
+
+The outputs are `evaluation-plan.json`, `controller-manifest.json`, `raw-results.jsonl`/`.csv`, `summary.json`/`.csv`, and `paired-deltas.csv`. They live under `outputs/` and are not committed. Each case is also an MLflow `evaluate` run in the experiment `scalerl-multiseed`. `--resume` skips completed case IDs, recovers cases whose MLflow run finished but whose local row was lost, and never counts a case twice.
+
 ## Fair comparison
 
 For every final comparison:
