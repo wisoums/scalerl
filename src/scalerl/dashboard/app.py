@@ -18,7 +18,6 @@ import streamlit as st
 from scalerl.benchmarks import AzureWorkload, load_benchmark_manifest
 from scalerl.controllers import PredictiveDecision
 from scalerl.dashboard.playback import (
-    MANUAL_AUTOPLAY_MESSAGE,
     SPEEDS,
     PlaybackMode,
     PlaybackState,
