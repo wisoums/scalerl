@@ -201,8 +201,15 @@ def test_incompatible_environments_are_reported() -> None:
 
 
 # Fields AutoscalingEnv does not use to build observations; everything else in
-# SimulatorConfig must be part of the compatibility contract.
-NON_OBSERVATION_FIELDS = {"min_replicas", "initial_replicas"}
+# SimulatorConfig must be part of the compatibility contract. Capacity jitter
+# fraction and dynamics seed describe an evaluation realization (#65), so a
+# model can be robustness-tested across them.
+NON_OBSERVATION_FIELDS = {
+    "min_replicas",
+    "initial_replicas",
+    "capacity_jitter_fraction",
+    "dynamics_seed",
+}
 
 # A valid alternative value for every observation-defining field.
 OBSERVATION_FIELD_CHANGES: dict[str, dict[str, Any]] = {
@@ -214,6 +221,7 @@ OBSERVATION_FIELD_CHANGES: dict[str, dict[str, Any]] = {
     "cost_per_hour": {"replicas": {"cost_per_hour": 0.0}},
     "latency_target_seconds": {"sla": {"latency_target_seconds": 0.25}},
     "traffic_history_ticks": {"observation": {"traffic_history_ticks": 1}},
+    "telemetry_delay_ticks": {"dynamics": {"telemetry_delay_ticks": 1}},
 }
 
 

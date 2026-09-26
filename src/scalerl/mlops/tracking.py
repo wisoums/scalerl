@@ -170,6 +170,9 @@ def _tags(spec: RunSpec, software: Mapping[str, Any]) -> dict[str, str]:
         "scalerl.git_dirty": str(software["git_dirty"]).lower(),
         "scalerl.version": software["scalerl_version"],
     }
+    if spec.robustness_scenario is not None and spec.robustness_version is not None:
+        tags["scalerl.robustness_scenario"] = spec.robustness_scenario
+        tags["scalerl.robustness_version"] = spec.robustness_version
     if software["git_sha"] != "unknown":
         tags["mlflow.source.git.commit"] = software["git_sha"]
     return tags
@@ -222,6 +225,8 @@ def _run_params(spec: RunSpec, compatibility: EnvironmentCompatibility) -> dict[
         "calibration_workload_ids": list(spec.calibration_workload_ids) or None,
         "calibration_note": spec.calibration_note,
         "evaluation_seeds": list(spec.evaluation_seeds) or None,
+        "robustness_scenario": spec.robustness_scenario,
+        "robustness_version": spec.robustness_version,
     }
     params |= _flatten("sim", spec.simulator_config.model_dump(mode="json"))
     params |= _flatten("reward", spec.reward_weights.model_dump(mode="json"))
