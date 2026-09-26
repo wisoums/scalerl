@@ -455,7 +455,7 @@ DQN seeds 1–4 are cheaper (mean cost 0.81–0.85) but exceed the Threshold SLA
 **Historical reproducibility.** Every pre-#79 model, bundle and run is `delta-v1`:
 - Compatibility contracts without `action_semantics_version` load as `delta-v1`.
 - The default config serializes exactly as before, so v1 study identities and the #19 plan ID are unchanged.
-- Nominal `delta-v1` episodes are bit-identical to pre-#79 ones (fingerprint tests).
+- `delta-v1` episodes match the pre-#79 code. They were bit-identical when compared on one machine, and the committed fingerprint tests (computed from commit `c69c672`) compare them to 10 significant digits, so they hold across platforms.
 - A model never loads under the other contract, even at the same action count. The #65 robustness loader never relaxes this.
 
 **Controllers.**

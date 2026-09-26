@@ -107,26 +107,36 @@ def test_delta_v1_bound_clipping_is_a_no_op() -> None:
     assert info["applied_replica_change"] == 0 and info["requested_replica_target"] == 1
 
 
+def _rounded(value: Any) -> Any:
+    if isinstance(value, float):
+        return float(f"{value:.10g}")  # platform-independent: ignores last-ulp libm/SIMD noise
+    if isinstance(value, dict):
+        return {key: _rounded(item) for key, item in value.items()}
+    return value
+
+
 def _fingerprint(infos: list[dict[str, Any]]) -> str:
-    clean = [{k: v for k, v in i.items() if k != "requested_replica_target"} for i in infos]
-    return hashlib.sha256(json.dumps(clean, sort_keys=True, default=float).encode()).hexdigest()[
-        :16
+    clean = [
+        _rounded({k: v for k, v in info.items() if k != "requested_replica_target"})
+        for info in infos
     ]
+    return hashlib.sha256(json.dumps(clean, sort_keys=True).encode()).hexdigest()[:16]
 
 
-# Recorded with the pre-#79 environment and controllers (commit c69c672) on the
-# same workloads, dynamics, and seeds; the new requested_replica_target key is excluded.
+# Computed by running the pre-#79 code (commit c69c672) on the same workloads, dynamics, and
+# seeds; the new requested_replica_target key is excluded and floats rounded to 10 significant
+# digits so the check is exact about behavior but not about platform float noise.
 PRE_79_FINGERPRINTS = {
-    ("syn-val-bursty", 0, "threshold"): "3ae83b309977e774",
-    ("syn-val-bursty", 0, "predictive"): "bceb8ac768748a16",
-    ("syn-val-bursty", 0, "random"): "370ffda22055493b",
-    ("syn-val-bursty", 0, "static"): "509e42202555bc61",
-    ("syn-val-bursty", 1, "threshold"): "97a1ebccaff3ddfc",
-    ("syn-val-bursty", 1, "predictive"): "baf034b802d038ed",
-    ("syn-train-bursty", 0, "threshold"): "e92574e37cba0509",
-    ("syn-train-bursty", 0, "predictive"): "5f5cceddad422297",
-    ("syn-val-ramp-down", 1, "random"): "b6a9fd8ce866041e",
-    ("syn-val-ramp-down", 0, "static"): "db34a30e2f5b4497",
+    ("syn-val-bursty", 0, "threshold"): "d19427c30aa619d7",
+    ("syn-val-bursty", 0, "predictive"): "e4d1b43437d5c996",
+    ("syn-val-bursty", 0, "random"): "74f3895ecf236fd4",
+    ("syn-val-bursty", 0, "static"): "c539324bd0779ff9",
+    ("syn-val-bursty", 1, "threshold"): "369680323f3bdbd1",
+    ("syn-val-bursty", 1, "predictive"): "cbb6bee5f38b16a2",
+    ("syn-train-bursty", 0, "threshold"): "c619226cecb0f00d",
+    ("syn-train-bursty", 0, "predictive"): "a6ee12987c88bd08",
+    ("syn-val-ramp-down", 1, "random"): "5a8db765267d9264",
+    ("syn-val-ramp-down", 0, "static"): "035ef8e4ec36c72e",
 }
 
 
@@ -148,7 +158,7 @@ def _pre_79_controllers(config: SimulatorConfig, contract: ActionContract | None
 
 @pytest.mark.parametrize("explicit_contract", [False, True])
 @pytest.mark.parametrize(("workload_id", "delay", "name"), list(PRE_79_FINGERPRINTS))
-def test_delta_v1_episodes_are_bit_identical_to_pre_79(
+def test_delta_v1_episodes_match_pre_79(
     workload_id: str, delay: int, name: str, explicit_contract: bool
 ) -> None:
     dynamics = (
