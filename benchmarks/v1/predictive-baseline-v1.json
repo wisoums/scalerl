@@ -75,8 +75,9 @@
         "action.mean_absolute_replica_change_when_scaling": 1.0,
         "action.max_absolute_replica_change_in_one_tick": 1.0,
         "action.max_pending_replicas": 1.0,
-        "mlflow_run_id": "be35a8ce5d2c4c0794fb7be8b475d19d",
-        "profile_id": null
+        "mlflow_run_id": "806c43c90db9404691ac6e30119d4cf4",
+        "profile_id": null,
+        "input_id": "6a7d01fa5e85"
       },
       "predictive-v1": {
         "sla_violation_rate": 0.041666666666666664,
@@ -101,8 +102,10 @@
         "forecast.forecast_rmse_rps": 0.0,
         "forecast.horizon_seconds": 90.0,
         "forecast.horizon_ticks": 3.0,
-        "mlflow_run_id": "6dcb6f685f934c7ea37938edd9cd1dd6",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "9023b48cbdeb4d46a74b4fc8220b693b",
+        "profile_id": null,
+        "input_id": "6a7d01fa5e85"
       },
       "predictive-seasonal-v1": {
         "sla_violation_rate": 0.041666666666666664,
@@ -134,8 +137,10 @@
         "forecast.profile_component_forecast_count": 0.0,
         "forecast.profile_used_count": 0.0,
         "forecast.profile_used_fraction": 0.0,
-        "mlflow_run_id": "5e0c5e834c774bc18c7613198d8b30f3",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "3035bf7327474afc9b3d03da2c9bff07",
+        "profile_id": null,
+        "input_id": "6a7d01fa5e85"
       }
     },
     "syn-val-ramp-down": {
@@ -156,8 +161,9 @@
         "action.mean_absolute_replica_change_when_scaling": 1.0,
         "action.max_absolute_replica_change_in_one_tick": 1.0,
         "action.max_pending_replicas": 1.0,
-        "mlflow_run_id": "fa8c53b10d4747bbbbe149738a7ba63a",
-        "profile_id": null
+        "mlflow_run_id": "11d446359f494ac9826517df72dc0267",
+        "profile_id": null,
+        "input_id": "3a676fcbc57f"
       },
       "predictive-v1": {
         "sla_violation_rate": 0.06666666666666667,
@@ -182,8 +188,10 @@
         "forecast.forecast_rmse_rps": 0.6758951970811624,
         "forecast.horizon_seconds": 90.0,
         "forecast.horizon_ticks": 3.0,
-        "mlflow_run_id": "cefd5fe056c041ce9e7d83c6557a5e1d",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "4b7ad606b264421cbefc3fc77dbe7ab1",
+        "profile_id": null,
+        "input_id": "3a676fcbc57f"
       },
       "predictive-seasonal-v1": {
         "sla_violation_rate": 0.06666666666666667,
@@ -215,8 +223,10 @@
         "forecast.profile_component_forecast_count": 0.0,
         "forecast.profile_used_count": 0.0,
         "forecast.profile_used_fraction": 0.0,
-        "mlflow_run_id": "6365a288475e4f308c39e0135709a220",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "89eaed9cca98423ea65a1542e0f0bd80",
+        "profile_id": null,
+        "input_id": "3a676fcbc57f"
       }
     },
     "syn-val-bursty": {
@@ -237,8 +247,9 @@
         "action.mean_absolute_replica_change_when_scaling": 1.0,
         "action.max_absolute_replica_change_in_one_tick": 1.0,
         "action.max_pending_replicas": 1.0,
-        "mlflow_run_id": "94d5ef43e57542e2b933cf783b95ef91",
-        "profile_id": null
+        "mlflow_run_id": "2f4bc0bb42d847c9aebb68409475e3d0",
+        "profile_id": null,
+        "input_id": "35dd86e9b9bd"
       },
       "predictive-v1": {
         "sla_violation_rate": 0.6,
@@ -263,8 +274,10 @@
         "forecast.forecast_rmse_rps": 236.72058155027096,
         "forecast.horizon_seconds": 90.0,
         "forecast.horizon_ticks": 3.0,
-        "mlflow_run_id": "8bdefbc8deea41d2b51e028c8e1f1ece",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "c7a933ca36824a0b9df125bf70227bff",
+        "profile_id": null,
+        "input_id": "35dd86e9b9bd"
       },
       "predictive-seasonal-v1": {
         "sla_violation_rate": 0.26666666666666666,
@@ -296,8 +309,10 @@
         "forecast.profile_component_forecast_count": 0.0,
         "forecast.profile_used_count": 0.0,
         "forecast.profile_used_fraction": 0.0,
-        "mlflow_run_id": "477593cd5fca4a4da1b5297089283e36",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "7c075675bb82445a897bb5e2788434fc",
+        "profile_id": null,
+        "input_id": "35dd86e9b9bd"
       }
     },
     "azure-val-734400": {
@@ -318,8 +333,9 @@
         "action.mean_absolute_replica_change_when_scaling": 0.0,
         "action.max_absolute_replica_change_in_one_tick": 0.0,
         "action.max_pending_replicas": 0.0,
-        "mlflow_run_id": "ecae9244221e4936a19c3e4c0207e1e5",
-        "profile_id": null
+        "mlflow_run_id": "e352a04424c44f93b6d0baf095275ba3",
+        "profile_id": null,
+        "input_id": "e7ec8bad0c7b"
       },
       "predictive-v1": {
         "sla_violation_rate": 0.0,
@@ -344,8 +360,10 @@
         "forecast.forecast_rmse_rps": 1.0809066301900334,
         "forecast.horizon_seconds": 90.0,
         "forecast.horizon_ticks": 3.0,
-        "mlflow_run_id": "a6f5fc4c675f493da05aa74eb0bf0ca6",
-        "profile_id": null
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "f62c4a219c024c37ad3739869c78e546",
+        "profile_id": null,
+        "input_id": "e7ec8bad0c7b"
       },
       "predictive-seasonal-v1": {
         "sla_violation_rate": 0.0,
@@ -380,8 +398,10 @@
         "forecast.profile_component_forecast_rmse_rps": 1.874197012409827,
         "forecast.profile_used_count": 117.0,
         "forecast.profile_used_fraction": 0.9831932773109243,
-        "mlflow_run_id": "6fde304465924427a8c8365bf9b0780c",
-        "profile_id": "d050d3b8ca0f"
+        "forecast.records_issued": 119.0,
+        "mlflow_run_id": "e5e79e6b62b34b479bc01f27c8250348",
+        "profile_id": "d050d3b8ca0f",
+        "input_id": "69c03a926486"
       }
     }
   },

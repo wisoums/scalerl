@@ -263,7 +263,7 @@ def test_run_without_azure_is_explicit_resumable_and_tagged(
 def test_committed_baseline_artifact() -> None:
     path = REPO / "benchmarks" / "v1" / "predictive-baseline-v1.json"
     artifact = experiment.PredictiveBaselineArtifact.model_validate_json(path.read_text())
-    assert artifact.artifact_id == "162b6fb3e9c9"
+    assert artifact.artifact_id == "0d315559c680"
     assert artifact.experiment_spec_id == SPEC_ID
     assert artifact.frozen_baseline.variant == "predictive-seasonal-v1"
     assert artifact.existing_baseline.variant == "predictive-v1"

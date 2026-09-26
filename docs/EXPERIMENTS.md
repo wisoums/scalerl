@@ -560,6 +560,7 @@ Implications:
 - Nominal dynamics, dynamics seed 0, evaluation seed 0, unchanged reward.
 - Workloads: the three synthetic validation workloads, plus `azure-val-734400` with the TRAIN-only profile `azure-historical-profile-v1` (sources `azure-train-129600/302400/475200`, profile ID `d050d3b8ca0f`).
 - Command: `python -m scalerl.evaluation.predictive_baseline check | run | freeze`. Results go to the MLflow experiment `scalerl-predictive-baseline` and to `outputs/predictive-baseline-v1/`.
+- Every case is keyed by an `input_id`: a hash of the exact trace plus, for the profiled case, the profile ID. A resume never reuses rows or MLflow runs computed from different inputs, such as another Azure CSV. Each run also logs its forecast records as an artifact, so interrupted local record files are restored instead of being published incomplete.
 
 **Results (validation only; one deterministic run per cell):**
 
@@ -592,7 +593,7 @@ Implications:
 | azure-val | predictive-seasonal-v1 (max rule) | 117 | 1.240 | 1.965 | +0.916 |
 | azure-val | its profile component alone | 117 | 1.137 | — | — |
 
-Forecast accuracy is reported separately from control quality: on bursty, identical forecasts produce very different control outcomes. The frozen baseline artifact [`benchmarks/v1/predictive-baseline-v1.json`](../benchmarks/v1/predictive-baseline-v1.json) (ID `162b6fb3e9c9`) records the identity, parameters, profile definition, per-workload metrics and MLflow run IDs that #72 and #46 must include. It declares no overall winner.
+Forecast accuracy is reported separately from control quality: on bursty, identical forecasts produce very different control outcomes. The frozen baseline artifact [`benchmarks/v1/predictive-baseline-v1.json`](../benchmarks/v1/predictive-baseline-v1.json) (ID `0d315559c680`) records the identity, parameters, profile definition, per-workload metrics and MLflow run IDs that #72 and #46 must include. It declares no overall winner.
 
 **Not included:**
 - #79's PPO models (the primary question here is predictive-baseline quality);
