@@ -1,43 +1,49 @@
-"""Tune DQN hyperparameters on train/validation workloads with Optuna (#15, #54).
+"""Tune PPO hyperparameters on train/validation workloads with Optuna (#16, #54).
 
-Each trial trains one DQN (with the trial's suggested settings) on the declared
-TRAIN workload and evaluates the final policy deterministically on the
-declared VALIDATION workloads. All of a trial's runs are ``run_kind="tune"``
-and go through ``TrialContext.track``, so the study, trial, sampler, seed,
-objective/search-space versions, and parameters are on every MLflow run, and
-every run ID is on the trial. Held-out test workloads are rejected before any
-training starts. Every trial's model is logged (small for v1); retrain the
-selected configuration with ``python -m scalerl.training.dqn --hyperparameters
-<this result>`` to get the ``train`` run of record.
+Uses the same study runner as DQN (``scalerl.tuning.sb3``): each trial trains
+one PPO on the declared TRAIN workload and validates the final policy on the
+declared VALIDATION workloads, all as ``run_kind="tune"`` runs tracked through
+``TrialContext.track``. Seeded TPE, sequential trials, no pruning; held-out
+test workloads are rejected before any training starts.
 
-Search space ``dqn-search-v1`` (predeclared from standard SB3/DQN ranges,
-never from held-out results): learning rate, gamma, batch size, target update
-interval, exploration fraction, final exploration epsilon, and network
-architecture. Replay buffer, learning starts, training frequency, gradient
-steps, and initial epsilon stay at the ``dqn-v1`` defaults. Sampler: seeded
-TPE (trial-seeded, so resumes are exact), sequential, no pruning.
+Search space ``ppo-search-v1`` (predeclared from standard SB3/PPO ranges,
+never from held-out results):
 
-Selection rule ``dqn-sla-first`` v1, over VALIDATION workloads only:
+==========================  ==========================================
+learning_rate               log-uniform 1e-5 – 1e-3
+gamma                       {0.95, 0.98, 0.99, 0.995}
+gae_lambda                  {0.9, 0.95, 0.98}
+clip_range                  {0.1, 0.2, 0.3}
+ent_coef                    {0.0, 0.001, 0.01}
+n_steps (rollout size)      {512, 1024, 2048}
+batch_size                  {64, 128, 256}
+n_epochs                    {5, 10, 20}
+net_arch (actor = critic)   {64×64, 128×128, 256×256}
+==========================  ==========================================
 
-1. lowest mean SLA violation rate (also the Optuna objective);
-2. lowest mean normalized infrastructure cost;
-3. lowest mean normalized queue pressure;
-4. lowest mean churn rate;
-5. lowest trial number (deterministic tie-break).
+Every ``batch_size`` divides every ``n_steps``, so no combination truncates a
+minibatch, and the trial budget must be a multiple of 2048 (the least common
+multiple of the rollout sizes), so every trial trains exactly the same number
+of timesteps. ``vf_coef``, ``max_grad_norm``, ``normalize_advantage``, and the
+normalization policy stay at their ``ppo-v1`` values.
 
-Episode reward is recorded but never used for selection.
+Selection rule ``ppo-sla-first`` v1 (validation only): SLA violation rate,
+then normalized cost, queue pressure, churn, then trial number; reward is
+recorded but never selects. Retrain the selection as the ``train`` run of
+record with ``python -m scalerl.training.ppo --hyperparameters <result>``.
 
 Run a development study locally::
 
-    python -m scalerl.tuning.dqn --train-workload syn-train-bursty \\
-        --validation-workload syn-val-bursty --n-trials 20 --timesteps 200000 \\
-        --storage sqlite:///outputs/dqn-optuna.db \\
-        --tracking-uri sqlite:///outputs/mlflow.db --output outputs/dqn-tuning-v1.json
+    python -m scalerl.tuning.ppo --train-workload syn-train-bursty \\
+        --validation-workload syn-val-bursty --n-trials 20 --timesteps 204800 \\
+        --storage sqlite:///outputs/ppo-optuna.db \\
+        --tracking-uri sqlite:///outputs/mlflow.db --output outputs/ppo-tuning-v1.json
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from collections.abc import Callable, Sequence
@@ -49,81 +55,61 @@ from pydantic import BaseModel, ConfigDict
 from scalerl.benchmarks import load_benchmark_manifest
 from scalerl.environment import SimulatorConfig
 from scalerl.mlops import SimulatorConfigSource
-from scalerl.training.dqn import (
-    DEFAULT_LOG_INTERVAL,
+from scalerl.training.common import DEFAULT_LOG_INTERVAL
+from scalerl.training.ppo import (
     DEFAULT_TIMESTEPS,
-    DQN_ALGORITHM,
-    DQN_CONFIG_VERSION,
-    DQNHyperparameters,
+    PPO_ALGORITHM,
+    PPO_CONFIG_VERSION,
+    PPOHyperparameters,
 )
 from scalerl.tuning.sb3 import (
     DEFAULT_N_TRIALS,
     DEFAULT_SAMPLER_SEED,
-    SELECTED_TRIAL_ATTR,
-    SELECTION_KEYS,
-    TRAINING_RUN_ATTR,
     StudyDefinition,
-    TrialAggregate,
     prepare_sqlite_directory,
     run_sb3_study,
-    select_trial,
 )
 from scalerl.tuning.spec import safe_storage_label
 
 if TYPE_CHECKING:
     import optuna
 
-__all__ = [
-    "DEFAULT_N_TRIALS",
-    "DEFAULT_SAMPLER_SEED",
-    "OBJECTIVE_NAME",
-    "OBJECTIVE_VERSION",
-    "SEARCH_SPACE_VERSION",
-    "SELECTED_TRIAL_ATTR",
-    "SELECTION_KEYS",
-    "TRAINING_RUN_ATTR",
-    "DQNTuningResult",
-    "TrialAggregate",
-    "main",
-    "run_dqn_study",
-    "select_trial",
-    "suggest_hyperparameters",
-]
-
-OBJECTIVE_NAME = "dqn-sla-first"
+OBJECTIVE_NAME = "ppo-sla-first"
 OBJECTIVE_VERSION = "v1"
-SEARCH_SPACE_VERSION = "dqn-search-v1"
+SEARCH_SPACE_VERSION = "ppo-search-v1"
 NET_ARCHS: dict[str, tuple[int, ...]] = {
     "64x64": (64, 64),
     "128x128": (128, 128),
     "256x256": (256, 256),
 }
 GAMMAS = [0.95, 0.98, 0.99, 0.995]
-BATCH_SIZES = [32, 64, 128]
-TARGET_UPDATE_INTERVALS = [250, 1_000, 5_000]
+GAE_LAMBDAS = [0.9, 0.95, 0.98]
+CLIP_RANGES = [0.1, 0.2, 0.3]
+ENT_COEFS = [0.0, 0.001, 0.01]
+N_STEPS = [512, 1_024, 2_048]
+BATCH_SIZES = [64, 128, 256]
+N_EPOCHS = [5, 10, 20]
+BUDGET_MULTIPLE = math.lcm(*N_STEPS)  # 2048: every trial trains exactly `timesteps`
 
 
-def suggest_hyperparameters(trial: optuna.Trial) -> DQNHyperparameters:
-    """Sample ``dqn-search-v1``; unsearched settings keep their ``dqn-v1`` defaults."""
+def suggest_hyperparameters(trial: optuna.Trial) -> PPOHyperparameters:
+    """Sample ``ppo-search-v1``; unsearched settings keep their ``ppo-v1`` defaults."""
     net_arch = trial.suggest_categorical("net_arch", list(NET_ARCHS))
-    return DQNHyperparameters(
+    return PPOHyperparameters(
         learning_rate=trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True),
         gamma=trial.suggest_categorical("gamma", GAMMAS),
+        gae_lambda=trial.suggest_categorical("gae_lambda", GAE_LAMBDAS),
+        clip_range=trial.suggest_categorical("clip_range", CLIP_RANGES),
+        ent_coef=trial.suggest_categorical("ent_coef", ENT_COEFS),
+        n_steps=trial.suggest_categorical("n_steps", N_STEPS),
         batch_size=trial.suggest_categorical("batch_size", BATCH_SIZES),
-        target_update_interval=trial.suggest_categorical(
-            "target_update_interval", TARGET_UPDATE_INTERVALS
-        ),
-        exploration_fraction=trial.suggest_float("exploration_fraction", 0.05, 0.5),
-        exploration_final_eps=trial.suggest_float("exploration_final_eps", 0.01, 0.1),
+        n_epochs=trial.suggest_categorical("n_epochs", N_EPOCHS),
         net_arch=NET_ARCHS[str(net_arch)],
     )
 
 
-# --- result ----------------------------------------------------------------------------
-
-
-class DQNTuningResult(BaseModel):
-    """Reproducible record of a DQN study and its selected configuration."""
+class PPOTuningResult(BaseModel):
+    """Reproducible record of a PPO study and its selected configuration."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -131,7 +117,7 @@ class DQNTuningResult(BaseModel):
     objective_name: str
     objective_version: str
     search_space_version: str
-    dqn_config_version: str
+    ppo_config_version: str
     benchmark_version: str
     optuna_storage: str
     sampler: Literal["tpe"]
@@ -143,7 +129,7 @@ class DQNTuningResult(BaseModel):
     trial_count: int
     selected_trial_number: int
     selected_params: dict[str, Any]
-    selected_hyperparameters: DQNHyperparameters
+    selected_hyperparameters: PPOHyperparameters
     selected_validation_metrics: dict[str, float]
     selected_training_run_id: str
     selected_mlflow_run_ids: tuple[str, ...]
@@ -155,14 +141,11 @@ class DQNTuningResult(BaseModel):
         return output
 
     @classmethod
-    def load(cls, path: str | Path) -> DQNTuningResult:
+    def load(cls, path: str | Path) -> PPOTuningResult:
         return cls.model_validate_json(Path(path).read_text())
 
 
-# --- study -------------------------------------------------------------------------------
-
-
-def run_dqn_study(
+def run_ppo_study(
     *,
     training_workload_id: str,
     validation_workload_ids: Sequence[str],
@@ -175,28 +158,27 @@ def run_dqn_study(
     calibration_workload_ids: Sequence[str] = (),
     calibration_note: str | None = None,
     azure_csv_path: str | Path | None = None,
-    study_name: str = "dqn-v1",
+    study_name: str = "ppo-v1",
     storage: str | None = None,
     tracking_uri: str | None = None,
-    experiment_name: str = "scalerl-dqn-tuning",
+    experiment_name: str = "scalerl-ppo-tuning",
     log_interval: int = DEFAULT_LOG_INTERVAL,
-    suggest: Callable[[optuna.Trial], DQNHyperparameters] = suggest_hyperparameters,
-) -> DQNTuningResult:
+    suggest: Callable[[optuna.Trial], PPOHyperparameters] = suggest_hyperparameters,
+    rollout_sizes: Sequence[int] = tuple(N_STEPS),
+) -> PPOTuningResult:
     """Run (or resume) the seeded TPE study (``tuning.sb3``) and select a configuration.
 
-    Budget, workload splits, and simulator-config provenance are checked before
-    the study is created or any model is trained. Every trial trains with the
-    same ``seed``, so trials differ only in their hyperparameters.
+    ``timesteps`` must be a whole number of rollouts for every rollout size the
+    search can propose (``rollout_sizes``). Trials do not write checkpoints.
     """
     outcome = run_sb3_study(
         StudyDefinition(
-            algorithm=DQN_ALGORITHM,
+            algorithm=PPO_ALGORITHM,
             objective_name=OBJECTIVE_NAME,
             objective_version=OBJECTIVE_VERSION,
             search_space_version=SEARCH_SPACE_VERSION,
             suggest=suggest,
-            # train_freq is not searched, so the dqn-v1 value applies to every trial.
-            rollout_sizes=(DQNHyperparameters().train_freq,),
+            rollout_sizes=tuple(rollout_sizes),
         ),
         training_workload_id=training_workload_id,
         validation_workload_ids=validation_workload_ids,
@@ -215,12 +197,12 @@ def run_dqn_study(
         experiment_name=experiment_name,
         log_interval=log_interval,
     )
-    return DQNTuningResult(
+    return PPOTuningResult(
         study_name=outcome.spec.name,
         objective_name=OBJECTIVE_NAME,
         objective_version=OBJECTIVE_VERSION,
         search_space_version=SEARCH_SPACE_VERSION,
-        dqn_config_version=DQN_CONFIG_VERSION,
+        ppo_config_version=PPO_CONFIG_VERSION,
         benchmark_version=load_benchmark_manifest().version,
         optuna_storage=safe_storage_label(outcome.spec.storage),
         sampler="tpe",
@@ -232,7 +214,7 @@ def run_dqn_study(
         trial_count=outcome.trial_count,
         selected_trial_number=outcome.selected_trial_number,
         selected_params=outcome.selected_params,
-        selected_hyperparameters=DQNHyperparameters.model_validate(
+        selected_hyperparameters=PPOHyperparameters.model_validate(
             outcome.selected_hyperparameters, strict=False
         ),
         selected_validation_metrics=outcome.selected_validation_metrics,
@@ -244,7 +226,7 @@ def run_dqn_study(
 # --- command line ------------------------------------------------------------------------
 
 
-LOCAL_STORAGE = "sqlite:///outputs/dqn-optuna.db"
+LOCAL_STORAGE = "sqlite:///outputs/ppo-optuna.db"
 
 
 def default_storage() -> str:
@@ -253,7 +235,7 @@ def default_storage() -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Tune DQN on train/validation workloads (#15).")
+    parser = argparse.ArgumentParser(description="Tune PPO on train/validation workloads (#16).")
     parser.add_argument("--train-workload", required=True, help="TRAIN workload ID")
     parser.add_argument(
         "--validation-workload",
@@ -263,7 +245,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="VALIDATION workload ID (repeatable)",
     )
     parser.add_argument("--n-trials", type=int, default=DEFAULT_N_TRIALS)
-    parser.add_argument("--timesteps", type=int, default=DEFAULT_TIMESTEPS)
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        default=DEFAULT_TIMESTEPS,
+        help=f"per trial; a multiple of {BUDGET_MULTIPLE} so every n_steps fits exactly",
+    )
     parser.add_argument("--seed", type=int, default=0, help="training seed of every trial")
     parser.add_argument("--sampler-seed", type=int, default=DEFAULT_SAMPLER_SEED)
     parser.add_argument(
@@ -271,9 +258,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=default_storage(),
         help=f"Optuna storage URI; defaults to $OPTUNA_STORAGE_URI, else {LOCAL_STORAGE}",
     )
-    parser.add_argument("--study-name", default="dqn-v1")
+    parser.add_argument("--study-name", default="ppo-v1")
     parser.add_argument("--tracking-uri", default=None, help="defaults to MLFLOW_TRACKING_URI")
-    parser.add_argument("--experiment-name", default="scalerl-dqn-tuning")
+    parser.add_argument("--experiment-name", default="scalerl-ppo-tuning")
     parser.add_argument("--log-interval", type=int, default=DEFAULT_LOG_INTERVAL)
     parser.add_argument("--azure-csv", type=Path, help="local Azure trace for Azure workloads")
     parser.add_argument("--simulator-config", type=Path, help="SimulatorConfig JSON file")
@@ -284,12 +271,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--calibration-workload", action="append", default=[])
     parser.add_argument("--calibration-note")
-    parser.add_argument("--output", type=Path, default=Path("outputs/dqn-tuning-v1.json"))
+    parser.add_argument("--output", type=Path, default=Path("outputs/ppo-tuning-v1.json"))
     args = parser.parse_args(argv)
 
     source: SimulatorConfigSource = args.config_source
     prepare_sqlite_directory(args.storage)
-    result = run_dqn_study(
+    result = run_ppo_study(
         training_workload_id=args.train_workload,
         validation_workload_ids=args.validation_workloads,
         n_trials=args.n_trials,
@@ -314,7 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     path = result.save(args.output)
     print(f"selected trial {result.selected_trial_number}: {result.selected_params}")
     print(f"validation metrics: {result.selected_validation_metrics}")
-    print(f"retrain with: python -m scalerl.training.dqn --hyperparameters {path} ...")
+    print(f"retrain with: python -m scalerl.training.ppo --hyperparameters {path} ...")
     print(f"result written to {path}")
     return 0
 

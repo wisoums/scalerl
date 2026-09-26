@@ -10,7 +10,7 @@ from mlflow import MlflowClient
 
 from scalerl.training.dqn import MODEL_SOURCE_TAG, DQNHyperparameters, load_hyperparameters
 from scalerl.tuning import RUN_IDS_ATTR, TRIAL_STATE_TAG
-from scalerl.tuning import dqn as tuning
+from scalerl.tuning import sb3 as sb3_tuning
 from scalerl.tuning.dqn import (
     OBJECTIVE_NAME,
     SEARCH_SPACE_VERSION,
@@ -165,8 +165,8 @@ def test_tuning_budget_must_be_a_whole_number_of_rollouts(
     def refuse(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("tuning started before the budget check")
 
-    monkeypatch.setattr(tuning, "build_workloads", refuse)
-    monkeypatch.setattr(tuning, "run_study", refuse)
+    monkeypatch.setattr(sb3_tuning, "build_workloads", refuse)
+    monkeypatch.setattr(sb3_tuning, "run_study", refuse)
 
     with pytest.raises(ValueError, match="multiple of train_freq \\(4\\).*100 timesteps"):
         tiny_study(tracking_uri, timesteps=97)
@@ -191,8 +191,8 @@ def test_held_out_and_wrong_split_workloads_are_rejected_before_training(
     def refuse(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("tuning started before the workload guardrail")
 
-    monkeypatch.setattr(tuning, "build_workloads", refuse)
-    monkeypatch.setattr(tuning, "run_study", refuse)
+    monkeypatch.setattr(sb3_tuning, "build_workloads", refuse)
+    monkeypatch.setattr(sb3_tuning, "run_study", refuse)
 
     with pytest.raises(ValueError, match=message):
         tiny_study(tracking_uri, training_workload_id=train, validation_workload_ids=validation)

@@ -123,6 +123,32 @@ Other options include `--hyperparameters <json>` (a `DQNHyperparameters` file or
 - **Result file:** the training result (`DQNTrainingResult` JSON in `outputs/`) records the run IDs, workloads, seed, timesteps, hyperparameters, compatibility, validation aggregates, and the model URI `runs:/<id>/model`. It contains no model bytes.
 - **Tuning:** `python -m scalerl.tuning.dqn --train-workload … --validation-workload … --n-trials 20 --timesteps 200000` uses `--storage` (default `$OPTUNA_STORAGE_URI`, else `sqlite:///outputs/dqn-optuna.db`) and writes a `DQNTuningResult`. It includes the selected trial's hyperparameters, validation metrics, training run ID, and all its MLflow run IDs; see [EXPERIMENTS.md](EXPERIMENTS.md#dqn-15).
 
+### PPO training runs (#16)
+
+```bash
+# lightweight local
+python -m scalerl.training.ppo --workload syn-train-bursty \
+    --validation-workload syn-val-bursty --timesteps 204800 --seed 0 \
+    --tracking-uri sqlite:///outputs/mlflow.db --output outputs/ppo-v1.json
+
+# full stack: MLflow server, artifacts in Garage
+docker compose run --rm trainer python -m scalerl.training.ppo \
+    --workload syn-train-bursty --validation-workload syn-val-bursty --output outputs/ppo-v1.json
+```
+
+PPO uses the same pipeline (`scalerl.training.common`), CLI options, run schema, and bundle loader as DQN, with the default experiment `scalerl-ppo` (runs `train-ppo-<workload>` and `evaluate-ppo-<workload>`). The differences:
+
+- **Params:** `hp.algorithm=sb3-ppo`, `hp.ppo_config_version`, and `hp.observation_normalization=env-v1` / `hp.reward_normalization=none` alongside every PPO setting.
+- **Learning curve:** it shares episodes, `episode_reward_mean(_100)`, `n_updates`, `loss`, and `learning_rate` with DQN, plus PPO's own values:
+  - `policy_gradient_loss`, `value_loss`, `entropy_loss`;
+  - `approx_kl`, `clip_fraction`, `clip_range`, `explained_variance`.
+- **Checkpoints:** `checkpoints/step-NNNNNNN.zip` every `--checkpoint-interval` timesteps (default 51,200; must be a multiple of `n_steps`; `0` disables them), plus `checkpoints/manifest.json`.
+- **Result file:** a `PPOTrainingResult` JSON, which also records rollouts, the normalization policy, and the checkpoints.
+
+The final model is the same `model/` bundle with `metadata.json` `algorithm=ppo`. `scalerl.rl.load_sb3_controller` loads DQN and PPO bundles alike, picking the SB3 class from the metadata, and existing DQN bundles are unchanged. `python -m scalerl.tuning.ppo` (storage default `$OPTUNA_STORAGE_URI`, else `sqlite:///outputs/ppo-optuna.db`) writes a `PPOTuningResult`; see [EXPERIMENTS.md](EXPERIMENTS.md#ppo-16).
+
+Both training runs also log the final update's values (loss, update count, …) at the final step, so the learning curve's last point reflects the finished model.
+
 ### Tracking location
 
 No URL is hard-coded. `tracking_uri=None` honors `MLFLOW_TRACKING_URI` and MLflow's defaults, and an explicit `tracking_uri=` overrides both. The same code works with:
@@ -290,7 +316,7 @@ The Compose smoke covers:
 - those artifacts downloaded back through MLflow's proxy, i.e. MLflow → PostgreSQL metadata and MLflow → Garage artifacts;
 - a temporary Optuna study in the PostgreSQL `optuna` database, seen by the native Optuna Dashboard, then deleted;
 - Scenario Lab health and trainer write access to `outputs/`;
-- the [SB3 smoke](../scripts/sb3_smoke.py) in the trainer image: SB3's env checker on the real `AutoscalingEnv`, then a CPU `DQN` (`MlpPolicy` 32×32, `learning_starts=0`, `train_freq=1`, `batch_size=16`, `buffer_size=256`, seed 0). It learns for 64 timesteps, so 64 gradient updates must change the Q-network weights. It then checks that the prediction drives the env and that a save/load round-trip predicts the same action. This is infrastructure only, with no performance assertion.
+- the [SB3 smoke](../scripts/sb3_smoke.py) in the trainer image, for **DQN and PPO**: SB3's env checker on the real `AutoscalingEnv`, then a CPU `DQN` (`MlpPolicy` 32×32, `learning_starts=0`, `train_freq=1`, `batch_size=16`, `buffer_size=256`, seed 0). It learns for 64 timesteps, so 64 gradient updates must change the Q-network weights. It then checks that the prediction drives the env and that a save/load round-trip predicts the same action. This is infrastructure only, with no performance assertion. PPO then runs a tiny CPU `PPO` (32-step rollouts, batch 16, 1 epoch, actor/critic 32×32, 64 timesteps) and must change both actor and critic weights, drive the env, and survive save/load. Both run in about a second, with no performance assertion.
 
 CI uses no repository secrets, no Azure data (`data/raw` stays empty), no GPU, and no paid services. Docker layers are cached with BuildKit's GitHub Actions cache, but a cache miss just rebuilds from the hash-pinned requirements, so correctness never depends on the cache. No PostgreSQL, Garage, or MLflow state is cached: every run starts from empty volumes, so first-time initialization is exercised too. A newer commit on the same PR cancels the older run; `main` and release runs are never cancelled.
 

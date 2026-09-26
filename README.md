@@ -159,6 +159,18 @@ python -m scalerl.training.dqn --workload syn-train-bursty \
 
 The same command runs in the full stack with `docker compose run --rm trainer python -m scalerl.training.dqn …`. Tune with `python -m scalerl.tuning.dqn`. Held-out test workloads are refused. See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#dqn-15) and [docs/MLOPS.md](docs/MLOPS.md).
 
+### PPO training
+
+The second deep-RL controller (Stable-Baselines3 PPO: actor/critic) uses the same observation, reward, splits, MLflow schema, model bundle, and evaluation as DQN. Its default budget is 204,800 timesteps, i.e. 100 rollouts of 2,048:
+
+```bash
+python -m scalerl.training.ppo --workload syn-train-bursty \
+    --validation-workload syn-val-bursty --timesteps 204800 --seed 0 \
+    --tracking-uri sqlite:///outputs/mlflow.db --output outputs/ppo-v1.json
+```
+
+Docker: `docker compose run --rm trainer python -m scalerl.training.ppo …`. Tune with `python -m scalerl.tuning.ppo`. See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#ppo-16).
+
 ### Scenario Lab City View
 
 Watch the simulator interactively: traffic → scaling → queue → latency/cost, driven manually or by a baseline controller.
@@ -181,7 +193,7 @@ See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
-The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN training pipeline (#15: SB3 DQN, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Next is PPO (#16), then multi-seed and held-out evaluation. No performance claim about DQN is made yet.
+The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Next are robustness scenarios (#65), then multi-seed and held-out evaluation. No performance claim about DQN or PPO is made yet.
 
 ## License
 

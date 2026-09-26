@@ -29,51 +29,73 @@ Run locally::
 from __future__ import annotations
 
 import argparse
-import json
-import statistics
 import sys
-import tempfile
-import time
-from collections.abc import Callable, Mapping, Sequence
-from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
 from gymnasium import Env
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from stable_baselines3 import DQN
-from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.monitor import Monitor
 
-import scalerl
-from scalerl.benchmarks import WorkloadEntry, build_workloads, load_benchmark_manifest
-from scalerl.environment import AutoscalingEnv, SimulatorConfig
+from scalerl.benchmarks import WorkloadEntry, load_benchmark_manifest
+from scalerl.environment import SimulatorConfig
 from scalerl.environment.reward import RewardWeights
-from scalerl.evaluation import EpisodeMetrics, evaluate_controller_episode
 from scalerl.mlops import EnvironmentCompatibility, RunKind, RunSpec, SimulatorConfigSource
-from scalerl.mlops.tracking import TrackedRun
-from scalerl.rl import ModelMetadata, load_sb3_controller, save_model_bundle
+from scalerl.training import common
+from scalerl.training.common import (
+    DEFAULT_LOG_INTERVAL,
+    MODEL_ARTIFACT_PATH,
+    MODEL_SOURCE_TAG,
+    VALIDATION_KEYS,
+    AlgorithmSpec,
+    MLflowTrainingCallback,
+    RunOutcome,
+    TrackFactory,
+    TrainingSettings,
+    aggregate_validation,
+    default_validation_workload_ids,
+)
 from scalerl.workloads import WorkloadTrace
+
+__all__ = [
+    "DEFAULT_LOG_INTERVAL",
+    "DEFAULT_TIMESTEPS",
+    "DQN",
+    "DQN_ALGORITHM",
+    "DQN_CONFIG_VERSION",
+    "MODEL_ARTIFACT_PATH",
+    "MODEL_SOURCE_TAG",
+    "VALIDATION_KEYS",
+    "DQNHyperparameters",
+    "DQNRunSettings",
+    "DQNTrainingResult",
+    "MLflowTrainingCallback",
+    "aggregate_validation",
+    "apply_overrides",
+    "build_dqn",
+    "default_validation_workload_ids",
+    "dqn_run_spec",
+    "load_hyperparameters",
+    "main",
+    "require_exact_timesteps",
+    "require_training_workload",
+    "require_validation_workloads",
+    "run_params",
+    "train_and_validate",
+    "train_dqn",
+]
 
 DQN_CONFIG_VERSION = "dqn-v1"
 DEFAULT_TIMESTEPS = 200_000
-DEFAULT_LOG_INTERVAL = 1_000
-MODEL_ARTIFACT_PATH = "model"
-MODEL_SOURCE_TAG = "scalerl.model_source_run_id"
-_SB3_RECORDED = (
+# SB3 logger values that form DQN's learning curve (key → MLflow metric).
+DQN_RECORDED_METRICS = (
     ("train/loss", "train/loss"),
     ("train/n_updates", "train/n_updates"),
     ("rollout/exploration_rate", "train/exploration_rate"),
 )
-VALIDATION_KEYS = (
-    "sla_violation_rate",
-    "normalized_cost",
-    "queue_pressure",
-    "churn_rate",
-    "mean_p95_latency_seconds",
-    "episode_reward",
-)
+DQNRunSettings = TrainingSettings  # backwards-compatible name
+DQNRunOutcome = RunOutcome
 
 
 class DQNHyperparameters(BaseModel):
@@ -118,183 +140,9 @@ class DQNHyperparameters(BaseModel):
         return params
 
 
-# --- guardrails ---------------------------------------------------------------------------
-
-
-def require_training_workload(workload_id: str) -> WorkloadEntry:
-    """The manifest entry of a TRAIN workload; validation and held-out test are refused."""
-    entry = load_benchmark_manifest().get(workload_id)
-    if entry.split != "train":
-        kind = "a held-out test" if entry.split == "test" else f"a {entry.split}"
-        raise ValueError(f"DQN trains on train workloads only; {workload_id!r} is {kind} workload")
-    return entry
-
-
-def require_validation_workloads(workload_ids: Sequence[str]) -> tuple[WorkloadEntry, ...]:
-    """Manifest entries of VALIDATION workloads; test (and train) workloads are refused."""
-    if not workload_ids:
-        raise ValueError("DQN development needs at least one validation workload")
-    if len(set(workload_ids)) != len(workload_ids):
-        raise ValueError("validation workloads must be unique")
-    manifest = load_benchmark_manifest()
-    entries = []
-    for workload_id in workload_ids:
-        entry = manifest.get(workload_id)
-        if entry.split != "validation":
-            kind = "a held-out test" if entry.split == "test" else f"a {entry.split}"
-            raise ValueError(
-                f"DQN validation uses validation workloads only; {workload_id!r} is {kind} workload"
-            )
-        entries.append(entry)
-    return tuple(entries)
-
-
-def require_exact_timesteps(timesteps: int, hyperparameters: DQNHyperparameters) -> None:
-    """Refuse budgets SB3 DQN cannot train exactly.
-
-    SB3's off-policy ``learn`` checks the budget only between rollouts of
-    ``train_freq`` steps, so a budget that is not a multiple of ``train_freq``
-    silently trains longer (e.g. 1 → 4, 97 → 100 with ``train_freq=4``). The
-    requested count is recorded as ``training_steps`` before training starts,
-    so it must be exactly what the model is trained for.
-    """
-    if timesteps < 1:
-        raise ValueError("timesteps must be at least 1")
-    remainder = timesteps % hyperparameters.train_freq
-    if remainder:
-        exact = timesteps + hyperparameters.train_freq - remainder
-        raise ValueError(
-            f"timesteps ({timesteps}) must be a multiple of train_freq "
-            f"({hyperparameters.train_freq}); SB3 DQN collects whole rollouts and would "
-            f"train for {exact} timesteps instead"
-        )
-
-
-def default_validation_workload_ids() -> tuple[str, ...]:
-    """The benchmark's synthetic validation workloads."""
-    return tuple(
-        entry.id for entry in load_benchmark_manifest().validation if entry.source == "synthetic"
-    )
-
-
-# --- model construction and learning curve ---------------------------------------------------
-
-
 def build_dqn(env: Env[Any, Any], hyperparameters: DQNHyperparameters, *, seed: int) -> DQN:
     """A CPU SB3 DQN on ``env``, seeded for reproducible setup (network init, exploration)."""
     return DQN("MlpPolicy", env, seed=seed, device="cpu", verbose=0, **hyperparameters.sb3_kwargs())
-
-
-class MLflowTrainingCallback(BaseCallback):
-    """Logs the learning curve to a tracked run every ``log_interval`` timesteps.
-
-    Uses only SB3's public hooks: episode stats from the ``Monitor`` wrapper's
-    ``info["episode"]``, and the values SB3's logger recorded (loss, update
-    count, exploration rate), snapshotted at the start of each rollout, i.e.
-    right after the previous training step and before SB3 may clear them. A
-    value SB3 has not produced yet (e.g. loss before ``learning_starts``) is
-    omitted, never logged as zero.
-    """
-
-    def __init__(self, run: TrackedRun, *, log_interval: int = DEFAULT_LOG_INTERVAL) -> None:
-        super().__init__()
-        if log_interval < 1:
-            raise ValueError("log_interval must be at least 1")
-        self._run = run
-        self._interval = log_interval
-        self._window: list[float] = []
-        self._returns: list[float] = []
-        self._last_logged = -1
-        self._recorded: dict[str, float] = {}
-
-    @property
-    def episode_count(self) -> int:
-        return len(self._returns)
-
-    def _on_rollout_start(self) -> None:
-        recorded = self.model.logger.name_to_value
-        for source, name in _SB3_RECORDED:
-            if source in recorded:
-                self._recorded[name] = float(recorded[source])
-
-    def _on_step(self) -> bool:
-        for info in self.locals.get("infos", ()):
-            episode = info.get("episode")
-            if episode is not None:
-                self._window.append(float(episode["r"]))
-                self._returns.append(float(episode["r"]))
-        if self.num_timesteps % self._interval == 0:
-            self._log()
-        return True
-
-    def _on_training_end(self) -> None:
-        if self._last_logged != self.num_timesteps:
-            self._log()
-
-    def _log(self) -> None:
-        metrics: dict[str, float] = {"train/episodes": float(self.episode_count)}
-        if self._window:
-            metrics["train/episode_reward_mean"] = statistics.fmean(self._window)
-        if self._returns:
-            metrics["train/episode_reward_mean_100"] = statistics.fmean(self._returns[-100:])
-        metrics |= self._recorded
-        self._run.log_metrics(metrics, step=self.num_timesteps)
-        self._window.clear()
-        self._last_logged = self.num_timesteps
-
-
-# --- train + validate (shared by the CLI and Optuna trials) ---------------------------------
-
-
-TrackFactory = Callable[[RunSpec], AbstractContextManager[TrackedRun]]
-
-
-@dataclass(frozen=True)
-class DQNRunSettings:
-    """Everything, besides hyperparameters, that defines one DQN training run."""
-
-    timesteps: int
-    seed: int
-    config: SimulatorConfig
-    config_source: SimulatorConfigSource
-    calibration_workload_ids: tuple[str, ...]
-    calibration_note: str | None
-    reward_weights: RewardWeights
-    log_interval: int = DEFAULT_LOG_INTERVAL
-
-
-@dataclass(frozen=True)
-class DQNRunOutcome:
-    training_run_id: str
-    validation_run_ids: tuple[str, ...]
-    validation_metrics: dict[str, EpisodeMetrics]
-    aggregate: dict[str, float]
-    compatibility: EnvironmentCompatibility
-    training_episodes: int
-
-
-def dqn_run_spec(
-    run_kind: RunKind,
-    entry: WorkloadEntry,
-    settings: DQNRunSettings,
-    hyperparameters: Mapping[str, JsonValue],
-) -> RunSpec:
-    return RunSpec(
-        run_kind=run_kind,
-        controller="dqn",
-        workload_id=entry.id,
-        workload_split=entry.split,
-        simulator_config=settings.config,
-        simulator_config_source=settings.config_source,
-        calibration_workload_ids=settings.calibration_workload_ids,
-        calibration_note=settings.calibration_note,
-        reward_weights=settings.reward_weights,
-        seed=settings.seed,
-        # Validation episodes are evaluated with reset seed 0; training runs evaluate nothing.
-        evaluation_seeds=(0,) if entry.split == "validation" else (),
-        hyperparameters=dict(hyperparameters),
-        training_steps=settings.timesteps,
-    )
 
 
 def run_params(
@@ -309,107 +157,76 @@ def run_params(
     }
 
 
+DQN_ALGORITHM = AlgorithmSpec(
+    name="dqn",
+    label="DQN",
+    config_version=DQN_CONFIG_VERSION,
+    build=lambda env, hyperparameters, seed: build_dqn(env, hyperparameters, seed=seed),
+    run_params=run_params,
+    rollout_size=lambda hyperparameters: hyperparameters.train_freq,
+    rollout_unit="train_freq",
+    recorded_metrics=DQN_RECORDED_METRICS,
+)
+
+
+# --- guardrails (shared implementation, DQN wording) -----------------------------------------
+
+
+def require_training_workload(workload_id: str) -> WorkloadEntry:
+    """The manifest entry of a TRAIN workload; validation and held-out test are refused."""
+    return common.require_training_workload(workload_id, "DQN")
+
+
+def require_validation_workloads(workload_ids: Sequence[str]) -> tuple[WorkloadEntry, ...]:
+    """Manifest entries of VALIDATION workloads; test (and train) workloads are refused."""
+    return common.require_validation_workloads(workload_ids, "DQN")
+
+
+def require_exact_timesteps(timesteps: int, hyperparameters: DQNHyperparameters) -> None:
+    """Refuse budgets SB3 DQN cannot train exactly (see ``common.require_whole_rollouts``).
+
+    SB3's off-policy loop checks the budget only between rollouts of
+    ``train_freq`` steps (e.g. 1 → 4, 97 → 100 with ``train_freq=4``).
+    """
+    common.require_whole_rollouts(
+        timesteps, hyperparameters.train_freq, unit="train_freq", label="SB3 DQN"
+    )
+
+
+def dqn_run_spec(
+    run_kind: RunKind,
+    entry: WorkloadEntry,
+    settings: TrainingSettings,
+    hyperparameters: Mapping[str, JsonValue],
+) -> RunSpec:
+    return common.build_run_spec(run_kind, "dqn", entry, settings, hyperparameters)
+
+
 def train_and_validate(
     *,
     training_entry: WorkloadEntry,
     validation_entries: Sequence[WorkloadEntry],
     traces: Mapping[str, WorkloadTrace],
     hyperparameters: DQNHyperparameters,
-    settings: DQNRunSettings,
+    settings: TrainingSettings,
     track: TrackFactory,
     training_run_kind: RunKind,
     validation_run_kind: RunKind,
     extra_params: Mapping[str, JsonValue] | None = None,
-) -> DQNRunOutcome:
-    """Train on one workload (one tracked run), then validate the final policy per workload.
-
-    The model is saved as a bundle and logged under ``model/`` on the training
-    run. Validation loads that bundle back through :func:`load_sb3_controller`
-    (so the compatibility check is exercised) and evaluates it with the shared
-    ``evaluate_controller_episode``, one tracked run per validation workload.
-    """
-    require_exact_timesteps(settings.timesteps, hyperparameters)
-    params = run_params(hyperparameters, extra_params)
-    config, weights = settings.config, settings.reward_weights
-    with track(dqn_run_spec(training_run_kind, training_entry, settings, params)) as run:
-        env = AutoscalingEnv(config, traces[training_entry.id], weights)
-        model = build_dqn(Monitor(env), hyperparameters, seed=settings.seed)
-        callback = MLflowTrainingCallback(run, log_interval=settings.log_interval)
-        started = time.perf_counter()
-        model.learn(total_timesteps=settings.timesteps, callback=callback)
-        if model.num_timesteps != settings.timesteps:
-            raise RuntimeError(
-                f"SB3 trained {model.num_timesteps} timesteps, not the recorded "
-                f"{settings.timesteps}"
-            )
-        run.log_metrics(
-            {
-                "training_timesteps": float(model.num_timesteps),
-                "training_episodes": float(callback.episode_count),
-                "training_seconds": time.perf_counter() - started,
-            }
-        )
-        compatibility = EnvironmentCompatibility.from_env(env, load_benchmark_manifest().version)
-        metadata = ModelMetadata(
-            algorithm="dqn",
-            config_version=DQN_CONFIG_VERSION,
-            benchmark_version=load_benchmark_manifest().version,
-            training_workload_id=training_entry.id,
-            training_workload_split="train",
-            seed=settings.seed,
-            total_timesteps=settings.timesteps,
-            hyperparameters=hyperparameters.as_params(),
-            scalerl_version=scalerl.__version__,
-            training_run_id=run.run_id,
-        )
-
-        with tempfile.TemporaryDirectory() as directory:
-            bundle = save_model_bundle(
-                model, Path(directory) / "bundle", metadata=metadata, compatibility=compatibility
-            )
-            for path in sorted(bundle.iterdir()):
-                run.log_artifact(path, artifact_path=MODEL_ARTIFACT_PATH)
-
-            results: dict[str, EpisodeMetrics] = {}
-            validation_run_ids = []
-            for entry in validation_entries:
-                validation_env = AutoscalingEnv(config, traces[entry.id], weights)
-                controller = load_sb3_controller(bundle, validation_env)
-                spec = dqn_run_spec(validation_run_kind, entry, settings, params)
-                with track(spec) as validation_run:
-                    validation_run.set_tag(MODEL_SOURCE_TAG, run.run_id)
-                    validation_run.set_tag("scalerl.model_artifact_path", MODEL_ARTIFACT_PATH)
-                    evaluation = evaluate_controller_episode(validation_env, controller, seed=0)
-                    validation_run.log_metrics(evaluation.metrics.as_metrics())
-                results[entry.id] = evaluation.metrics
-                validation_run_ids.append(validation_run.run_id)
-
-        aggregate = aggregate_validation(list(results.values()))
-        run.log_metrics({f"validation.{key}": value for key, value in aggregate.items()})
-        run.log_artifact_dict(
-            "validation_summary.json",
-            {
-                "validation_run_ids": validation_run_ids,
-                "aggregate": aggregate,
-                "per_workload": {key: value.as_metrics() for key, value in results.items()},
-            },
-            artifact_path="scalerl",
-        )
-    return DQNRunOutcome(
-        training_run_id=run.run_id,
-        validation_run_ids=tuple(validation_run_ids),
-        validation_metrics=results,
-        aggregate=aggregate,
-        compatibility=compatibility,
-        training_episodes=callback.episode_count,
+) -> RunOutcome:
+    """DQN through the shared train → bundle → reload → validate pipeline."""
+    return common.train_and_validate(
+        DQN_ALGORITHM,
+        training_entry=training_entry,
+        validation_entries=validation_entries,
+        traces=traces,
+        hyperparameters=hyperparameters,
+        settings=settings,
+        track=track,
+        training_run_kind=training_run_kind,
+        validation_run_kind=validation_run_kind,
+        extra_params=extra_params,
     )
-
-
-def aggregate_validation(results: Sequence[EpisodeMetrics]) -> dict[str, float]:
-    """Mean system metrics over validation workloads (reward stays secondary)."""
-    if not results:
-        raise ValueError("no validation results to aggregate")
-    return {key: statistics.fmean(getattr(r, key) for r in results) for key in VALIDATION_KEYS}
 
 
 # --- training entry point -----------------------------------------------------------------------
@@ -470,19 +287,11 @@ def train_dqn(
 ) -> DQNTrainingResult:
     """Train DQN on one TRAIN workload and validate it; one tracked run per workload.
 
-    Every guardrail (train split, validation split, simulator-config
+    Every guardrail (budget, train split, validation split, simulator-config
     provenance) runs before any trace is built or any model is trained.
     """
     hyperparameters = hyperparameters or DQNHyperparameters()
-    require_exact_timesteps(timesteps, hyperparameters)
-    training_entry = require_training_workload(workload_id)
-    validation_ids = (
-        tuple(validation_workload_ids)
-        if validation_workload_ids is not None
-        else default_validation_workload_ids()
-    )
-    validation_entries = require_validation_workloads(validation_ids)
-    settings = DQNRunSettings(
+    settings = TrainingSettings(
         timesteps=timesteps,
         seed=seed,
         config=config or SimulatorConfig(),
@@ -492,34 +301,25 @@ def train_dqn(
         reward_weights=reward_weights or RewardWeights(),
         log_interval=log_interval,
     )
-    params = run_params(hyperparameters, {"hyperparameter_source": hyperparameter_source})
-    for entry in (training_entry, *validation_entries):  # provenance checks, before training
-        dqn_run_spec("train" if entry is training_entry else "evaluate", entry, settings, params)
-    traces = build_workloads([training_entry, *validation_entries], azure_csv_path=azure_csv_path)
-
-    from scalerl.mlops import start_tracked_run
-
-    def track(spec: RunSpec) -> AbstractContextManager[TrackedRun]:
-        return start_tracked_run(spec, tracking_uri=tracking_uri, experiment_name=experiment_name)
-
-    outcome = train_and_validate(
-        training_entry=training_entry,
-        validation_entries=validation_entries,
-        traces=traces,
+    trained = common.train_sb3(
+        DQN_ALGORITHM,
         hyperparameters=hyperparameters,
+        hyperparameter_source=hyperparameter_source,
+        workload_id=workload_id,
+        validation_workload_ids=validation_workload_ids,
         settings=settings,
-        track=track,
-        training_run_kind="train",
-        validation_run_kind="evaluate",
-        extra_params={"hyperparameter_source": hyperparameter_source},
+        azure_csv_path=azure_csv_path,
+        tracking_uri=tracking_uri,
+        experiment_name=experiment_name,
     )
+    outcome = trained.outcome
     return DQNTrainingResult(
         dqn_config_version=DQN_CONFIG_VERSION,
         benchmark_version=load_benchmark_manifest().version,
         hyperparameter_source=hyperparameter_source,
         training_run_id=outcome.training_run_id,
-        training_workload_id=training_entry.id,
-        validation_workload_ids=tuple(entry.id for entry in validation_entries),
+        training_workload_id=trained.training_entry.id,
+        validation_workload_ids=tuple(entry.id for entry in trained.validation_entries),
         validation_run_ids=outcome.validation_run_ids,
         seed=seed,
         timesteps=timesteps,
@@ -541,30 +341,14 @@ def train_dqn(
 
 def load_hyperparameters(path: str | Path) -> tuple[DQNHyperparameters, str]:
     """Read a DQNHyperparameters JSON, or a DQN tuning result's selected configuration."""
-    payload = json.loads(Path(path).read_text())
-    if "selected_hyperparameters" in payload:
-        source = f"optuna:{payload['study_name']}#trial{payload['selected_trial_number']}"
-        selected = payload["selected_hyperparameters"]
-        return DQNHyperparameters.model_validate(selected, strict=False), source
-    return DQNHyperparameters.model_validate(payload, strict=False), f"file:{Path(path).name}"
+    return common.load_hyperparameters(path, DQNHyperparameters)
 
 
 def apply_overrides(
     hyperparameters: DQNHyperparameters, overrides: Sequence[str]
 ) -> DQNHyperparameters:
     """Apply ``name=value`` overrides (JSON values; ``net_arch=128,128`` also accepted)."""
-    if not overrides:
-        return hyperparameters
-    values = hyperparameters.model_dump()
-    for item in overrides:
-        name, sep, raw = item.partition("=")
-        if not sep or name not in DQNHyperparameters.model_fields:
-            raise ValueError(f"invalid override {item!r}; use <hyperparameter>=<value>")
-        if name == "net_arch":
-            values[name] = tuple(int(width) for width in raw.split(","))
-        else:
-            values[name] = json.loads(raw)
-    return DQNHyperparameters.model_validate(values, strict=False)
+    return common.apply_overrides(hyperparameters, overrides)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
