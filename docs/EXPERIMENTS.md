@@ -148,7 +148,7 @@ It is **not**, however, equivalent to a production cloud predictive-scaling serv
 - <https://docs.aws.amazon.com/autoscaling/application/userguide/aas-predictive-scaling-how-it-works.html>
 - <https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-predictive-scaling.html>
 
-Issue #80 therefore adds a stronger **cloud-style proactive predictive baseline** while preserving `predictive-linear-v1` as the transparent short-history baseline. The stronger baseline must remain past-only, startup-aware, queue-aware, reproducible, and frozen on train/validation evidence before #46.
+Issue #80 therefore adds a stronger **cloud-style proactive predictive baseline** while preserving the existing `predictive-v1` controller/manifest identity, whose current forecast method is `linear-trend` and capacity policy is `forecast-plus-backlog-v1`. The stronger baseline must remain past-only, startup-aware, queue-aware, reproducible, and frozen on train/validation evidence before #46.
 
 ## DQN (#15)
 
@@ -421,14 +421,16 @@ and then updates the scale target: <https://kubernetes.io/docs/concepts/workload
 
 So #79 compares:
 
-- `delta-v1`: {-1, 0, +1};
-- `desired-replicas-v1`: choose an integer target fleet size directly.
+- `delta-v1`: the existing `Discrete(3)` action codes `0/1/2` = scale-down/hold/scale-up, with replica-count effects `-1/0/+1`;
+- `desired-replicas-v1`: discrete action codes mapped directly to an integer target fleet size.
+
+The values `-1/0/+1` are **effects on replica count**, not the values accepted by `AutoscalingEnv.step()`; under the current contract `-1` is an invalid action code.
 
 This does **not** mean DQN is invalid because it lacks continuous actions. Horizontal replica counts are discrete. Continuous/hybrid action spaces would be a different problem, such as vertical CPU/RAM allocation.
 
 ### #80 — stronger proactive predictive baseline
 
-The current predictor is startup-aware but intentionally simple. #80 adds a stronger recurring-pattern / proactive pre-provisioning baseline so the final RL comparison is not against an artificially weak forecaster.
+The current predictor is startup-aware but intentionally simple. Its existing lineage remains `predictive-v1` with forecast method `linear-trend` and capacity policy `forecast-plus-backlog-v1`; #80 must not invent or rename it to a different identifier. #80 adds a separate stronger recurring-pattern / proactive pre-provisioning baseline so the final RL comparison is not against an artificially weak forecaster.
 
 The stronger baseline must still use past information only. An optional oracle may be used only as a clearly labeled future-peeking upper bound, never as a fair deployable competitor.
 
