@@ -120,6 +120,45 @@ Do not advertise a framework capability in the README before a fresh clone can a
 
 ## October 26–31 — dashboard + portfolio release
 
+### Portfolio-grade open-source presentation (#91)
+
+ScaleRL's final public presentation follows the same product model as the learning/framework track:
+
+```text
+Learn → Experiment → Research → Extend
+```
+
+Presentation work is deliberately separated from the scientific decision process. The README and visual assets may summarize completed evidence, but they must never drive model/action/reward choices.
+
+Concrete presentation issues:
+
+- #92 — ScaleRL brand kit, hero banner, logo, and social preview
+- #93 — polished Scenario Lab demo GIF/poster and optional showcase video
+- #94 — final README redesign as the public front door
+- #95 — canonical MkDocs/GitHub Pages documentation site
+- #96 — Architecture Decision Records for key research/engineering choices
+- #97 — beginner/research architecture diagrams and final evidence figures
+- #98 — repository metadata, community files, contributor UX, and citation
+- #99 — final polished v1.0.0 release
+
+Final presentation order:
+
+```text
+scientific core / final evidence
+            ↓
+architecture + results visuals
+            ↓
+stable learning/framework capabilities
+            ↓
+demo + docs + ADRs + metadata
+            ↓
+final README
+            ↓
+v1.0.0 release
+```
+
+The README must remain truthful: no BYO Controller until #88/#89, no live Knative claim until the sim-to-real implementation exists, and no final result table before #46.
+
 ### Must have
 
 - polished README with clear Learn / Experiment / Research / Extend entry points, final tables, limitations, dataset citation, and reproduction commands
