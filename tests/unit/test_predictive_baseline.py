@@ -285,3 +285,106 @@ def test_committed_baseline_artifact() -> None:
     assert artifact.held_out_data_used is False and artifact.reward_changed is False
     assert artifact.declares_overall_winner is False
     assert "-test-" not in path.read_text()
+
+
+# --- resume integrity: input identity and forecast records -----------------------------------
+
+
+def _run(out: Path, uri: str, **kwargs: Any) -> list[dict[str, Any]]:
+    rows, _, _ = experiment.run_experiment(
+        build_experiment_spec(), out=out, azure_csv_path=None, tracking_uri=uri,
+        progress=lambda _: None, **kwargs,
+    )  # fmt: skip
+    return rows
+
+
+def _run_count(uri: str) -> int:
+    client = MlflowClient(uri)
+    ml = client.get_experiment_by_name(experiment.EXPERIMENT_NAME)
+    return 0 if ml is None else len(client.search_runs([ml.experiment_id], max_results=1000))
+
+
+def _alter_bursty(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scalerl.workloads import WorkloadTrace
+
+    original = experiment.build_workloads
+
+    def altered(entries: Any, **kwargs: Any) -> Any:
+        traces = original(entries, **kwargs)
+        bursty = traces["syn-val-bursty"]
+        traces["syn-val-bursty"] = WorkloadTrace(
+            [rate * 1.1 for rate in bursty.request_rates], bursty.control_interval_seconds
+        )
+        return traces
+
+    monkeypatch.setattr(experiment, "build_workloads", altered)
+
+
+def test_input_identity_covers_trace_and_profile() -> None:
+    from scalerl.workloads import WorkloadTrace
+
+    a = WorkloadTrace([1.0, 2.0], 30.0)
+    b = WorkloadTrace([1.0, 2.5], 30.0)
+    assert experiment.input_identity("w", a, None) == experiment.input_identity("w", a, None)
+    assert experiment.input_identity("w", a, None) != experiment.input_identity("w", b, None)
+    assert experiment.input_identity("w", a, "p1") != experiment.input_identity("w", a, "p2")
+
+
+def test_cached_rows_from_different_inputs_are_refused(
+    tmp_path: Path, tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "out"
+    rows = _run(out, tracking_uri)
+    assert all(r["input_id"] for r in rows)
+    _alter_bursty(monkeypatch)
+    with pytest.raises(ValueError, match="different inputs"):
+        _run(out, tracking_uri)
+
+
+def test_finished_runs_from_different_inputs_are_not_recovered(
+    tmp_path: Path, tracking_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _run(tmp_path / "a", tracking_uri)
+    assert _run_count(tracking_uri) == 9
+    assert [r["mlflow_run_id"] for r in _run(tmp_path / "b", tracking_uri)] == [
+        r["mlflow_run_id"] for r in first
+    ]  # same inputs: recovered, not rerun
+    _alter_bursty(monkeypatch)
+    second = _run(tmp_path / "c", tracking_uri)
+    assert _run_count(tracking_uri) == 12  # the three bursty cases were evaluated afresh
+    changed = {r["case_id"] for r in second} - {
+        r["case_id"] for r in second if r["mlflow_run_id"] in {x["mlflow_run_id"] for x in first}
+    }
+    assert changed and all("syn-val-bursty" in case for case in changed)
+
+
+def _records(out: Path) -> list[dict[str, Any]]:
+    return experiment.read_rows(out / "forecast-records.jsonl")
+
+
+def test_incomplete_forecast_records_are_restored_from_the_run(
+    tmp_path: Path, tracking_uri: str
+) -> None:
+    out = tmp_path / "out"
+    rows = _run(out, tracking_uri)
+    complete = _records(out)
+    counts = {r["case_id"]: int(r.get("forecast.records_issued", 0)) for r in rows}
+    assert {c: sum(1 for x in complete if x["case_id"] == c) for c in counts} == counts
+    seasonal_case = next(r["case_id"] for r in rows if "seasonal" in r["case_id"])
+    # Partial loss for a finished case, plus a finished run whose raw row was never written.
+    last = rows[-1]
+    kept = [
+        r
+        for r in complete
+        if not (r["case_id"] == seasonal_case and r["source_tick"] > 50)
+        and r["case_id"] != last["case_id"]
+    ]
+    (out / "forecast-records.jsonl").write_text("".join(json.dumps(r) + "\n" for r in kept))
+    raw = out / "raw-results.jsonl"
+    raw.write_text("".join(line + "\n" for line in raw.read_text().splitlines()[:-1]))
+    again = _run(out, tracking_uri)
+    assert _run_count(tracking_uri) == 9  # nothing re-run
+    assert [r["mlflow_run_id"] for r in again] == [r["mlflow_run_id"] for r in rows]
+    restored = _records(out)
+    key = lambda r: (r["case_id"], r["source_tick"])  # noqa: E731
+    assert sorted(restored, key=key) == sorted(complete, key=key)

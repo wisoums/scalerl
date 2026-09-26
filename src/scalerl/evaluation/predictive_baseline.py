@@ -34,7 +34,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Final, Literal, Self
 
@@ -66,6 +66,7 @@ from scalerl.evaluation.metrics import (
 )
 from scalerl.evaluation.multiseed import _append_row, _repair_torn_tail, read_rows
 from scalerl.evaluation.robustness import NOMINAL, evaluate_robustness, robustness_run_spec
+from scalerl.workloads import WorkloadTrace
 
 EXPERIMENT_VERSION: Final = "predictive-baseline-experiment-v1"
 ARTIFACT_VERSION: Final = "predictive-baseline-v1"
@@ -358,6 +359,20 @@ class Case:
     controller_variant: str
     workload_id: str
     profile_id: str | None
+    # Hash of the exact inputs (trace content and, for profiled cases, the profile);
+    # cached rows and recovered runs are accepted only when it matches.
+    input_id: str | None = None
+
+
+def input_identity(workload_id: str, trace: WorkloadTrace, profile_id: str | None) -> str:
+    """Content identity of a case's inputs: the exact trace and the profile it uses."""
+    payload = {
+        "workload_id": workload_id,
+        "control_interval_seconds": trace.control_interval_seconds,
+        "request_rates": list(trace.request_rates),
+        "profile_id": profile_id,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:12]
 
 
 def cases(
@@ -502,6 +517,7 @@ def _tags(spec: ExperimentSpec, case: Case) -> dict[str, str]:
         "scalerl.capacity_policy": identity["capacity_policy"],
         "scalerl.action_decision_version": spec.action_decision_version,
         "scalerl.profile_id": case.profile_id or "none",
+        "scalerl.input_id": str(case.input_id),
         "scalerl.dynamics_seed": str(DYNAMICS_SEED),
         "scalerl.evaluation_seed": str(EVALUATION_SEED),
     }
@@ -519,6 +535,7 @@ def _row(
         "workload_id": case.workload_id,
         "workload_split": split,
         "profile_id": case.profile_id,
+        "input_id": case.input_id,
         "robustness_scenario": NOMINAL.name,
         "dynamics_seed": DYNAMICS_SEED,
         "evaluation_seed": EVALUATION_SEED,
@@ -541,6 +558,7 @@ def _recover(
         filter_string=(
             f"tags.`scalerl.experiment_id` = '{spec.experiment_id}' and "
             f"tags.`scalerl.evaluation_case_id` = '{case.case_id}' and "
+            f"tags.`scalerl.input_id` = '{case.input_id}' and "
             "attributes.status = 'FINISHED'"
         ),
         max_results=1,
@@ -548,6 +566,51 @@ def _recover(
     if not runs:
         return None
     return _row(spec, case, split, runs[0].info.run_id, runs[0].data.metrics)
+
+
+RECORDS_ARTIFACT: Final = "forecast-records.json"
+
+
+def _restore_records(
+    case: Case, row: Mapping[str, Any], records_path: Path, tracking_uri: str | None
+) -> None:
+    """Make the local forecast records of ``case`` exactly its run's logged records.
+
+    A run logs its records as an artifact and their count as
+    ``forecast.records_issued``; if the local file lacks some or all of them (an
+    interruption after the run finished), they are restored from the artifact.
+    """
+    expected = int(row.get("forecast.records_issued", 0))
+    local = [
+        r
+        for r in read_rows(records_path)
+        if r["case_id"] == case.case_id
+        and r.get("input_id") == case.input_id
+        and r.get("mlflow_run_id") == row["mlflow_run_id"]
+    ]
+    if len(local) == expected:
+        return
+    import tempfile
+
+    from mlflow import MlflowClient
+
+    with tempfile.TemporaryDirectory() as directory:
+        try:
+            path = MlflowClient(tracking_uri).download_artifacts(
+                row["mlflow_run_id"], f"scalerl/{RECORDS_ARTIFACT}", directory
+            )
+        except Exception as error:  # noqa: BLE001 - any failure means the records are lost
+            raise ValueError(
+                f"{case.case_id}: forecast records are incomplete and cannot be restored from "
+                f"run {row['mlflow_run_id']}; rerun into a new output directory"
+            ) from error
+        restored = json.loads(Path(path).read_text())["records"]
+    if len(restored) != expected:
+        raise ValueError(f"{case.case_id}: logged forecast records do not match their count")
+    keep = [r for r in read_rows(records_path) if r["case_id"] != case.case_id]
+    _write_text(records_path, "".join(json.dumps(r, sort_keys=True) + "\n" for r in keep))
+    for record in restored:
+        _append_row(records_path, record)
 
 
 def run_experiment(
@@ -582,18 +645,35 @@ def run_experiment(
     traces = build_workloads(
         list(entries.values()), azure_csv_path=azure_csv_path if azure == "available" else None
     )
+    all_cases = [
+        replace(c, input_id=input_identity(c.workload_id, traces[c.workload_id], c.profile_id))
+        for c in all_cases
+    ]
+    by_id = {case.case_id: case for case in all_cases}
     raw_path, records_path = out / "raw-results.jsonl", out / "forecast-records.jsonl"
     _repair_torn_tail(raw_path)
     _repair_torn_tail(records_path)
-    done = {r["case_id"] for r in read_rows(raw_path) if r["experiment_id"] == spec.experiment_id}
+    done: dict[str, dict[str, Any]] = {}
+    for row in read_rows(raw_path):
+        if row["experiment_id"] != spec.experiment_id or row["case_id"] not in by_id:
+            continue
+        expected = by_id[row["case_id"]].input_id
+        if row.get("input_id") != expected:
+            raise ValueError(
+                f"{raw_path}: {row['case_id']} was computed from different inputs "
+                f"(input {row.get('input_id')} != {expected}); use a new output directory"
+            )
+        done[row["case_id"]] = row
     for case in all_cases:
         if case.case_id in done:
+            _restore_records(case, done[case.case_id], records_path, tracking_uri)
             continue
         entry = entries[case.workload_id]
         recovered = _recover(spec, case, entry.split, tracking_uri, experiment_name)
         if recovered is not None:
+            _restore_records(case, recovered, records_path, tracking_uri)
             _append_row(raw_path, recovered)
-            done.add(case.case_id)
+            done[case.case_id] = recovered
             continue
         case_profile = profile if case.profile_id is not None else None
         controller = make_controller(case.controller_variant, config, case_profile)
@@ -625,6 +705,10 @@ def run_experiment(
                 evaluation_seed=EVALUATION_SEED,
                 config=config,
             )
+            records = [
+                record | {"input_id": case.input_id, "mlflow_run_id": run.run_id}
+                for record in forecast_record_rows(case, controller, result.infos)
+            ]
             metrics = {
                 **result.metrics.as_metrics(),
                 **summarize_action_magnitude(result.infos).as_metrics(),
@@ -632,11 +716,19 @@ def run_experiment(
                     controller, result.infos, config.timing.control_interval_seconds
                 ),
             }
+            if records:
+                metrics["forecast.records_issued"] = float(len(records))
+                run.log_artifact_dict(
+                    RECORDS_ARTIFACT,
+                    {"case_id": case.case_id, "input_id": case.input_id, "records": records},
+                    artifact_path="scalerl",
+                )
             run.log_metrics(metrics)
-        for record in forecast_record_rows(case, controller, result.infos):
-            _append_row(records_path, record | {"mlflow_run_id": run.run_id})
-        _append_row(raw_path, _row(spec, case, entry.split, run.run_id, metrics))
-        done.add(case.case_id)
+        for record in records:
+            _append_row(records_path, record)
+        row = _row(spec, case, entry.split, run.run_id, metrics)
+        _append_row(raw_path, row)
+        done[case.case_id] = row
         progress(f"[{len(done)}/{len(all_cases)}] {case.case_id}")
     order = {case.case_id: index for index, case in enumerate(all_cases)}
     rows = [
@@ -677,6 +769,7 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, dict[str
         values |= {k: v for k, v in row.items() if k.startswith("forecast.")}
         values["mlflow_run_id"] = row["mlflow_run_id"]
         values["profile_id"] = row["profile_id"]
+        values["input_id"] = row["input_id"]
         summary.setdefault(row["workload_id"], {})[row["controller_variant"]] = values
     return summary
 
