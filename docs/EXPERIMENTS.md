@@ -395,13 +395,43 @@ The validation-only #19 run did what it was supposed to do: it exposed weaknesse
 
 The original learned-policy selector was lexicographic: minimize SLA violations first, then consider cost. On validation data that can reward a trivial policy that scales to almost the whole fleet and holds there (normalized cost about 0.97), because cost matters only after SLA has already been minimized.
 
-That is a **selection-objective failure mode**, not evidence of a pipeline bug. #78 freezes a v2 rule before further model selection:
+That is a **selection-objective failure mode**, not evidence of a pipeline bug. #78 freezes a v2 rule before any further model selection. The v1 selectors (`dqn-sla-first` v1, `ppo-sla-first` v1, `threshold-sla-first` v1), their Optuna studies and selected trials, and the #19 results are **not modified or rerun**; they remain the historical record.
 
-1. satisfy a declared service/SLA constraint relative to the tuned Threshold baseline;
-2. among feasible candidates, minimize normalized cost;
-3. use queue/churn/SLA only as tie-breakers.
+**`selection-v2-cost-under-sla`** (`scalerl.evaluation.model_selection`, frozen spec [`benchmarks/v1/selection-v2-cost-under-sla.json`](../benchmarks/v1/selection-v2-cost-under-sla.json), spec ID `418876d6c8e9`) asks: *among candidates that meet an acceptable service level, which uses the least infrastructure?*
 
-The original #19 results remain reproducible and documented.
+1. **Reference service level:** the tuned Threshold `threshold-v1` (high 0.6, low 0.2, cooldown 3; `threshold-sla-first` v1, study `threshold-v1`, trial 14), as measured in the #19 nominal validation runs (plan `44f2ddd31094`):
+
+   | Validation workload | Threshold SLA violation rate | #19 MLflow run |
+   |---|---|---|
+   | `syn-val-steady-high` | 0.275 | `7bebdb2ca0004ac88100ebf254fdd0c2` |
+   | `syn-val-ramp-down` | 0.35 | `d7a340898c754d9686acea67ba6306b5` |
+   | `syn-val-bursty` | 0.20833333333333334 | `1bd190df336e451e8b2638a9769bda1e` |
+
+2. **Feasibility, per workload:** a candidate is feasible only if `candidate SLA <= Threshold SLA + 1e-12` on **every** workload. The `1e-12` is a floating-point equality epsilon, not an SLA allowance. A good mean cannot hide a failure on one workload.
+3. **Objective among feasible candidates:** equal-weight mean over the three workloads of normalized cost; ties broken by mean queue pressure, then churn rate, then SLA violation rate, then a deterministic candidate key (an index such as a trial number or training seed, then the candidate ID). **Reward is never used for selection.**
+4. **No feasible candidate:** nothing is selected (`selection_succeeded = false`, `selected_candidate_id = null`) and the constraint is never relaxed. A **diagnostic-only** fallback (lowest mean SLA, then cost, queue, churn, key) is reported with each workload's threshold, candidate SLA, excess, maximum positive excess and mean excess. It is not a selection.
+5. **Conditions:** nominal validation only (`robustness-v1` `nominal`, dynamics seed 0, evaluation seed 0). Robustness scenarios remain evaluation evidence and never become a hidden selection objective. Evidence files containing any held-out test row are refused, and there is no option to include them.
+6. **Scope:** selection is within one candidate family (DQN candidates against DQN candidates, PPO against PPO). It never produces a global winner across algorithms.
+
+**Two selection levels.** The rule is generic. #79 and #20 apply it to *hyperparameter/configuration* candidates (e.g. Optuna trials) in new, predeclared studies. Applied to #19's evidence, it can only choose among the five **already-trained seed artifacts** of one v1 configuration. That is a diagnostic of the frozen rule on existing evidence, **not** a retroactive re-selection of the v1 hyperparameters (DQN trial 16, PPO trial 7), which were chosen by the v1 rule and stay as they are.
+
+**Diagnostic on the #19 evidence (validation only; no retraining, no new evaluation):**
+
+```bash
+python -m scalerl.evaluation.model_selection diagnose \
+    --spec benchmarks/v1/selection-v2-cost-under-sla.json \
+    --manifest outputs/multiseed-v1/controller-manifest.json \
+    --raw-results outputs/multiseed-v1/raw-results.jsonl --output-dir outputs/selection-v2
+```
+
+This writes `dqn-selection.json`, `ppo-selection.json` and `candidate-table.csv` under `outputs/` (not committed). Result on the canonical #19 run:
+
+| Family | Feasible | Selected | Mean cost | Mean queue | Mean churn | Mean SLA |
+|---|---|---|---|---|---|---|
+| DQN | 1/5 (`dqn-seed0`) | `dqn-seed0` | 0.970 | 0.044 | 0.075 | 0.094 |
+| PPO | 5/5 (all seeds identical) | `ppo-seed0` (candidate-key tie-break) | 0.970 | 0.044 | 0.075 | 0.094 |
+
+DQN seeds 1–4 are cheaper (mean cost 0.81–0.85) but exceed the Threshold SLA on `syn-val-bursty` by 0.008–0.033, so they are infeasible under the frozen rule. **On this evidence the near-full-fleet policy is still what v2 selects in both families.** v2 cannot create a cheaper feasible policy from a v1 search that never looked for one; that is a finding about the v1 search, and the rule is not adjusted to force a different answer. Whether a cost-under-SLA *search* finds cheaper feasible configurations is for the studies run under #79/#20. None of this is a performance claim, and no held-out data was used.
 
 ### #79 — action granularity, not "continuous vs discrete"
 

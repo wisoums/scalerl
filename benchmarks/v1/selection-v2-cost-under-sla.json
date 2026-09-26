@@ -1,0 +1,113 @@
+{
+  "selection_version": "selection-v2-cost-under-sla",
+  "benchmark_version": "v1",
+  "reference": {
+    "controller": "threshold",
+    "variant_id": "threshold-v1",
+    "controller_version": "threshold-sla-first-v1",
+    "params": {
+      "high_threshold": 0.6,
+      "low_threshold": 0.2,
+      "cooldown_ticks": 3
+    },
+    "tuning_lineage": {
+      "study_name": "threshold-v1",
+      "objective": "threshold-sla-first-v1",
+      "search_space_version": "threshold-grid-v1",
+      "selected_trial_number": 14,
+      "tuning_workload_ids": [
+        "syn-train-steady-moderate",
+        "syn-train-seasonal",
+        "syn-train-ramp-up",
+        "syn-train-spike",
+        "syn-train-bursty",
+        "syn-val-steady-high",
+        "syn-val-ramp-down",
+        "syn-val-bursty"
+      ],
+      "validation_workload_ids": [
+        "syn-val-steady-high",
+        "syn-val-ramp-down",
+        "syn-val-bursty"
+      ],
+      "selected_tuning_mlflow_run_ids": [
+        "afab2960d5304574b2edec8c12130826",
+        "3d1dc04881f74289bdcae219b08e2c26",
+        "b641b19c898846d1a3a7a3ce82d9144e",
+        "9486c27f164b4db5bd5a4dddef93a42d",
+        "73485dba9ba84268975d9b7627731023",
+        "841237b99180407b9542fc0523e90769",
+        "2584b90ff7784374a10934d8dc39d4ac",
+        "86bdacd9c1b747bcac82b1f1ed9c4807"
+      ]
+    }
+  },
+  "validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "sla_thresholds": [
+    {
+      "workload_id": "syn-val-steady-high",
+      "sla_violation_rate": 0.275,
+      "evaluation_run_id": "7bebdb2ca0004ac88100ebf254fdd0c2"
+    },
+    {
+      "workload_id": "syn-val-ramp-down",
+      "sla_violation_rate": 0.35,
+      "evaluation_run_id": "d7a340898c754d9686acea67ba6306b5"
+    },
+    {
+      "workload_id": "syn-val-bursty",
+      "sla_violation_rate": 0.20833333333333334,
+      "evaluation_run_id": "1bd190df336e451e8b2638a9769bda1e"
+    }
+  ],
+  "feasibility": {
+    "metric": "sla_violation_rate",
+    "mode": "per_workload_all",
+    "comparator": "<=",
+    "tolerance": 1e-12,
+    "tolerance_meaning": "floating-point equality epsilon; not an SLA allowance"
+  },
+  "primary_objective": "normalized_cost",
+  "aggregation": "equal_weight_mean_over_declared_workloads",
+  "tie_breaks": [
+    "queue_pressure",
+    "churn_rate",
+    "sla_violation_rate",
+    "candidate_key"
+  ],
+  "candidate_key": "tie_break_index, then candidate_id",
+  "selection_scope": "within one candidate family; families are never ranked",
+  "selection_condition": {
+    "scenario": "nominal",
+    "robustness_version": "robustness-v1",
+    "dynamics_seed": 0,
+    "evaluation_seed": 0,
+    "split": "validation"
+  },
+  "no_feasible_candidate": "select nothing; report a diagnostic-only fallback; never relax the constraint",
+  "diagnostic_fallback_order": [
+    "sla_violation_rate",
+    "normalized_cost",
+    "queue_pressure",
+    "churn_rate",
+    "candidate_key"
+  ],
+  "reward_used_for_selection": false,
+  "provenance": {
+    "evidence": "#19 multi-seed validation evaluation (multiseed-v1)",
+    "evaluation_plan_id": "44f2ddd31094",
+    "evaluation_experiment": "scalerl-multiseed",
+    "threshold_measurement": "threshold-v1, nominal, dynamics seed 0, evaluation seed 0",
+    "frozen_before": [
+      "#79",
+      "#20",
+      "#72",
+      "#46"
+    ],
+    "held_out_data_used": false
+  }
+}
