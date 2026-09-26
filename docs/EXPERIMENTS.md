@@ -581,7 +581,7 @@ Implications:
   - The number of scaling ticks is about the same (churn 0.608 vs 0.592): the new policy makes about as many, smaller moves.
   - Threshold still has the lower bursty SLA (0.208), at 0.823 cost. Neither dominates, and no winner is declared.
 - **steady-high and ramp-down:** SLA and queue are identical. One-at-a-time scale-in costs slightly more (0.710 vs 0.708; 0.568 vs 0.550) and adds two scaling events on steady-high.
-- **Azure (recurring history, profile used on 98% of forecasts):** every controller stays at `min_replicas` (1). As predeclared, one replica serves 50 rps and this window peaks at about 2.5 rps, so the system metrics cannot discriminate. The forecast diagnostics show **no accuracy gain from the historical profile here** (next table). The level factor, estimated from four tiny, quantized per-tick counts, ranged from 0.09 to 4.54, and the `max` rule biases forecasts upward by design.
+- **Azure (recurring history; the profile was used in 117 of 119 issued forecasts, 98%):** every controller stays at `min_replicas` (1). As predeclared, one replica serves 50 rps and this window peaks at about 2.5 rps, so the system metrics cannot discriminate. The forecast diagnostics show **no accuracy gain from the historical profile here** (next table). The level factor, estimated from four tiny, quantized per-tick counts, ranged from 0.09 to 4.54, and the `max` rule biases forecasts upward by design.
 
 | Workload | Forecaster | n | MAE (rps) | RMSE | Bias (forecast − actual) |
 |---|---|---|---|---|---|
@@ -590,7 +590,7 @@ Implications:
 | bursty | both (identical linear) | 117 | 152.2 | 236.7 | +19.8 |
 | azure-val | predictive-v1 (linear) | 117 | 0.790 | 1.081 | +0.167 |
 | azure-val | predictive-seasonal-v1 (max rule) | 117 | 1.240 | 1.965 | +0.916 |
-| azure-val | its profile component alone | 115 | 1.137 | — | — |
+| azure-val | its profile component alone | 117 | 1.137 | — | — |
 
 Forecast accuracy is reported separately from control quality: on bursty, identical forecasts produce very different control outcomes. The frozen baseline artifact [`benchmarks/v1/predictive-baseline-v1.json`](../benchmarks/v1/predictive-baseline-v1.json) (ID `162b6fb3e9c9`) records the identity, parameters, profile definition, per-workload metrics and MLflow run IDs that #72 and #46 must include. It declares no overall winner.
 
