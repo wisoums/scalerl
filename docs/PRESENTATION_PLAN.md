@@ -31,18 +31,19 @@ The final README should use this order:
 3. One-paragraph explanation
 4. Scenario Lab demo GIF
 5. Choose your path: Learn / Experiment / Research / Extend
-6. Quick Start
-7. How it works — beginner view
-8. How it works — research architecture
-9. Controllers
-10. Scenario Lab
-11. Research methodology overview
-12. Bring Your Own Controller
-13. Final results / evidence
-14. Documentation map
-15. Compact project structure
-16. Development / contributing
-17. Citation / license / release
+6. Try ScaleRL Live — public Streamlit demo
+7. Quick Start — full local research stack
+8. How it works — beginner view
+9. How it works — research architecture
+10. Controllers
+11. Scenario Lab
+12. Research methodology overview
+13. Bring Your Own Controller
+14. Final results / evidence
+15. Documentation map
+16. Compact project structure
+17. Development / contributing
+18. Citation / license / release
 ```
 
 The README is a **front door**, not the full research paper.
@@ -117,6 +118,68 @@ cost is now higher
 Use development/validation-style synthetic traffic only, never sealed held-out data.
 
 The visible action wording must match final #79 semantics.
+
+
+## Public deployment architecture
+
+ScaleRL v1 has three deliberately different public/runtime surfaces:
+
+```text
+PUBLIC INTERACTIVE DEMO
+Streamlit Community Cloud
+  ├─ Learn
+  ├─ Scenario Lab / Playground
+  ├─ controller comparison
+  └─ built-in/canonical model inference
+
+DOCUMENTATION
+GitHub Pages / MkDocs
+
+FULL RESEARCH STACK
+local Docker Compose
+  ├─ Scenario Lab
+  ├─ MLflow
+  ├─ Optuna
+  ├─ PostgreSQL
+  └─ Garage
+
+SIM-TO-REAL
+Knative testbed / replay path
+```
+
+The hosted Streamlit app is **not** the canonical research backend.
+
+Community mode must:
+- reuse the same simulator/controller/dashboard code;
+- run simulation and inference only;
+- avoid training/tuning jobs;
+- avoid dependence on PostgreSQL/Garage/MLflow server;
+- avoid arbitrary user-supplied Python/controller execution;
+- expose curated synthetic demo workloads;
+- load only explicit compatible learned artifacts;
+- fail gracefully if learned artifacts are unavailable;
+- clearly identify itself as a simulation/inference demo.
+
+The full local Docker stack remains the reproducibility path for experiments, tuning, tracked runs, and artifacts.
+
+Tracking issue: #103.
+
+### README call to action
+
+Once #103 is actually deployed, the README should show near the top:
+
+```text
+▶ Try ScaleRL Live
+<final *.streamlit.app URL>
+```
+
+Then keep the Docker Compose path as:
+
+```text
+Run the complete research stack locally
+```
+
+Never publish a placeholder public URL.
 
 ## Documentation architecture
 
@@ -366,7 +429,28 @@ Do not enable it merely for appearance.
 
 ---
 
-### 8. Manual release tag, fallback only
+### 8. Streamlit Community Cloud deployment
+
+**What:** authorize/connect `wisoums/scalerl` in Streamlit Community Cloud and create the public app if repository tooling cannot perform the deployment.
+
+**How:**
+1. Open Streamlit Community Cloud.
+2. Sign in with the GitHub account that can access `wisoums/scalerl`.
+3. Create a new app.
+4. Repository: `wisoums/scalerl`.
+5. Branch: `main`.
+6. Main file path: use the exact entrypoint created by #103. Expected direction is `streamlit_app.py`, but do not guess before implementation.
+7. Add only environment/secrets explicitly required by #103.
+8. Deploy.
+9. Send/confirm the final public `*.streamlit.app` URL if it is not visible through repository tooling.
+
+**File you provide:** none.
+
+**When:** after #103's implementation PR is merged and green.
+
+---
+
+### 9. Manual release tag, fallback only
 
 Only if available repository tooling cannot create the final tag/release.
 
@@ -425,6 +509,7 @@ Presentation work can be prepared in parallel, but public claims/results must wa
 - #97 — architecture and result visuals
 - #98 — repository/community/citation polish
 - #99 — v1.0.0 release
+- #103 — public Streamlit Community Cloud demo
 
 Related:
 - #85 — Learn / Experiment / Research / Extend umbrella
