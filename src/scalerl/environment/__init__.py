@@ -2,6 +2,8 @@
 
 from scalerl.environment.clock import SimulationClock
 from scalerl.environment.config import (
+    CAPACITY_JITTER_MODEL,
+    DynamicsConfig,
     ObservationConfig,
     ReplicaConfig,
     SimulatorConfig,
@@ -20,7 +22,9 @@ from scalerl.environment.reward import (
 )
 
 __all__ = [
+    "CAPACITY_JITTER_MODEL",
     "MAX_REWARD_WEIGHT",
+    "DynamicsConfig",
     "ObservationConfig",
     "AutoscalingEnv",
     "QueueStepResult",

@@ -277,4 +277,9 @@ def test_model_dump_has_stable_nested_shape() -> None:
             "cost_per_hour": 0.10,
         },
         "sla": {"latency_target_seconds": 0.5},
+        "dynamics": {
+            "capacity_jitter_fraction": 0.0,
+            "dynamics_seed": 0,
+            "telemetry_delay_ticks": 0,
+        },
     }
