@@ -39,7 +39,8 @@ See [`docs/WHY_RL.md`](docs/WHY_RL.md).
 | Random policy | Sanity check |
 | Static capacity | Fixed-cost reference |
 | Threshold / target tracking | Tuned reactive baseline |
-| Predictive autoscaler | Forecasting baseline |
+| Predictive autoscaler | Current startup-aware linear-trend + backlog baseline (#14/#63) |
+| Cloud-style proactive predictive | Planned stronger recurring-pattern / pre-provisioning baseline (#80) |
 | Tabular Q-learning | Optional educational learned baseline |
 | DQN | Primary discrete-action deep RL |
 | PPO | Policy-gradient comparison |
@@ -70,6 +71,21 @@ Primary metrics:
 Reward is reported as a secondary metric rather than the only success criterion.
 
 Final comparisons use identical held-out traces/configs/seeds and multiple seeds.
+
+### Methodology gates before held-out evaluation
+
+Validation-only #19 exposed an important failure mode: the original SLA-first DQN/PPO selector can prefer a trivial near-full-fleet policy because cost matters only after SLA is minimized. That result is preserved rather than overwritten.
+
+Before opening the held-out test suite in #46, ScaleRL now freezes four additional methodology decisions:
+
+- **#78 — constrained model selection:** meet a declared SLA/service constraint first, then minimize normalized cost among feasible candidates.
+- **#79 — action semantics:** compare the current `Discrete(3)` action contract — codes `0/1/2` for scale-down/hold/scale-up, whose replica-count effects are `-1/0/+1` — with a discrete **desired replica count** contract. Horizontal replica counts are integers; the issue is action granularity, not a requirement for continuous actions.
+- **#80 — stronger predictive baseline:** keep the current `predictive-v1` lineage unchanged (`linear-trend` forecast method + `forecast-plus-backlog-v1` capacity policy), but add a cloud-style proactive baseline that can exploit recurring historical patterns and pre-provision capacity before expected demand. AWS predictive scaling similarly forecasts future capacity and can advance launch time with a scheduling buffer: <https://docs.aws.amazon.com/autoscaling/application/userguide/aas-predictive-scaling-how-it-works.html>.
+- **#81 — startup-delay robustness:** preserve frozen `robustness-v1` exactly, then add a separate seeded test for variable replica startup/readiness times.
+
+Kubernetes HPA itself calculates an integer **desired replica count**, which is why #79 tests direct target-capacity semantics instead of treating horizontal autoscaling as a continuous CPU/RAM action problem: <https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/>.
+
+All four decisions use train/validation evidence only and must be frozen before #46.
 
 ## MLOps
 
@@ -114,7 +130,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/REWARD_DESIGN.md`](do
 
 Portfolio-ready v1.0 target: **October 31, 2026**.
 
-The critical path is fair baselines, frozen held-out data, MLflow/Docker/CI reproducibility, DQN/PPO, multi-seed synthetic + real-trace evaluation, and an honest results package.
+The critical path is fair baselines, frozen held-out data, MLflow/Docker/CI reproducibility, DQN/PPO, multi-seed validation evidence, the pre-held-out methodology gates (#78–#81 and #20), then held-out synthetic/Azure evaluation and an honest results package.
 
 See [`ROADMAP.md`](ROADMAP.md).
 
@@ -193,7 +209,7 @@ See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
-The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Next is held-out evaluation (#46). No final performance or robustness claim about any controller is made yet.
+The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Its validation-only run exposed that the v1 SLA-first selector can choose near-full-fleet DQN/PPO policies, so the project now resolves #78 (cost-under-SLA selection), #79 (desired-replica action semantics), #80 (stronger proactive predictive baseline), #81 (startup-delay stochasticity), and #20 (reward ablation) **before** freezing #72 and opening #46. No final performance or robustness claim about any controller is made yet.
 
 ## License
 

@@ -2,7 +2,7 @@
 
 **Portfolio-ready v1.0 target: October 31, 2026.**
 
-The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> early City View -> Optuna tuning infrastructure -> recent-traffic RL observation -> Docker/CI reproducibility -> tuned baselines + DQN/PPO -> robustness scenarios -> held-out multi-seed analysis -> portfolio demo.
+The critical path is now: deterministic environment -> fair baselines -> frozen train/validation/test workloads -> MLflow -> City View -> Optuna -> recent-traffic RL observation -> Docker/CI -> DQN/PPO -> robustness-v1 -> multi-seed validation evidence -> constrained model selection (#78) -> action-semantics decision (#79) -> stronger predictive + startup-delay robustness (#80/#81) -> reward freeze (#20) -> sim-to-real/artifact freeze (#72) -> held-out evaluation (#46) -> portfolio demo.
 
 ## Completed — M0/M1 foundations
 
@@ -77,13 +77,18 @@ DQN training is reproducible from config/container, produces an MLflow run and m
 
 Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically on identical frozen workloads/configs/seeds. Q-learning is included if #47 is completed.
 
-## October 19–25 — M4 real-trace analysis
+## October 19–25 — M4 methodology freeze + real-trace analysis
 
 ### Must have
 
-- #20 reward-function ablation
-- #65 robustness settings frozen before held-out analysis
-- #46 held-out Azure trace comparison under nominal + predeclared robustness conditions
+- #78 freeze constrained cost-aware model selection after #19 exposed the SLA-first full-fleet failure mode
+- #79 compare existing `Discrete(3)` codes 0/1/2 (effects -1/0/+1) with direct desired-replica actions and freeze the final action contract
+- #80 preserve existing `predictive-v1` / `forecast-plus-backlog-v1` lineage and add a stronger cloud-style proactive predictive baseline
+- #81 add a separate seeded startup-delay robustness extension while preserving robustness-v1
+- #20 reward-function ablation on the final #79 action contract using the frozen #78 selection rule
+- #72 freeze canonical controller artifacts and sim-to-real protocol before held-out outcomes can influence them
+- #65 robustness-v1 remains frozen and unchanged
+- #46 held-out Azure trace comparison under the finalized action/baseline/reward contract and predeclared robustness conditions
 - latency/SLA/cost/queue/churn analysis
 - per-seed raw results and dispersion
 - MLflow run IDs for reported results
@@ -91,7 +96,7 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 
 ### Exit condition
 
-There is reproducible evidence to answer the research question on both controlled synthetic workloads and selected real production traces.
+All methodology choices are frozen using train/validation evidence only, then reproducible held-out evidence answers the research question on controlled synthetic workloads and selected real production traces.
 
 ## October 26–31 — dashboard + portfolio release
 
@@ -110,7 +115,7 @@ There is reproducible evidence to answer the research question on both controlle
 - #22 FastAPI shadow-mode service
 - #23 safety/fallback controller
 - #24 inference/demo container
-- #32 AWS pricing/telemetry validation
+- #32 AWS Lambda real-cloud validation with cost guardrails
 
 These are valuable but must not compromise the experiment quality above.
 
@@ -119,12 +124,12 @@ These are valuable but must not compromise the experiment quality above.
 ScaleRL v1.0 is portfolio-ready when:
 
 1. the simulator is deterministic and tested;
-2. static, reactive, and predictive baselines are implemented fairly;
+2. static, reactive, and both short-history and stronger proactive predictive baselines are implemented fairly;
 3. training/validation/test workloads are explicitly separated before final tuning;
 4. DQN and PPO train reproducibly;
 5. training/evaluation runs are tracked in MLflow with config/model artifacts;
 6. Docker and CI reproduce the relevant smoke pipeline on a clean machine, with ScaleRL, Optuna Dashboard, and MLflow available through the documented local platform stack;
-7. final evaluation uses held-out workloads and multiple seeds, with predeclared stochastic/delayed-telemetry robustness checks;
+7. final evaluation uses the action semantics frozen by #79 and held-out workloads/multiple seeds, with frozen capacity-jitter, telemetry-delay, and startup-delay robustness checks;
 8. at least part of the final evaluation uses attributed real Azure production traces;
 9. results report raw systems metrics rather than only RL return;
 10. another developer can reproduce the principal benchmark from documented commands.
