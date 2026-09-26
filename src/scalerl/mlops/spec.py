@@ -108,6 +108,12 @@ class RunSpec(_Strict):
 
         if (self.robustness_scenario is None) != (self.robustness_version is None):
             raise ValueError("robustness_scenario and robustness_version must be set together")
+        if self.robustness_scenario is not None and self.run_kind != "evaluate":
+            # Robustness conditions evaluate fixed, already-trained controllers (#65);
+            # a train/tune run labeled as one would mix retrained models into results.
+            raise ValueError(
+                f"robustness scenarios label evaluate runs only, not {self.run_kind} runs"
+            )
 
         if self.simulator_config_source == "default" and self.simulator_config != SimulatorConfig():
             raise ValueError(

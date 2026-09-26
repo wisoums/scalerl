@@ -222,6 +222,8 @@ def evaluate_robustness_tracked(
     dynamics_seed: int,
     config: SimulatorConfig | None = None,
     base_config_source: SimulatorConfigSource = "default",
+    calibration_workload_ids: Sequence[str] = (),
+    calibration_note: str | None = None,
     hyperparameters: Mapping[str, JsonValue] | None = None,
     model_source_run_id: str | None = None,
     perturbed_compatibility: Sequence[str] = (),
@@ -237,9 +239,18 @@ def evaluate_robustness_tracked(
     ``scalerl.robustness_*`` tags), and, for learned policies evaluated under
     a deliberately changed observation contract, the perturbed compatibility
     fields. Returns the result and the MLflow run ID.
+
+    Perturbed compatibility fields are taken from the controller itself (an
+    ``SB3Controller`` loaded with ``robustness_evaluation=True`` records them)
+    and merged with any given explicitly, so the tag cannot be forgotten.
+    ``calibration_workload_ids``/``calibration_note`` carry the lineage of a
+    ``calibrated_train_validation`` base config.
     """
     from scalerl.mlops import start_tracked_run
 
+    perturbed = sorted(
+        set(perturbed_compatibility) | set(getattr(controller, "perturbed_compatibility", ()))
+    )
     spec = robustness_run_spec(
         controller=controller_name,
         entry=entry,
@@ -247,6 +258,8 @@ def evaluate_robustness_tracked(
         dynamics_seed=dynamics_seed,
         config=config,
         base_config_source=base_config_source,
+        calibration_workload_ids=calibration_workload_ids,
+        calibration_note=calibration_note,
         hyperparameters=hyperparameters,
     )
     with start_tracked_run(
@@ -259,10 +272,8 @@ def evaluate_robustness_tracked(
         run.set_tag("scalerl.capacity_jitter_model", CAPACITY_JITTER_MODEL)
         if model_source_run_id is not None:
             run.set_tag("scalerl.model_source_run_id", model_source_run_id)
-        if perturbed_compatibility:
-            run.set_tag(
-                "scalerl.robustness.perturbed_compatibility", ",".join(perturbed_compatibility)
-            )
+        if perturbed:
+            run.set_tag("scalerl.robustness.perturbed_compatibility", ",".join(perturbed))
         result = evaluate_robustness(
             controller,
             trace,

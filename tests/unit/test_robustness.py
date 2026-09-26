@@ -812,3 +812,85 @@ def test_robustness_evaluation_is_reproducible_per_seed() -> None:
 
     assert first.infos == again.infos and first.metrics == again.metrics
     assert first.dynamics != other.dynamics
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("run_kind", ["train", "tune"])
+def test_robustness_labels_are_rejected_on_training_and_tuning_runs(run_kind: str) -> None:
+    entry = load_benchmark_manifest().get("syn-train-spike")
+    spec = robustness_run_spec(
+        controller="dqn", entry=entry, scenario=CAPACITY_JITTER, dynamics_seed=0
+    )
+
+    with pytest.raises(ValidationError, match="evaluate runs only"):
+        RunSpec(**{**dict(spec), "run_kind": run_kind})
+    # The same config without robustness labels stays a valid training/tuning spec.
+    unlabeled = {**dict(spec), "robustness_scenario": None, "robustness_version": None}
+    assert RunSpec(**{**unlabeled, "run_kind": run_kind}).robustness_scenario is None
+
+
+def test_tracked_robustness_forwards_calibration_lineage(tracking_uri: str) -> None:
+    entry = load_benchmark_manifest().get("syn-val-bursty")
+    calibrated = SimulatorConfig(replicas=ReplicaConfig(service_capacity_rps=40.0))
+
+    _, run_id = evaluate_robustness_tracked(
+        ThresholdController(low_threshold=0.3, high_threshold=0.8, min_replicas=1, max_replicas=10),
+        build_workload(entry),
+        controller_name="threshold",
+        entry=entry,
+        scenario=CAPACITY_JITTER,
+        dynamics_seed=0,
+        config=calibrated,
+        base_config_source="calibrated_train_validation",
+        calibration_workload_ids=("syn-train-spike", "syn-val-bursty"),
+        calibration_note="capacity from train/validation demand",
+        tracking_uri=tracking_uri,
+    )
+
+    params = MlflowClient(tracking_uri).get_run(run_id).data.params
+    assert params["simulator_config_source"] == "calibrated_train_validation"
+    assert json.loads(params["calibration_workload_ids"]) == ["syn-train-spike", "syn-val-bursty"]
+    assert params["calibration_note"] == "capacity from train/validation demand"
+    assert params["sim.replicas.service_capacity_rps"] == "40.0"
+
+
+@pytest.mark.parametrize("algorithm", ["dqn", "ppo"])
+def test_perturbations_are_recorded_from_the_loaded_controller(
+    bundles: dict[str, Path], algorithm: str, tracking_uri: str
+) -> None:
+    entry = load_benchmark_manifest().get("syn-val-bursty")
+    env = benchmark_env(entry.id, apply_scenario(SimulatorConfig(), DELAYED_TELEMETRY))
+    controller = load_sb3_controller(bundles[algorithm], env, robustness_evaluation=True)
+
+    _, run_id = evaluate_robustness_tracked(  # no explicit perturbed_compatibility
+        controller,
+        env.trace,
+        controller_name=algorithm,
+        entry=entry,
+        scenario=DELAYED_TELEMETRY,
+        dynamics_seed=0,
+        tracking_uri=tracking_uri,
+    )
+
+    tags = MlflowClient(tracking_uri).get_run(run_id).data.tags
+    assert tags["scalerl.robustness.perturbed_compatibility"] == "telemetry_delay_ticks"
+
+
+def test_unperturbed_controllers_get_no_perturbation_tag(tracking_uri: str) -> None:
+    entry = load_benchmark_manifest().get("syn-val-bursty")
+
+    _, run_id = evaluate_robustness_tracked(
+        StaticController(3, SimulatorConfig().replicas),
+        build_workload(entry),
+        controller_name="static",
+        entry=entry,
+        scenario=DELAYED_TELEMETRY,
+        dynamics_seed=0,
+        tracking_uri=tracking_uri,
+    )
+
+    assert "scalerl.robustness.perturbed_compatibility" not in (
+        MlflowClient(tracking_uri).get_run(run_id).data.tags
+    )

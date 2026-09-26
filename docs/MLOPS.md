@@ -159,7 +159,7 @@ A tracked robustness evaluation (`evaluate_robustness_tracked`) is an `evaluate`
 - **Metrics:** the usual `EpisodeMetrics`, plus `dynamics.mean/min/max_capacity_multiplier`.
 - **Artifact (optional):** raw physical step infos under `robustness/`.
 
-Non-nominal scenarios are recorded with `simulator_config_source="predeclared"`: they are predeclared, never the default simulator. `RunSpec` requires the scenario name and version together, and existing non-robustness runs are unchanged.
+Non-nominal scenarios are recorded with `simulator_config_source="predeclared"`: they are predeclared, never the default simulator. A `calibrated_train_validation` base config keeps its lineage (`calibration_workload_ids`/`calibration_note` are forwarded). `RunSpec` requires the scenario name and version together and accepts them **only on `evaluate` runs**, so a train or tune run can never be labeled as a robustness result. Existing non-robustness runs are unchanged. The perturbation tag is derived from the controller itself: an `SB3Controller` loaded with `robustness_evaluation=True` carries its perturbed fields, so a caller cannot forget them.
 
 ### Tracking location
 
