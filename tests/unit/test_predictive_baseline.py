@@ -258,3 +258,30 @@ def test_run_without_azure_is_explicit_resumable_and_tagged(
     assert artifact.azure_validation_status == "unavailable_external_data"
     assert artifact.held_out_data_used is False and artifact.declares_overall_winner is False
     assert set(artifact.validation_results) == set(spec.synthetic_validation_workload_ids)
+
+
+def test_committed_baseline_artifact() -> None:
+    path = REPO / "benchmarks" / "v1" / "predictive-baseline-v1.json"
+    artifact = experiment.PredictiveBaselineArtifact.model_validate_json(path.read_text())
+    assert artifact.artifact_id == "162b6fb3e9c9"
+    assert artifact.experiment_spec_id == SPEC_ID
+    assert artifact.frozen_baseline.variant == "predictive-seasonal-v1"
+    assert artifact.existing_baseline.variant == "predictive-v1"
+    assert artifact.action_semantics == DESIRED_REPLICAS_V1
+    assert artifact.action_decision_version == "action-contract-v2"
+    assert artifact.azure_validation_status == "available"
+    assert artifact.historical_profile["train_workload_ids"] == [
+        "azure-train-129600",
+        "azure-train-302400",
+        "azure-train-475200",
+    ]
+    assert artifact.historical_profile["profile_id"] == "d050d3b8ca0f"
+    assert set(artifact.validation_results) == {
+        "syn-val-steady-high",
+        "syn-val-ramp-down",
+        "syn-val-bursty",
+        "azure-val-734400",
+    }
+    assert artifact.held_out_data_used is False and artifact.reward_changed is False
+    assert artifact.declares_overall_winner is False
+    assert "-test-" not in path.read_text()
