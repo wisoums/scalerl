@@ -81,7 +81,7 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 
 ### Must have
 
-- #78 freeze constrained cost-aware model selection after #19 exposed the SLA-first full-fleet failure mode
+- #78 freeze constrained cost-aware model selection after #19 exposed the SLA-first full-fleet failure mode — done: `selection-v2-cost-under-sla` committed at `benchmarks/v1/selection-v2-cost-under-sla.json`; v1 selectors and #19 results unchanged
 - #79 compare existing `Discrete(3)` codes 0/1/2 (effects -1/0/+1) with direct desired-replica actions and freeze the final action contract
 - #80 preserve existing `predictive-v1` / `forecast-plus-backlog-v1` lineage and add a stronger cloud-style proactive predictive baseline
 - #81 add a separate seeded startup-delay robustness extension while preserving robustness-v1

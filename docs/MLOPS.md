@@ -172,6 +172,10 @@ Every multi-seed case is a normal `evaluate` run (experiment `scalerl-multiseed`
 
 Searching by plan ID and case ID is also how an interrupted run is recovered on `--resume`.
 
+### Model selection spec (#78)
+
+`selection-v2-cost-under-sla` is a committed, versioned artifact, not an MLflow run: [`benchmarks/v1/selection-v2-cost-under-sla.json`](../benchmarks/v1/selection-v2-cost-under-sla.json) is strict JSON (unknown fields rejected), and its content hash (`spec_id`, `418876d6c8e9`) is recorded in every selection result. It traces back to MLflow through the three Threshold evaluation run IDs it freezes, the Threshold tuning run IDs, and the #19 plan ID. Selection results record each candidate's training run, model URI, tuning study/trial and per-workload evaluation run IDs. `diagnose` checks that the spec's thresholds match the Threshold rows of the evidence it reads, and refuses evidence containing held-out test rows. Diagnostic outputs go to `outputs/selection-v2/` and are not committed. The v1 tuning selectors (`scalerl.tuning.sb3.select_trial`) are unchanged.
+
 ### Tracking location
 
 No URL is hard-coded. `tracking_uri=None` honors `MLFLOW_TRACKING_URI` and MLflow's defaults, and an explicit `tracking_uri=` overrides both. The same code works with:
