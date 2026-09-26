@@ -172,6 +172,17 @@ Every multi-seed case is a normal `evaluate` run (experiment `scalerl-multiseed`
 
 Searching by plan ID and case ID is also how an interrupted run is recovered on `--resume`.
 
+### Action contracts and the #79 experiment
+
+Every run is tagged `scalerl.action_semantics`, and every compatibility contract (`compat.action_semantics_version`) records the action contract. Its `delta-v1` default means a pre-#79 contract loads as `delta-v1`. `SimulatorConfig` serializes `action` only when it is not the default, so pre-#79 config hashes, Optuna study identities and the #19 plan ID are unchanged.
+
+SB3 validation runs also log the `action.*` magnitude diagnostics. `train_and_validate` accepts `tags` for experiment lineage. #79 runs are in the MLflow experiment `scalerl-action-semantics` and carry:
+- `scalerl.experiment_id`, `scalerl.experiment_phase` (`screening` / `retraining` / `evaluation`);
+- `scalerl.candidate_set_id`, `scalerl.candidate_id`, `scalerl.action_family`, `scalerl.training_seed`;
+- for retrained models and their evaluations, also `scalerl.selection_version`, `scalerl.selection_spec_id` and `scalerl.selected_candidate_id`.
+
+Evaluation runs carry `scalerl.evaluation_case_id`, which lets `evaluate` recover rows from finished runs instead of duplicating them. Interrupted runs are marked `KILLED` and tagged `scalerl.superseded`.
+
 ### Model selection spec (#78)
 
 `selection-v2-cost-under-sla` is a committed, versioned artifact, not an MLflow run: [`benchmarks/v1/selection-v2-cost-under-sla.json`](../benchmarks/v1/selection-v2-cost-under-sla.json) is strict JSON (unknown fields rejected), and its content hash (`spec_id`, `418876d6c8e9`) is recorded in every selection result. It traces back to MLflow through the three Threshold evaluation run IDs it freezes, the Threshold tuning run IDs, and the #19 plan ID. Selection results record each candidate's training run, model URI, tuning study/trial and per-workload evaluation run IDs. `diagnose` checks that the spec's reference and thresholds match the Threshold of the evidence it reads. It also checks that every raw row's controller, version, training seed, training run, model URI and hyperparameter source match its manifest variant, so a stale manifest that reuses a variant ID such as `dqn-seed0` is refused instead of attributing one model's metrics to another. It refuses evidence containing held-out test rows. The feasibility tolerance is fixed at exactly `1e-12` for this version. Diagnostic outputs go to `outputs/selection-v2/` and are not committed. The v1 tuning selectors (`scalerl.tuning.sb3.select_trial`) are unchanged.

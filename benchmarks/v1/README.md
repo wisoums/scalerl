@@ -111,6 +111,10 @@ These statistics describe the frozen windows; they must not be used to change sp
 
 The meaning of v1 must not change once training or tuning starts. Changing held-out membership, workload parameters, or offsets requires **a new benchmark version** or an explicit, documented correction here, made before any final evaluation. If a frozen Azure window proves unusable (outside the extracted file, empty because of source-data problems, or corrupted), document the reason and correct the benchmark explicitly. Never quietly swap in another window.
 
+## Action contract (#79)
+
+[`action-semantics-experiment-v1.json`](action-semantics-experiment-v1.json) (ID `899dfbb64217`) and [`action-semantics-candidates-v1.json`](action-semantics-candidates-v1.json) (`matched-action-candidates-v1`, ID `cbe3c1c0719b`) predeclared the validation-only `delta-v1` vs `desired-replicas-v1` experiment before any of its models were trained. [`action-contract-v2.json`](action-contract-v2.json) (ID `0eb5562b01e6`) freezes its outcome: `desired-replicas-v1` is the action contract for #20/#72/#46. No test workload was used.
+
 ## Model selection rule (#78)
 
 [`selection-v2-cost-under-sla.json`](selection-v2-cost-under-sla.json) freezes the constrained cost-aware selection rule (spec ID `418876d6c8e9`): per-workload SLA no worse than the tuned Threshold's on `syn-val-steady-high`, `syn-val-ramp-down` and `syn-val-bursty`, then minimum mean normalized cost among feasible candidates. It is loaded with `scalerl.evaluation.model_selection.SelectionSpec.load()` and uses validation evidence only. See [docs/EXPERIMENTS.md](../../docs/EXPERIMENTS.md#78--cost-aware-selection-under-an-sla-constraint).

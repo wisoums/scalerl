@@ -48,13 +48,18 @@ Bucketing pending replicas by readiness keeps the observation Markov when startu
 
 Features the simulator does not model (such as CPU utilization) are intentionally not fabricated.
 
-### Action space
+### Action space (versioned action contracts, #79)
 
-- `0`: scale down by one replica
-- `1`: hold
-- `2`: scale up by one replica
+The environment always takes an integer **action code** from a Gymnasium `Discrete` space. What a code means is the versioned contract `SimulatorConfig.action.semantics`, encoded in one place (`scalerl.environment.actions.ActionContract`):
 
-Actions are bounded by configurable minimum and maximum replica counts.
+| Contract | Space | Codes |
+|---|---|---|
+| `delta-v1` (default; every run and model before #79) | `Discrete(3)` | `0` scale down, `1` hold, `2` scale up; their replica-count **effects** are `-1/0/+1` (effects are not codes: `step(-1)` is invalid) |
+| `desired-replicas-v1` | `Discrete(max_replicas - min_replicas + 1)` | code `c` requests `min_replicas + c` committed replicas (default: codes `0..9` -> targets `1..10`) |
+
+Either way the code becomes a **requested target** for committed capacity (`active + pending`). The environment starts or cancels `|target - committed|` replicas in that one step through the normal lifecycle: new replicas start pending and wait out the startup delay, and reductions cancel the newest pending replicas before terminating active ones. Targets are clipped to the configured minimum and maximum. `info` reports `requested_action` (the code), `requested_replica_target`, and `applied_replica_change` (the signed change, which can exceed one replica under `desired-replicas-v1`); all three are current control-plane facts, never delayed telemetry.
+
+Replica counts stay discrete under both contracts. There are no continuous actions: DQN acts on either `Discrete` space directly and PPO uses its categorical policy. `SimulatorConfig()` keeps `delta-v1` as its default, and it serializes exactly as before #79 unless another contract is requested. A learned model's compatibility contract records `action_semantics_version`, so a model never runs under another contract, even one with the same action count.
 
 ### Transition model
 
