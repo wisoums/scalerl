@@ -139,6 +139,13 @@ def test_equality_is_feasible_and_tolerance_is_only_an_epsilon() -> None:
         make_spec(feasibility={"tolerance": 0.01})
 
 
+@pytest.mark.parametrize("tolerance", [0.0, 1e-13, 1e-9])
+def test_tolerance_is_fixed_at_the_versioned_epsilon(tolerance: float) -> None:
+    # Even a "small" 1e-9 would admit a candidate 5e-10 worse than the reference.
+    with pytest.raises(ValidationError, match="fixes the feasibility tolerance"):
+        make_spec(feasibility={"tolerance": tolerance})
+
+
 # --- C. cost wins among feasible candidates ---------------------------------------------
 
 
@@ -362,12 +369,17 @@ def test_family_mismatch_and_duplicates_are_rejected() -> None:
 
 def raw_row(variant: str, workload: str, sla: float, **overrides: Any) -> dict[str, Any]:
     controller = variant.split("-")[0]
-    seed = int(variant.removeprefix(f"{controller}-seed")) if "seed" in variant else None
+    learned = "seed" in variant
+    seed = int(variant.removeprefix(f"{controller}-seed")) if learned else None
     row = {
         "plan_id": "plan123",
         "controller": controller,
         "controller_variant_id": variant,
+        "controller_version": "dqn-v1" if learned else "threshold-sla-first-v1",
         "training_seed": seed,
+        "training_run_id": f"train-{variant}" if learned else None,
+        "model_artifact_uri": f"runs:/train-{variant}/model" if learned else None,
+        "hyperparameter_source": "optuna:dqn-v1#trial16" if learned else None,
         "workload_id": workload,
         "workload_split": "validation",
         "robustness_scenario": "nominal",
@@ -520,9 +532,47 @@ def test_committed_spec_is_frozen() -> None:
 
 def test_spec_must_match_the_evidence(tmp_path: Path) -> None:
     rows = nominal_validation_rows(write_raw(tmp_path / "raw.jsonl", fixture_rows()))
-    check_spec_matches_evidence(freeze_spec_from_multiseed(FIXTURE_MANIFEST, rows), rows)
+    spec = freeze_spec_from_multiseed(FIXTURE_MANIFEST, rows)
+    check_spec_matches_evidence(spec, FIXTURE_MANIFEST, rows)
     with pytest.raises(ValueError, match="does not match"):
-        check_spec_matches_evidence(make_spec(), rows)
+        check_spec_matches_evidence(make_spec(), FIXTURE_MANIFEST, rows)
+    other_reference = json.loads(json.dumps(FIXTURE_MANIFEST))
+    other_reference["variants"][0]["params"]["cooldown_ticks"] = 5
+    with pytest.raises(ValueError, match="reference controller"):
+        check_spec_matches_evidence(spec, other_reference, rows)
+
+
+@pytest.mark.parametrize(
+    ("variant_id", "field", "value"),
+    [
+        ("dqn-seed0", "training_run_id", "train-some-other-model"),
+        ("dqn-seed0", "model_artifact_uri", "runs:/train-some-other-model/model"),
+        ("dqn-seed1", "training_seed", 7),
+        ("dqn-seed1", "hyperparameter_source", "optuna:dqn-v1#trial3"),
+        ("dqn-seed1", "version", "dqn-v2"),
+        ("threshold-v1", "version", "threshold-sla-first-v2"),
+    ],
+)
+def test_evidence_from_a_different_run_is_rejected(
+    tmp_path: Path, variant_id: str, field: str, value: Any
+) -> None:
+    """A stale manifest reusing variant IDs must not attach its lineage to other models' rows."""
+    rows = nominal_validation_rows(write_raw(tmp_path / "raw.jsonl", fixture_rows()))
+    stale = json.loads(json.dumps(FIXTURE_MANIFEST))
+    next(v for v in stale["variants"] if v["variant_id"] == variant_id)[field] = value
+    with pytest.raises(ValueError, match="different runs"):
+        if variant_id == "threshold-v1":
+            freeze_spec_from_multiseed(stale, rows)
+        else:
+            spec = freeze_spec_from_multiseed(FIXTURE_MANIFEST, rows)
+            multiseed_candidates(stale, rows, "dqn", spec)
+
+
+def test_evidence_missing_lineage_fields_is_rejected(tmp_path: Path) -> None:
+    rows = [{k: v for k, v in row.items() if k != "model_artifact_uri"} for row in fixture_rows()]
+    nominal = nominal_validation_rows(write_raw(tmp_path / "raw.jsonl", rows))
+    with pytest.raises(ValueError, match="different runs"):
+        freeze_spec_from_multiseed(FIXTURE_MANIFEST, nominal)
 
 
 # --- J. determinism ------------------------------------------------------------------
@@ -643,6 +693,45 @@ def test_adapter_requires_one_nominal_row_per_workload(tmp_path: Path) -> None:
         multiseed_candidates(FIXTURE_MANIFEST, incomplete, "dqn", spec)
     with pytest.raises(ValueError, match="no ppo variants"):
         multiseed_candidates(FIXTURE_MANIFEST, rows, "ppo", spec)
+
+
+def test_diagnose_cli_rejects_a_stale_manifest(tmp_path: Path) -> None:
+    raw = write_raw(tmp_path / "raw.jsonl", fixture_rows())
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(FIXTURE_MANIFEST))
+    spec_path = tmp_path / "spec.json"
+    model_selection.main(
+        [
+            "freeze",
+            "--manifest",
+            str(manifest),
+            "--raw-results",
+            str(raw),
+            "--output",
+            str(spec_path),
+        ]
+    )
+    stale = json.loads(json.dumps(FIXTURE_MANIFEST))
+    stale["variants"][1]["training_run_id"] = "train-some-other-model"
+    manifest.write_text(json.dumps(stale))
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        model_selection.main(
+            [
+                "diagnose",
+                "--spec",
+                str(spec_path),
+                "--manifest",
+                str(manifest),
+                "--raw-results",
+                str(raw),
+                "--output-dir",
+                str(out),
+                "--family",
+                "dqn",
+            ]
+        )
+    assert not out.exists()
 
 
 def test_cli_rejects_test_evidence(tmp_path: Path) -> None:

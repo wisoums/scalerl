@@ -125,10 +125,18 @@ class FeasibilityRule(_Strict):
     metric: Literal["sla_violation_rate"] = "sla_violation_rate"
     mode: Literal["per_workload_all"] = "per_workload_all"
     comparator: Literal["<="] = "<="
-    tolerance: float = Field(default=FEASIBILITY_TOLERANCE, ge=0, le=1e-9)
+    tolerance: float = FEASIBILITY_TOLERANCE
     tolerance_meaning: Literal["floating-point equality epsilon; not an SLA allowance"] = (
         "floating-point equality epsilon; not an SLA allowance"
     )
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.tolerance != FEASIBILITY_TOLERANCE:
+            raise ValueError(
+                f"{SELECTION_VERSION} fixes the feasibility tolerance at {FEASIBILITY_TOLERANCE}"
+            )
+        return self
 
 
 class SelectionCondition(_Strict):
@@ -453,9 +461,33 @@ def nominal_validation_rows(
     ]
 
 
-def _one_row(
-    rows: Sequence[Mapping[str, Any]], variant_id: str, workload_id: str
+# Raw-row field -> manifest-variant field that must agree, so a row evaluated for one model
+# can never be attributed to another variant that happens to reuse its ID.
+_ROW_LINEAGE_FIELDS: Final = {
+    "controller": "controller",
+    "controller_version": "version",
+    "training_seed": "training_seed",
+    "training_run_id": "training_run_id",
+    "model_artifact_uri": "model_artifact_uri",
+    "hyperparameter_source": "hyperparameter_source",
+}
+_MISSING: Final = object()
+
+
+def _variant(manifest: Mapping[str, Any], variant_id: str) -> Mapping[str, Any]:
+    matches: list[Mapping[str, Any]] = [
+        v for v in manifest["variants"] if v["variant_id"] == variant_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"expected one manifest variant {variant_id!r}, found {len(matches)}")
+    return matches[0]
+
+
+def _variant_row(
+    rows: Sequence[Mapping[str, Any]], variant: Mapping[str, Any], workload_id: str
 ) -> Mapping[str, Any]:
+    """The single nominal row of ``variant`` on ``workload_id``, lineage-checked against it."""
+    variant_id = variant["variant_id"]
     matches = [
         row
         for row in rows
@@ -465,7 +497,16 @@ def _one_row(
         raise ValueError(
             f"expected one nominal row for {variant_id} on {workload_id}, found {len(matches)}"
         )
-    return matches[0]
+    row = matches[0]
+    for row_field, variant_field in _ROW_LINEAGE_FIELDS.items():
+        evaluated, declared = row.get(row_field, _MISSING), variant.get(variant_field)
+        if evaluated != declared:
+            raise ValueError(
+                f"{variant_id} on {workload_id}: evidence {row_field}={evaluated!r} does not "
+                f"match the manifest ({declared!r}); manifest and raw results are from "
+                "different runs"
+            )
+    return row
 
 
 def freeze_spec_from_multiseed(
@@ -475,10 +516,10 @@ def freeze_spec_from_multiseed(
     workload_ids: Sequence[str] = VALIDATION_WORKLOADS,
 ) -> SelectionSpec:
     """Build the v2 spec from #19's manifest and nominal raw rows (exact values, run IDs)."""
-    reference = next(v for v in manifest["variants"] if v["variant_id"] == REFERENCE_VARIANT_ID)
+    reference = _variant(manifest, REFERENCE_VARIANT_ID)
     thresholds = []
     for workload_id in workload_ids:
-        row = _one_row(rows, REFERENCE_VARIANT_ID, workload_id)
+        row = _variant_row(rows, reference, workload_id)
         thresholds.append(
             WorkloadThreshold(
                 workload_id=workload_id,
@@ -527,7 +568,7 @@ def multiseed_candidates(
     for variant in variants:
         metrics, run_ids = {}, {}
         for workload_id in spec.validation_workload_ids:
-            row = _one_row(rows, variant["variant_id"], workload_id)
+            row = _variant_row(rows, variant, workload_id)
             metrics[workload_id] = WorkloadMetrics(
                 **{metric: float(row[metric]) for metric in METRICS}
             )
@@ -556,10 +597,18 @@ def multiseed_candidates(
     return candidates
 
 
-def check_spec_matches_evidence(spec: SelectionSpec, rows: Sequence[Mapping[str, Any]]) -> None:
-    """The spec's thresholds must be exactly the Threshold rows in this evidence."""
+def check_spec_matches_evidence(
+    spec: SelectionSpec, manifest: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
+) -> None:
+    """The spec's reference and thresholds must be exactly this evidence's Threshold."""
+    reference = _variant(manifest, REFERENCE_VARIANT_ID)
+    if (
+        reference["version"] != spec.reference.controller_version
+        or reference["params"] != spec.reference.params
+    ):
+        raise ValueError("the manifest's threshold-v1 is not the spec's reference controller")
     for threshold in spec.sla_thresholds:
-        row = _one_row(rows, REFERENCE_VARIANT_ID, threshold.workload_id)
+        row = _variant_row(rows, reference, threshold.workload_id)
         if (
             row["mlflow_run_id"] != threshold.evaluation_run_id
             or float(row["sla_violation_rate"]) != threshold.sla_violation_rate
@@ -625,16 +674,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(error))
     manifest = json.loads(args.manifest.read_text())
     if args.command == "freeze":
-        spec = freeze_spec_from_multiseed(manifest, rows)
+        try:
+            spec = freeze_spec_from_multiseed(manifest, rows)
+        except ValueError as error:
+            parser.error(str(error))
         spec.save(args.output)
         print(f"{SELECTION_VERSION} spec {spec.spec_id} written to {args.output}")
         return 0
 
     spec = SelectionSpec.load(args.spec)
-    check_spec_matches_evidence(spec, rows)
+    families = args.families or ["dqn", "ppo"]
+    try:
+        check_spec_matches_evidence(spec, manifest, rows)
+        candidates = {
+            family: multiseed_candidates(manifest, rows, family, spec) for family in families
+        }
+    except ValueError as error:
+        parser.error(str(error))
     results = []
-    for family in args.families or ["dqn", "ppo"]:
-        result = select(spec, family, multiseed_candidates(manifest, rows, family, spec))
+    for family in families:
+        result = select(spec, family, candidates[family])
         result.save(args.output_dir / f"{family}-selection.json")
         results.append(result)
         outcome = (
