@@ -139,6 +139,17 @@ Trade-off: on bursty workloads, queue-aware sizing roughly halves SLA violations
 
 `python -m scalerl.evaluation.predictive` evaluates it on the synthetic train/validation workloads (held-out workloads are rejected), one MLflow run per workload (`run_kind="evaluate"`, `controller="predictive"`) with its settings (including `hp.capacity_policy = "forecast-plus-backlog-v1"` and `hp.backlog_recovery_ticks = 1`), forecast accuracy, and the same system metrics as the threshold study (shared `scalerl.evaluation` metrics).
 
+### Predictive realism gap and #80
+
+The current Predictive controller is already **startup-delay-aware**: it forecasts far enough ahead for newly requested capacity to become ready. It is therefore more than a reactive threshold policy.
+
+It is **not**, however, equivalent to a production cloud predictive-scaling service. Its forecast uses only a short recent window and a linear trend. Cloud predictive scaling can use much longer historical patterns and schedule capacity ahead of forecasted demand. AWS documents both recurring-pattern forecasting and a `SchedulingBufferTime` that advances launch time so capacity can be ready before the forecasted load arrives:
+
+- <https://docs.aws.amazon.com/autoscaling/application/userguide/aas-predictive-scaling-how-it-works.html>
+- <https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-predictive-scaling.html>
+
+Issue #80 therefore adds a stronger **cloud-style proactive predictive baseline** while preserving `predictive-linear-v1` as the transparent short-history baseline. The stronger baseline must remain past-only, startup-aware, queue-aware, reproducible, and frozen on train/validation evidence before #46.
+
 ## DQN (#15)
 
 DQN is ScaleRL's first deep-RL controller, using Stable-Baselines3's DQN. It fits the problem directly:
@@ -325,7 +336,9 @@ Optional predeclared jitter levels for a later sensitivity plot are 0.00, 0.05, 
 - That path permits only a telemetry-delay difference, still rejects every other mismatch, and records the perturbed field (MLflow tag `scalerl.robustness.perturbed_compatibility`).
 - Contracts saved before #65 load as nominal.
 
-**No cold-start penalty.** ScaleRL already models replica startup delay. A provider-specific extra first-request latency would double-count startup effects without a more specific runtime model.
+**No provider-specific first-request cold-start penalty.** ScaleRL already models delayed capacity availability through replica startup delay. A separate provider-specific first-request latency penalty could double-count startup effects without a more specific runtime model.
+
+**Startup-delay variability is still missing from robustness-v1.** The startup duration itself is deterministic in the current simulator. Issue #81 adds a separate seeded per-replica startup-delay robustness extension without modifying the already-frozen four `robustness-v1` scenarios.
 
 ## Multi-seed evaluation (#19)
 
@@ -373,6 +386,79 @@ python -m scalerl.evaluation.multiseed run \
 ```
 
 The outputs are `evaluation-plan.json`, `controller-manifest.json`, `raw-results.jsonl`/`.csv`, `summary.json`/`.csv`, and `paired-deltas.csv`. They live under `outputs/` and are not committed. Each case is also an MLflow `evaluate` run in the experiment `scalerl-multiseed`. `--resume` skips completed case IDs, recovers cases whose MLflow run finished but whose local row was lost, and never counts a case twice.
+
+## Pre-held-out methodology revisions (#78–#81)
+
+The validation-only #19 run did what it was supposed to do: it exposed weaknesses in the **experimental design** before the held-out test suite was opened. These findings are kept as evidence; they are not erased or replaced.
+
+### #78 — cost-aware selection under an SLA constraint
+
+The original learned-policy selector was lexicographic: minimize SLA violations first, then consider cost. On validation data that can reward a trivial policy that scales to almost the whole fleet and holds there (normalized cost about 0.97), because cost matters only after SLA has already been minimized.
+
+That is a **selection-objective failure mode**, not evidence of a pipeline bug. #78 freezes a v2 rule before further model selection:
+
+1. satisfy a declared service/SLA constraint relative to the tuned Threshold baseline;
+2. among feasible candidates, minimize normalized cost;
+3. use queue/churn/SLA only as tie-breakers.
+
+The original #19 results remain reproducible and documented.
+
+### #79 — action granularity, not "continuous vs discrete"
+
+The current Gymnasium action space is discrete:
+
+```text
+scale down by 1 | hold | scale up by 1
+```
+
+That can make burst recovery artificially sequential: a controller needing six additional replicas may require six control decisions.
+
+Real horizontal autoscalers commonly calculate an integer **desired replica count** directly. Kubernetes HPA documents:
+
+`desiredReplicas = ceil(currentReplicas × currentMetricValue / desiredMetricValue)`
+
+and then updates the scale target: <https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/>.
+
+So #79 compares:
+
+- `delta-v1`: {-1, 0, +1};
+- `desired-replicas-v1`: choose an integer target fleet size directly.
+
+This does **not** mean DQN is invalid because it lacks continuous actions. Horizontal replica counts are discrete. Continuous/hybrid action spaces would be a different problem, such as vertical CPU/RAM allocation.
+
+### #80 — stronger proactive predictive baseline
+
+The current predictor is startup-aware but intentionally simple. #80 adds a stronger recurring-pattern / proactive pre-provisioning baseline so the final RL comparison is not against an artificially weak forecaster.
+
+The stronger baseline must still use past information only. An optional oracle may be used only as a clearly labeled future-peeking upper bound, never as a fair deployable competitor.
+
+### #81 — stochastic startup delay
+
+`robustness-v1` varies service capacity and telemetry freshness, but startup/readiness time is fixed. #81 adds a **separate** seeded per-replica startup-delay stress test. It must not retroactively alter the four frozen #65 scenarios.
+
+AWS explicitly notes that actual launch time can vary with factors such as instance size and startup scripts: <https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredictiveScalingConfiguration.html>.
+
+### Freeze order
+
+No held-out test workload may be inspected while resolving these issues.
+
+The pre-held-out sequence is:
+
+```text
+#19 multi-seed validation evidence
+  ↓
+#78 constrained selection rule
+  ↓
+#79 final action semantics
+  ├─→ #80 stronger predictive baseline
+  └─→ #81 startup-delay robustness extension
+          ↓
+#20 reward ablation on the final action contract
+          ↓
+#72 freeze controller artifacts + sim-to-real protocol
+          ↓
+#46 held-out evaluation
+```
 
 ## Fair comparison
 
