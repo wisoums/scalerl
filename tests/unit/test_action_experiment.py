@@ -483,3 +483,25 @@ def test_pipeline_end_to_end_is_resumable_and_deduplicated(
     training_tags = client.get_run(learned[0]["training_run_id"]).data.tags
     assert training_tags["scalerl.experiment_phase"] == "retraining"
     assert training_tags["scalerl.candidate_set_id"] == spec.candidate_set_id
+
+
+# --- the frozen decision ----------------------------------------------------------------------
+
+
+def test_committed_decision_freezes_desired_replicas_from_this_experiment() -> None:
+    path = REPO / "benchmarks" / "v1" / "action-contract-v2.json"
+    decision = experiment.ActionContractDecision.model_validate_json(path.read_text())
+    assert decision.decision_id == "0eb5562b01e6"
+    assert decision.final_action_semantics == DESIRED_REPLICAS_V1
+    assert decision.experiment_spec_id == EXPERIMENT_ID
+    assert decision.candidate_set_id == CANDIDATE_SET_ID
+    assert decision.selection_spec_id == "418876d6c8e9"
+    assert all(decision.criteria.values()) and len(decision.criteria) == 3
+    assert decision.held_out_data_used is False and decision.reward_changed is False
+    # DQN under desired-replicas-v1 had no feasible configuration: nothing was selected for it.
+    dqn_desired = decision.selected_configurations["dqn-desired-replicas-v1"]
+    assert isinstance(dqn_desired, dict) and dqn_desired["selected_candidate_id"] is None
+    families = {model["family"] for model in decision.retrained_models}
+    assert families == {"dqn-delta-v1", "ppo-delta-v1", "ppo-desired-replicas-v1"}
+    assert len(decision.retrained_models) == 15
+    assert "syn-test" not in path.read_text() and "azure-test" not in path.read_text()
