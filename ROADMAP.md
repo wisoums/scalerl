@@ -98,15 +98,35 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 
 All methodology choices are frozen using train/validation evidence only, then reproducible held-out evidence answers the research question on controlled synthetic workloads and selected real production traces.
 
+## October 26–31 — learning framework + dashboard + portfolio release
+
+### Learning / framework track
+
+ScaleRL v1 should present one coherent progression:
+
+```text
+Learn → Experiment → Research → Extend
+```
+
+- #85 umbrella: beginner-friendly learning + extension framework
+- #86 beginner Learning Path and glossary
+- #87 Guided Learn mode in Scenario Lab
+- #88 stable Bring-Your-Own Controller API after #79 freezes action semantics
+- #89 researcher extension kit + BYO evaluation CLI
+
+The learning/framework track must reuse the same simulator, controller, workload and evaluation core. Do not create separate toy implementations for teaching.
+
+Do not advertise a framework capability in the README before a fresh clone can actually use it.
+
 ## October 26–31 — dashboard + portfolio release
 
 ### Must have
 
-- polished README with final tables, limitations, dataset citation, and reproduction commands
+- polished README with clear Learn / Experiment / Research / Extend entry points, final tables, limitations, dataset citation, and reproduction commands
 - architecture/results diagrams
 - polish the earlier #37 Scenario Lab City View and #56 Live City playback
 - #38 controller replay/comparison if time permits
-- #59 unified ScaleRL platform navigation + native Optuna/MLflow integration
+- #59 unified ScaleRL platform navigation + native Optuna/MLflow integration, incorporating the #85 Learn/Experiment/Research/Extend product model
 - #39 ScaleRL Experiment Hub / MLflow-backed saved Results Explorer if time permits
 - tagged v1.0 release
 
@@ -132,4 +152,6 @@ ScaleRL v1.0 is portfolio-ready when:
 7. final evaluation uses the action semantics frozen by #79 and held-out workloads/multiple seeds, with frozen capacity-jitter, telemetry-delay, and startup-delay robustness checks;
 8. at least part of the final evaluation uses attributed real Azure production traces;
 9. results report raw systems metrics rather than only RL return;
-10. another developer can reproduce the principal benchmark from documented commands.
+10. another developer can reproduce the principal benchmark from documented commands;
+11. a beginner can follow the #86/#87 learning path without prior cloud/RL knowledge;
+12. a researcher can implement and evaluate a custom Python controller through the stable #88/#89 extension path without modifying ScaleRL core.
