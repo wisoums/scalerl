@@ -44,7 +44,9 @@ Icons are decorative and capped (for example `🚗🚗🚗🚗🚗🚗🚗🚗�
 
 ## Building a scenario
 
-Choose settings in the sidebar, then press **Build / Reset Scenario**. Changing the form never alters the running episode until you build; if the new settings are invalid, the error is shown and the current episode keeps running unchanged.
+Choose settings in the sidebar, then press **Apply settings & restart**. This applies the sidebar configuration and rebuilds the scenario from tick 0. Changing the form alone never alters the running episode; if the new settings are invalid, the error is shown and the current episode keeps running unchanged.
+
+**Reset episode** is intentionally different: it restarts the already-built scenario from tick 0 without applying unapplied sidebar edits.
 
 ### Benchmark v1
 
@@ -86,7 +88,15 @@ Manager panels use only diagnostics the controller really provides. Random and S
 
 ## Inspect vs Live City
 
-A **View mode** switch offers two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+A compact control toolbar offers two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+
+Conceptually:
+
+```text
+Mode [ Inspect | Live City ]   playback controls   Speed [0.5x 1x 2x 5x]
+```
+
+The toolbar is intentionally compact so City View appears near the top of the page rather than below a large controls card.
 
 | Mode | Controls |
 |---|---|
@@ -94,8 +104,8 @@ A **View mode** switch offers two ways to watch the **same** `ScenarioSession`: 
 | 🏙️ Live City | **▶ Play**, **⏸ Pause**, **⏯ Step once** (while paused), speed **0.5x / 1x / 2x / 5x**, **↺ Reset episode** |
 
 - **Discrete ticks only.** Every Live City frame is one real `ScenarioSession.step_controller()` call, exactly as Step does. Nothing is interpolated between ticks and no fake queue or latency states are drawn; charts plot real history, one row per tick. Animation does not make ScaleRL a continuous-time simulator.
-- **Speed is presentation cadence only.** 1x ≈ one simulator tick per real second, 0.5x ≈ one every 2 s, 2x ≈ one every 0.5 s, and 5x ≈ one every 0.2 s. It never changes the control interval, workload, controller, startup delay, simulated clock, or reward. 1x does **not** mean one simulated second per real second: in Benchmark v1 each frame is 30 simulated seconds. Changing speed keeps the session and history and only reschedules the next frame.
-- **Stopping.** Pause takes effect on the next rerun. **Reset** pauses and returns to tick 0. **Build / Reset Scenario** pauses even when the new build fails validation, and the old city then stays visible but paused. Reaching the last tick pauses automatically, keeps the final city visible, and disables Play. Leaving Live City for Inspect also pauses. **⏭ Run to end** exists only in Inspect mode.
+- **Speed is presentation cadence only.** The UI summarizes this as `1 frame = <tick length> simulated · speed changes display cadence only`. At 1x, playback shows about one simulator tick per real second; 0.5x ≈ one every 2 s, 2x ≈ one every 0.5 s, and 5x ≈ one every 0.2 s. Speed never changes the control interval, workload, controller, startup delay, simulated clock, or reward. In Benchmark v1 each frame is still 30 simulated seconds. Changing speed keeps the session and history and only reschedules the next frame.
+- **Stopping.** Pause takes effect on the next rerun. **Reset episode** pauses and returns the currently built scenario to tick 0 without applying sidebar edits. **Apply settings & restart** pauses and rebuilds from the sidebar configuration; it also pauses when the new build fails validation, leaving the old city visible but paused. Reaching the last tick pauses automatically, keeps the final city visible, and disables Play. Leaving Live City for Inspect also pauses. **⏭ Run to end** exists only in Inspect mode.
 - **Manual has no autoplay.** Live City needs a controller-driven manager; with Manual, Play is disabled with an explanation and no HOLD actions are invented. Choose manual actions in Inspect mode.
 - **How it cannot double-step.** The live region is a Streamlit fragment re-run by `st.fragment(run_every=period)` only while playing. A pure `PlaybackState` (`scalerl.dashboard.playback`, no Streamlit import) decides whether a tick is due, using monotonic time. One due timer run advances at most one tick, with no catch-up bursts. Ordinary reruns from clicks and widget changes never step. The fragment always reads the current session from Streamlit state, so a replaced city is never advanced by an old timer.
 - **Accessibility.** Exact numbers, status text (for example `LIVE CITY • PLAYING • 2x` or `LIVE CITY • PAUSED`), and the SLA label never rely on motion; nothing flashes, and Inspect mode stays the non-animated alternative.
