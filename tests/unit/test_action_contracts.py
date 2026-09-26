@@ -415,7 +415,16 @@ def test_threshold_cooldown_is_unchanged_under_desired() -> None:
 
 
 def predictive(contract: ActionContract | None) -> PredictiveController:
-    return PredictiveController.from_config(SimulatorConfig(), action_contract=contract)
+    if contract is None:  # the pre-#79 construction path: no contract at all
+        return PredictiveController(
+            min_replicas=1,
+            max_replicas=10,
+            service_capacity_rps=50.0,
+            startup_delay_seconds=60.0,
+            control_interval_seconds=30.0,
+        )
+    config = SimulatorConfig(action=ActionConfig(semantics=contract.semantics))
+    return PredictiveController.from_config(config, action_contract=contract)
 
 
 def feed(
@@ -459,6 +468,49 @@ def test_predictive_same_forecast_and_desired_encoded_as_target() -> None:
     assert want is not None and want > 3
     assert codes[0] == codes[1] == SCALE_UP  # one step under delta-v1
     assert DESIRED_1_10.target_for(codes[2], 2) == want  # the whole target at once
+
+
+def test_predictive_from_config_follows_the_config_contract() -> None:
+    config = desired_config(initial_replicas=3)
+    controller = PredictiveController.from_config(config)
+    assert controller.action_contract == ActionContract.from_config(config)
+    infos = run_episode(
+        AutoscalingEnv(config, benchmark_trace("syn-val-bursty")), controller, seed=0
+    )
+    # The first decision has no sample and holds: target 3, never the delta HOLD code as target 2.
+    assert infos[0]["requested_replica_target"] == 3 and infos[0]["applied_replica_change"] == 0
+    with pytest.raises(ValueError, match="does not match"):
+        PredictiveController.from_config(config, action_contract=DELTA)
+    delta = PredictiveController.from_config(SimulatorConfig(), action_contract=DELTA)
+    assert delta.action_contract == DELTA
+
+
+def test_config_driven_controller_builders_use_the_config_contract() -> None:
+    from scalerl.dashboard.session import ManagerSpec
+    from scalerl.evaluation.multiseed import ControllerVariant, make_controller
+
+    config = desired_config(initial_replicas=3)
+    env = AutoscalingEnv(config, benchmark_trace("syn-val-bursty"))
+    for kind in ("threshold", "predictive", "static", "random"):
+        built = ManagerSpec(kind=kind, target_replicas=5, seed=0).build(config)  # type: ignore[arg-type]
+        assert built._contract == env.action_contract  # type: ignore[union-attr], kind
+    params: dict[str, Any] = {
+        "threshold": {"low_threshold": 0.2, "high_threshold": 0.6, "cooldown_ticks": 3},
+        "static": {"target_replicas": 5},
+        "random": {},
+        "predictive": {"history_window_ticks": 4, "target_utilization": 0.8},
+    }
+    for controller, values in params.items():
+        variant = ControllerVariant(
+            variant_id=f"{controller}-v1",
+            controller=controller,
+            version=f"{controller}-v1",
+            params=values,
+        )
+        built = make_controller(variant, env)
+        assert built._contract == env.action_contract  # type: ignore[union-attr], controller
+        infos = run_episode(env, built, seed=0)
+        assert all(1 <= info["requested_replica_target"] <= 10 for info in infos)
 
 
 def test_predictive_backlog_hold_holds_committed_under_desired() -> None:

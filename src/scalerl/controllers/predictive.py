@@ -179,11 +179,18 @@ class PredictiveController:
         target_utilization: float = 0.8,
         action_contract: ActionContract | None = None,
     ) -> PredictiveController:
-        """Take bounds, capacity, and timing from the simulator configuration.
+        """Take bounds, capacity, timing, and the action contract from ``config``.
 
-        The action contract is not taken from ``config`` implicitly; pass
-        ``ActionContract.from_config(config)`` to act under its contract.
+        The controller always acts under ``config``'s action contract, so it
+        can never emit ``delta-v1`` codes into a ``desired-replicas-v1``
+        environment. An explicit ``action_contract`` is accepted only if it is
+        exactly that contract.
         """
+        derived = ActionContract.from_config(config)
+        if action_contract is not None and action_contract != derived:
+            raise ValueError(
+                f"action_contract {action_contract} does not match the config's {derived}"
+            )
         return cls(
             min_replicas=config.replicas.min_replicas,
             max_replicas=config.replicas.max_replicas,
@@ -192,7 +199,7 @@ class PredictiveController:
             control_interval_seconds=config.timing.control_interval_seconds,
             history_window_ticks=history_window_ticks,
             target_utilization=target_utilization,
-            action_contract=action_contract,
+            action_contract=derived,
         )
 
     @property

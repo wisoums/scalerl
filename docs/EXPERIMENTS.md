@@ -463,6 +463,7 @@ DQN seeds 1–4 are cheaper (mean cost 0.81–0.85) but exceed the Threshold SLA
 - **Predictive** (`predictive-v1`, `linear-trend`, `forecast-plus-backlog-v1`, all unchanged) encodes its already-computed `desired_replicas` directly, or `committed` when it holds (e.g. `backlog_hold`). Under `delta-v1` it steps one replica toward it, as before.
 - **Static** requests its fixed target.
 - **Random** is a sanity reference only; random targets and random ±1 steps are not comparable.
+- **Config-driven builders** always act under the config's own contract: `PredictiveController.from_config` (which rejects a mismatching explicit contract), the Scenario Lab managers, threshold tuning, and #19's `make_controller`. A `desired-replicas-v1` config can therefore never receive `delta-v1` codes.
 
 #### Experiment design (`action-semantics-experiment-v1`, frozen before training)
 
@@ -486,7 +487,7 @@ python -m scalerl.evaluation.action_semantics evaluate
 python -m scalerl.evaluation.action_semantics decide --freeze
 ```
 
-Every phase is resumable: completed results are files, and evaluation rows are recovered from finished MLflow runs (experiment `scalerl-action-semantics`) instead of being rerun. Outputs are written to `outputs/action-semantics-v1/` and are not committed.
+Every phase is resumable: completed results are files, and evaluation rows are recovered from finished MLflow runs (experiment `scalerl-action-semantics`) instead of being rerun. Evaluation, the decision, and the frozen artifact accept only the exact predeclared retraining matrix: for every selected family, seeds 0–4 of its selected candidate from this experiment. Missing, extra, or mismatched model files are refused. Outputs are written to `outputs/action-semantics-v1/` and are not committed.
 
 #### Results (validation only)
 

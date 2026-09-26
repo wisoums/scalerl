@@ -403,6 +403,137 @@ def test_invariant_checks_all_pass() -> None:
     assert len(checks) >= 10 and all(check["passed"] for check in checks)
 
 
+def force_selection(out: Path, result: Any, *, succeed: bool) -> None:
+    ids = result.candidate_ids
+    forced = result.model_copy(
+        update={
+            "feasible_candidate_ids": ids if succeed else (),
+            "infeasible_candidate_ids": () if succeed else ids,
+            "feasible_candidate_count": len(ids) if succeed else 0,
+            "selection_succeeded": succeed,
+            "selected_candidate_id": ids[0] if succeed else None,
+            "selected_objective_values": {"normalized_cost": 0.5} if succeed else None,
+            "diagnostic_fallback_candidate_id": None if succeed else ids[0],
+            "diagnostic_fallback": None,
+        }
+    )
+    forced.save(out / f"{result.family}-selection.json")
+
+
+# --- the exact retraining matrix ----------------------------------------------------------------
+
+
+def retrained(spec: ExperimentSpec, family: str, candidate: str, seed: int) -> TrainingEvidence:
+    model = evidence(spec, family, int(candidate[-2:]), sla=FEASIBLE, cost=0.5)
+    return model.model_copy(
+        update={
+            "phase": "retraining",
+            "training_seed": seed,
+            "selection_version": spec.selection_version,
+            "selection_spec_id": spec.selection_spec_id,
+        }
+    )
+
+
+@pytest.fixture
+def matrix(
+    small: CandidateSet, selection: SelectionSpec, tmp_path: Path
+) -> tuple[ExperimentSpec, Path]:
+    """Screened and selected families; dqn-delta-v1 has its full seed 0-4 matrix."""
+    spec = build_experiment_spec(small)
+    for family in FAMILIES:
+        write_family(
+            tmp_path,
+            spec,
+            family,
+            [
+                {"sla": BURSTY_MISS, "cost": 0.2},
+                {"sla": FEASIBLE, "cost": 0.5},
+                {"sla": FEASIBLE, "cost": 0.6},
+            ],
+        )
+    results = run_selection(spec, small, selection, out=tmp_path)
+    for family, result in results.items():
+        force_selection(tmp_path, result, succeed=family == "dqn-delta-v1")
+    for seed in spec.retraining_seeds:
+        retrained(spec, "dqn-delta-v1", "dqn-c00", seed).save(
+            experiment.retraining_path(tmp_path, "dqn-delta-v1", seed)
+        )
+    return spec, tmp_path
+
+
+def test_complete_matrix_is_accepted(matrix: tuple[ExperimentSpec, Path]) -> None:
+    spec, out = matrix
+    models = experiment.load_retrained_models(spec, out)
+    assert [(m.family, m.training_seed) for m in models] == [("dqn-delta-v1", s) for s in range(5)]
+
+
+def test_missing_seed_plus_stale_extra_seed_is_refused(matrix: tuple[ExperimentSpec, Path]) -> None:
+    spec, out = matrix
+    experiment.retraining_path(out, "dqn-delta-v1", 4).unlink()
+    retrained(spec, "dqn-delta-v1", "dqn-c00", 5).save(
+        experiment.retraining_path(out, "dqn-delta-v1", 5)
+    )  # same count of files as the predeclared matrix
+    with pytest.raises(ValueError, match="seed 5 is not predeclared") as error:
+        experiment.load_retrained_models(spec, out)
+    assert "missing" in str(error.value) and "seed4.json" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"candidate_id": "dqn-c02"}, "candidate"),
+        ({"phase": "screening"}, "phase"),
+        ({"experiment_id": "000000000000"}, "experiment"),
+        ({"selection_spec_id": "000000000000"}, "selection spec"),
+    ],
+)
+def test_mismatched_model_is_refused(
+    matrix: tuple[ExperimentSpec, Path], update: dict[str, Any], message: str
+) -> None:
+    spec, out = matrix
+    path = experiment.retraining_path(out, "dqn-delta-v1", 2)
+    TrainingEvidence.model_validate_json(path.read_text()).model_copy(update=update).save(path)
+    with pytest.raises(ValueError, match=message):
+        experiment.load_retrained_models(spec, out)
+
+
+def test_models_for_an_unselected_family_are_refused(matrix: tuple[ExperimentSpec, Path]) -> None:
+    spec, out = matrix
+    retrained(spec, "ppo-desired-replicas-v1", "ppo-c00", 0).save(
+        experiment.retraining_path(out, "ppo-desired-replicas-v1", 0)
+    )
+    with pytest.raises(ValueError, match="ppo-desired-replicas-v1 seed 0 is not predeclared"):
+        experiment.load_retrained_models(spec, out)
+
+
+def test_misplaced_model_file_is_refused(matrix: tuple[ExperimentSpec, Path]) -> None:
+    spec, out = matrix
+    source = experiment.retraining_path(out, "dqn-delta-v1", 3)
+    target = out / "retraining" / "dqn-delta-v1" / "extra-copy.json"
+    target.write_text(source.read_text())
+    with pytest.raises(ValueError, match="duplicate|path"):
+        experiment.load_retrained_models(spec, out)
+
+
+def test_decision_is_not_adopted_without_the_exact_matrix(
+    small: CandidateSet, matrix: tuple[ExperimentSpec, Path]
+) -> None:
+    spec, out = matrix
+    experiment.retraining_path(out, "dqn-delta-v1", 4).unlink()
+    retrained(spec, "dqn-delta-v1", "dqn-c00", 5).save(
+        experiment.retraining_path(out, "dqn-delta-v1", 5)
+    )
+    report = experiment.decide(spec, small, out=out)
+    assert report["criteria"]["experiment_completed_without_encoding_failure"] is False
+    assert report["decision"] == "unresolved" and report["final_action_semantics"] is None
+    assert "seed 5 is not predeclared" in report["retraining_matrix_problem"]
+    with pytest.raises(ValueError, match="unresolved"):
+        experiment.build_decision(spec, report, out=out)
+    with pytest.raises(ValueError, match="retraining matrix"):
+        experiment.run_evaluation(spec, out=out, tracking_uri=None)
+
+
 # --- end to end with tiny budgets -------------------------------------------------------------
 
 
@@ -445,23 +576,11 @@ def test_pipeline_end_to_end_is_resumable_and_deduplicated(
     )  # fmt: skip
     assert _runs(tracking_uri) == screened  # resume trains nothing twice
 
-    # Force one successful selection per family so retraining/evaluation can run.
+    # Force the DQN families to succeed and the PPO families to fail, so the
+    # predeclared retraining matrix is exactly the two DQN families.
     results = run_selection(spec, candidates, selection, out=out)
     for family, result in results.items():
-        if not result.selection_succeeded:
-            forced = result.model_copy(
-                update={
-                    "feasible_candidate_ids": result.candidate_ids,
-                    "infeasible_candidate_ids": (),
-                    "feasible_candidate_count": 1,
-                    "selection_succeeded": True,
-                    "selected_candidate_id": result.candidate_ids[0],
-                    "selected_objective_values": {"normalized_cost": 0.5},
-                    "diagnostic_fallback_candidate_id": None,
-                    "diagnostic_fallback": None,
-                }
-            )
-            forced.save(out / f"{family}-selection.json")
+        force_selection(out, result, succeed=family.startswith("dqn"))
     retrain_spec = spec.model_copy(update={"retraining_seeds": (0, 1)})
     for family in ("dqn-delta-v1", "dqn-desired-replicas-v1"):
         models = experiment.run_retraining(

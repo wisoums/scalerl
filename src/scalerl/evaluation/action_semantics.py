@@ -734,6 +734,65 @@ def run_retraining(
     return models
 
 
+def load_selections(spec: ExperimentSpec, out: Path) -> dict[str, SelectionResult]:
+    return {
+        family: SelectionResult.model_validate_json((out / f"{family}-selection.json").read_text())
+        for family in spec.families
+    }
+
+
+def load_retrained_models(spec: ExperimentSpec, out: Path) -> list[TrainingEvidence]:
+    """The exact predeclared retraining matrix, or ``ValueError`` naming every deviation.
+
+    Every family whose #78 selection succeeded must have exactly one model per
+    retraining seed, of its selected candidate, under its own contract, from
+    this experiment, at its canonical path; families without a selection must
+    have none. Missing, extra (e.g. a stale ``seed5.json``), or mismatched
+    files are all refused, so no evaluation or decision rests on a different
+    model set than the one predeclared.
+    """
+    selections = load_selections(spec, out)
+    expected = {
+        (family, seed): result.selected_candidate_id
+        for family, result in selections.items()
+        if result.selection_succeeded
+        for seed in spec.retraining_seeds
+    }
+    problems: list[str] = []
+    found: dict[tuple[str, int], TrainingEvidence] = {}
+    for path in sorted((out / "retraining").glob("**/*.json")):
+        try:
+            model = TrainingEvidence.model_validate_json(path.read_text())
+        except ValueError as error:
+            problems.append(f"{path}: unreadable ({error.__class__.__name__})")
+            continue
+        key = (model.family, model.training_seed)
+        if key not in expected:
+            problems.append(f"{path}: {model.family} seed {model.training_seed} is not predeclared")
+            continue
+        _, semantics = parse_family(model.family)
+        checks = {
+            "path": (path, retraining_path(out, model.family, model.training_seed)),
+            "phase": (model.phase, "retraining"),
+            "candidate": (model.candidate_id, expected[key]),
+            "experiment": (model.experiment_id, spec.experiment_id),
+            "candidate set": (model.candidate_set_id, spec.candidate_set_id),
+            "selection spec": (model.selection_spec_id, spec.selection_spec_id),
+            "action semantics": (model.action_semantics, semantics),
+        }
+        for name, (actual, wanted) in checks.items():
+            if actual != wanted:
+                problems.append(f"{path}: {name} {actual!r} != {wanted!r}")
+        if key in found:
+            problems.append(f"{path}: duplicate {model.family} seed {model.training_seed}")
+        found[key] = model
+    for family, seed in sorted(expected.keys() - found.keys()):
+        problems.append(f"missing {retraining_path(out, family, seed)}")
+    if problems:
+        raise ValueError("retraining matrix is not the predeclared one: " + "; ".join(problems))
+    return sorted(found.values(), key=lambda m: (FAMILIES.index(m.family), m.training_seed))
+
+
 # --- nominal validation comparison ---------------------------------------------------------------
 
 
@@ -891,9 +950,7 @@ def run_evaluation(
     from scalerl.mlops import start_tracked_run
     from scalerl.rl import load_sb3_controller
 
-    models = load_evidence(sorted((out / "retraining").glob("*/seed*.json")))
-    for model in models:
-        _check_evidence(model, spec)
+    models = load_retrained_models(spec, out)
     manifest = load_benchmark_manifest()
     entries = {w: manifest.get(w) for w in spec.validation_workload_ids}
     traces = traces or build_workloads(list(entries.values()))
@@ -1249,10 +1306,7 @@ def decide(
     out: Path,
 ) -> dict[str, Any]:
     """Apply the predeclared decision principle to the completed experiment's evidence."""
-    selections = {
-        family: SelectionResult.model_validate_json((out / f"{family}-selection.json").read_text())
-        for family in spec.families
-    }
+    selections = load_selections(spec, out)
     invariants = check_action_invariants()
     trainable: dict[str, Any] = {}
     for family in spec.families:
@@ -1277,17 +1331,25 @@ def decide(
         for row in read_rows(out / "raw-results.jsonl")
         if row["experiment_id"] == spec.experiment_id
     ]
-    models = load_evidence(sorted((out / "retraining").glob("*/seed*.json")))
     expected_models = sum(
         len(spec.retraining_seeds) for result in selections.values() if result.selection_succeeded
     )
-    expected_rows = len(evaluation_cases(spec, models))
+    matrix_problem: str | None = None
+    try:
+        models = load_retrained_models(spec, out)
+    except ValueError as error:
+        matrix_problem, models = str(error), []
+    expected_cases = {case.case_id for case in evaluation_cases(spec, models)}
+    row_cases = [row["case_id"] for row in rows]
+    rows_match = sorted(row_cases) == sorted(expected_cases)  # exactly once each, nothing else
     consistency = _evaluation_matches_retraining(rows, models)
     experiment_complete = (
         all(t["screened"] == t["expected"] for t in trainable.values())
+        and matrix_problem is None
         and len(models) == expected_models
-        and len(rows) == expected_rows
+        and rows_match
         and consistency["mismatches"] == 0
+        and consistency["compared"] == len(models) * len(spec.validation_workload_ids)
         and all(math.isfinite(float(row[m])) for row in rows for m in SUMMARY_METRICS)
     )
     desired_families = [f for f in spec.families if f.endswith(DESIRED_REPLICAS_V1)]
@@ -1314,9 +1376,11 @@ def decide(
         "trainability": trainable,
         "evaluation_consistency": consistency,
         "evaluation_rows": len(rows),
-        "expected_evaluation_rows": expected_rows,
+        "expected_evaluation_rows": len(expected_cases),
+        "evaluation_rows_match_expected_cases": rows_match,
         "retrained_models": len(models),
         "expected_retrained_models": expected_models,
+        "retraining_matrix_problem": matrix_problem,
         "selection": {
             family: {
                 "feasible_candidate_count": result.feasible_candidate_count,
@@ -1386,7 +1450,7 @@ def build_decision(
 ) -> ActionContractDecision:
     if report["decision"] != "adopt desired-replicas-v1":
         raise ValueError("the predeclared criteria did not pass; the contract stays unresolved")
-    models = load_evidence(sorted((out / "retraining").glob("*/seed*.json")))
+    models = load_retrained_models(spec, out)
     rows = [
         row
         for row in read_rows(out / "raw-results.jsonl")
@@ -1477,10 +1541,7 @@ def write_reports(spec: ExperimentSpec, out: Path, rows: Sequence[Mapping[str, A
     _write_json(out / "summary.json", summary)
     _write_csv(out / "summary.csv", summary)
     _write_csv(out / "paired-deltas.csv", paired_contract_deltas(rows))
-    selections = {
-        family: SelectionResult.model_validate_json((out / f"{family}-selection.json").read_text())
-        for family in spec.families
-    }
+    selections = load_selections(spec, out)
     _write_csv(out / "candidate-pairs.csv", candidate_pairs(spec, out, selections))
 
 
