@@ -8,7 +8,7 @@ ScaleRL uses MLOps tooling to make controller training and benchmark results rep
 2. **Held-out data stays held out.** Training/tuning runs must never use the frozen test suite from Issue #18.
 3. **Core simulation remains headless.** The simulator/environment must not require MLflow, Docker, or a tracking server to run unit tests.
 4. **One controller interface.** Baselines and learned policies use the same environment/evaluation path.
-5. **Model compatibility is explicit.** DQN/PPO artifacts record the observation/action-space contract and the relevant environment configuration.
+5. **Model compatibility is explicit.** DQN/PPO artifacts record the observation/action-space contract and the relevant environment configuration, including telemetry delay and the capacity-jitter model (#65). Jitter fraction and dynamics seed are evaluation conditions, not contract fields.
 
 ## MLflow
 
@@ -148,6 +148,18 @@ PPO uses the same pipeline (`scalerl.training.common`), CLI options, run schema,
 The final model is the same `model/` bundle with `metadata.json` `algorithm=ppo`. `scalerl.rl.load_sb3_controller` loads DQN and PPO bundles alike, picking the SB3 class from the metadata, and existing DQN bundles are unchanged. `python -m scalerl.tuning.ppo` (storage default `$OPTUNA_STORAGE_URI`, else `sqlite:///outputs/ppo-optuna.db`) writes a `PPOTuningResult`; see [EXPERIMENTS.md](EXPERIMENTS.md#ppo-16).
 
 Both training runs also log the final update's values (loss, update count, …) at the final step, so the learning curve's last point reflects the finished model.
+
+### Robustness evaluations (#65)
+
+A tracked robustness evaluation (`evaluate_robustness_tracked`) is an `evaluate` run in the experiment `scalerl-robustness`, named `robustness-<controller>-<workload>-<scenario>-seed<n>`. It records:
+
+- **Params:** `robustness_scenario` and `robustness_version`, and through the simulator config `sim.dynamics.capacity_jitter_fraction`, `sim.dynamics.telemetry_delay_ticks`, and `sim.dynamics.dynamics_seed`.
+- **Contract:** `compat.telemetry_delay_ticks` and `compat.capacity_jitter_model`.
+- **Tags:** `scalerl.robustness_scenario`, `scalerl.robustness_version`, `scalerl.dynamics_seed`, `scalerl.capacity_jitter_model`, and, where given, `scalerl.model_source_run_id` and `scalerl.robustness.perturbed_compatibility`.
+- **Metrics:** the usual `EpisodeMetrics`, plus `dynamics.mean/min/max_capacity_multiplier`.
+- **Artifact (optional):** raw physical step infos under `robustness/`.
+
+Non-nominal scenarios are recorded with `simulator_config_source="predeclared"`: they are predeclared, never the default simulator. A `calibrated_train_validation` base config keeps its lineage (`calibration_workload_ids`/`calibration_note` are forwarded). `RunSpec` requires the scenario name and version together and accepts them **only on `evaluate` runs**, so a train or tune run can never be labeled as a robustness result. Existing non-robustness runs are unchanged. The perturbation tag is derived from the controller itself: an `SB3Controller` loaded with `robustness_evaluation=True` carries its perturbed fields, so a caller cannot forget them.
 
 ### Tracking location
 

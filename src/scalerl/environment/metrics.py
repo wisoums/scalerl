@@ -1,7 +1,11 @@
 """Per-tick latency, SLA, and infrastructure-cost metrics.
 
 Latency is a deterministic **p95 proxy**, not a simulated request-latency
-distribution. With ``mu`` the per-replica ``service_capacity_rps``::
+distribution. With ``mu`` the tick's effective per-replica service rate,
+``service_capacity_rps * capacity_multiplier`` (the multiplier is 1.0 in the
+nominal simulator; under capacity jitter it is the same realization the queue
+served with, so utilization, queue delay, and latency describe one physical
+tick)::
 
     service_time      = 1 / mu
     capacity          = active_replicas * mu * control_interval_seconds
@@ -47,15 +51,19 @@ def compute_tick_metrics(
     active_replicas: int,
     pending_replicas: int,
     config: SimulatorConfig,
+    capacity_multiplier: float = 1.0,
 ) -> TickMetrics:
     """Derive tick metrics from queue outcome and replica counts without side effects.
 
     Active and pending replicas are billable; terminating replicas are not.
+    Capacity jitter changes throughput, never the price.
     """
     _check_replica_count("active_replicas", active_replicas)
     _check_replica_count("pending_replicas", pending_replicas)
+    if not (math.isfinite(capacity_multiplier) and capacity_multiplier > 0):
+        raise ValueError("capacity_multiplier must be finite and positive")
 
-    service_capacity_rps = config.replicas.service_capacity_rps
+    service_capacity_rps = config.replicas.service_capacity_rps * capacity_multiplier
     interval = config.timing.control_interval_seconds
     queued = queue_result.queued_requests
     offered_work = queue_result.processed_requests + queued

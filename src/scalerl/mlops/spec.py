@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 import scalerl
 from scalerl.benchmarks import load_benchmark_manifest
 from scalerl.benchmarks.manifest import Split
-from scalerl.environment.config import SimulatorConfig
+from scalerl.environment.config import CAPACITY_JITTER_MODEL, SimulatorConfig
 from scalerl.environment.gym_env import AutoscalingEnv
 from scalerl.environment.reward import RewardWeights
 from scalerl.workloads import steady_workload
@@ -64,6 +64,10 @@ class RunSpec(_Strict):
     hyperparameters: dict[str, JsonValue] = Field(default_factory=dict)
     training_steps: int | None = Field(default=None, ge=0)
     training_episodes: int | None = Field(default=None, ge=0)
+    # Predeclared robustness condition (#65) of an evaluation; the dynamics values
+    # themselves are in ``simulator_config.dynamics``.
+    robustness_scenario: str | None = Field(default=None, min_length=1)
+    robustness_version: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _check_lineage(self) -> Self:
@@ -102,12 +106,27 @@ class RunSpec(_Strict):
                     f"{workload_id!r} is a held-out {split} workload"
                 )
 
+        if (self.robustness_scenario is None) != (self.robustness_version is None):
+            raise ValueError("robustness_scenario and robustness_version must be set together")
+        if self.robustness_scenario is not None and self.run_kind != "evaluate":
+            # Robustness conditions evaluate fixed, already-trained controllers (#65);
+            # a train/tune run labeled as one would mix retrained models into results.
+            raise ValueError(
+                f"robustness scenarios label evaluate runs only, not {self.run_kind} runs"
+            )
+
         if self.simulator_config_source == "default" and self.simulator_config != SimulatorConfig():
             raise ValueError(
                 "simulator_config_source='default' requires the default SimulatorConfig; "
                 "use 'predeclared' or 'calibrated_train_validation' for custom values"
             )
         return self
+
+
+# Compatibility fields a robustness evaluation may deliberately perturb for a
+# fixed, already-trained policy (#65): stale telemetry changes what the
+# observation's measurements refer to, but not its shape or normalization.
+ROBUSTNESS_PERTURBABLE_FIELDS = frozenset({"telemetry_delay_ticks"})
 
 
 class EnvironmentCompatibility(_Strict):
@@ -118,6 +137,13 @@ class EnvironmentCompatibility(_Strict):
     environments are compatible only if each feature means the same thing.
     ``min_replicas`` and ``initial_replicas`` are excluded: they change dynamics
     and the start state, not what any feature measures.
+
+    Robustness dynamics (#65): ``telemetry_delay_ticks`` and the capacity-jitter
+    *model* define what observations mean, so they are part of the contract;
+    ``capacity_jitter_fraction`` and ``dynamics_seed`` describe an evaluation
+    realization and are deliberately excluded, so a model can be evaluated
+    across jitter levels and seeds. Both new fields default to the nominal
+    values, so contracts saved before #65 still load as nominal.
     """
 
     observation_shape: tuple[int, ...]
@@ -130,6 +156,8 @@ class EnvironmentCompatibility(_Strict):
     cost_per_hour: float
     latency_target_seconds: float
     traffic_history_ticks: int
+    telemetry_delay_ticks: int = 0
+    capacity_jitter_model: str = CAPACITY_JITTER_MODEL
     benchmark_version: str | None = None
 
     @classmethod
@@ -151,6 +179,8 @@ class EnvironmentCompatibility(_Strict):
             cost_per_hour=replicas.cost_per_hour,
             latency_target_seconds=env.config.sla.latency_target_seconds,
             traffic_history_ticks=env.config.observation.traffic_history_ticks,
+            telemetry_delay_ticks=env.config.dynamics.telemetry_delay_ticks,
+            capacity_jitter_model=CAPACITY_JITTER_MODEL,
             benchmark_version=benchmark_version,
         )
 
@@ -173,8 +203,26 @@ class EnvironmentCompatibility(_Strict):
         """Raise ``ValueError`` if ``other`` differs in any recorded field."""
         differences = self.mismatches(other)
         if differences:
-            details = ", ".join(f"{key}: {a!r} != {b!r}" for key, (a, b) in differences.items())
-            raise ValueError(f"incompatible environment: {details}")
+            raise ValueError(f"incompatible environment: {_describe(differences)}")
+
+    def require_compatible_for_robustness(self, other: EnvironmentCompatibility) -> tuple[str, ...]:
+        """Robustness-evaluation check: allow only the predeclared perturbations.
+
+        For evaluating a fixed trained policy under robustness dynamics (#65)
+        only, never for training or normal inference. Differences in
+        ``ROBUSTNESS_PERTURBABLE_FIELDS`` (telemetry delay) are permitted and
+        returned so the caller can record them; any other mismatch raises as in
+        :meth:`require_compatible`.
+        """
+        differences = self.mismatches(other)
+        unrelated = {k: v for k, v in differences.items() if k not in ROBUSTNESS_PERTURBABLE_FIELDS}
+        if unrelated:
+            raise ValueError(f"incompatible environment: {_describe(unrelated)}")
+        return tuple(sorted(differences))
+
+
+def _describe(differences: dict[str, tuple[Any, Any]]) -> str:
+    return ", ".join(f"{key}: {a!r} != {b!r}" for key, (a, b) in differences.items())
 
 
 def software_metadata(git_sha: str | None = None) -> dict[str, Any]:

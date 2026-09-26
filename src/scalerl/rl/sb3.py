@@ -52,14 +52,22 @@ class SB3Controller:
     nothing and never changes the model.
     """
 
-    def __init__(self, model: BaseAlgorithm) -> None:
+    def __init__(
+        self, model: BaseAlgorithm, *, perturbed_compatibility: tuple[str, ...] = ()
+    ) -> None:
         if not isinstance(model.action_space, spaces.Discrete):
             raise ValueError("SB3Controller needs a policy with a Discrete action space")
         self._model = model
+        self._perturbed = perturbed_compatibility
 
     @property
     def model(self) -> BaseAlgorithm:
         return self._model
+
+    @property
+    def perturbed_compatibility(self) -> tuple[str, ...]:
+        """Compatibility fields a robustness evaluation deliberately changed (else empty)."""
+        return self._perturbed
 
     def reset(self, seed: int | None = None) -> None:
         """No per-episode state; deterministic prediction needs no seed."""
@@ -122,6 +130,7 @@ def load_sb3_controller(
     env: AutoscalingEnv,
     *,
     benchmark_version: str | None = None,
+    robustness_evaluation: bool = False,
 ) -> SB3Controller:
     """Load a bundled policy for ``env`` after verifying the full compatibility contract.
 
@@ -129,12 +138,24 @@ def load_sb3_controller(
     defaults to the installed benchmark manifest's version) and must equal the
     one saved with the model; otherwise ``ValueError`` names every mismatch
     and no model is loaded.
+
+    ``robustness_evaluation=True`` is only for evaluating a fixed trained
+    policy under a predeclared robustness scenario (#65): it additionally
+    permits a telemetry-delay difference (see
+    ``EnvironmentCompatibility.require_compatible_for_robustness``), still
+    rejects every other mismatch, and records the perturbed fields on the
+    returned controller. Never use it for training or normal inference.
     """
     bundle = Path(directory)
     metadata, trained = read_model_bundle(bundle)
     version = benchmark_version or load_benchmark_manifest().version
-    trained.require_compatible(EnvironmentCompatibility.from_env(env, version))
+    current = EnvironmentCompatibility.from_env(env, version)
+    perturbed: tuple[str, ...] = ()
+    if robustness_evaluation:
+        perturbed = trained.require_compatible_for_robustness(current)
+    else:
+        trained.require_compatible(current)
     model = _ALGORITHMS[metadata.algorithm].load(bundle / MODEL_FILE, device="cpu")
     if model.observation_space.shape != env.observation_space.shape:
         raise ValueError("model observation space does not match the environment")
-    return SB3Controller(model)
+    return SB3Controller(model, perturbed_compatibility=perturbed)

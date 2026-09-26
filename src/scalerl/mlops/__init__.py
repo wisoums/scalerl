@@ -6,6 +6,7 @@ without MLflow. ``start_tracked_run`` needs the ``mlops`` extra and raises an
 """
 
 from scalerl.mlops.spec import (
+    ROBUSTNESS_PERTURBABLE_FIELDS,
     EnvironmentCompatibility,
     RunKind,
     RunSpec,
@@ -16,6 +17,7 @@ from scalerl.mlops.tracking import INSTALL_HINT, TrackedRun, start_tracked_run
 
 __all__ = [
     "INSTALL_HINT",
+    "ROBUSTNESS_PERTURBABLE_FIELDS",
     "EnvironmentCompatibility",
     "RunKind",
     "RunSpec",

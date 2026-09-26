@@ -47,12 +47,36 @@ observation and action spaces match its training environment.
 
 Episodes never terminate; they are truncated once the workload trace, which
 must span exactly one episode, is exhausted.
+
+Robustness dynamics (#65, ``config.dynamics``; nominal defaults change nothing):
+
+* **Capacity jitter.** Each tick draws a multiplier ``m ~ Uniform(1 - f, 1 + f)``
+  (``f = capacity_jitter_fraction``) from a per-environment RNG seeded by
+  ``dynamics_seed`` and re-created on every ``reset``, so the sequence depends
+  only on the dynamics realization and the tick, never on actions or on other
+  environments. The queue and the tick metrics both use the realized
+  ``service_capacity_rps * m``. With ``f = 0``, ``m`` is exactly 1.0 and no RNG
+  is drawn. Normalizers (demand/queue pressure, max-fleet capacity) stay
+  nominal so metrics remain comparable across scenarios.
+* **Physical truth vs controller telemetry.** ``step`` ``info`` always describes
+  what physically happened on that tick (plus the realized capacity). What a
+  controller sees is a separate view: the observation and :meth:`decision_info`
+  take load/queue/latency/cost measurements from the completed tick
+  ``telemetry_delay_ticks`` ago, from a bounded buffer of completed-tick
+  snapshots, while replica counts, pending readiness, the clock, and the
+  latest requested/applied action stay current. Before a delayed measurement
+  exists, observation telemetry is zero (as at reset) and ``decision_info``
+  contains no measurement fields (rule-based controllers then see "no sample",
+  never a fabricated value).
 """
 
 from __future__ import annotations
 
 import math
 from collections import deque
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, SupportsFloat
 
 import gymnasium as gym
@@ -62,7 +86,7 @@ from numpy.typing import NDArray
 
 from scalerl.environment.clock import SimulationClock
 from scalerl.environment.config import SimulatorConfig
-from scalerl.environment.metrics import TickMetrics, compute_tick_metrics
+from scalerl.environment.metrics import compute_tick_metrics
 from scalerl.environment.queue import QueueStepResult, RequestQueue
 from scalerl.environment.replicas import ReplicaPool
 from scalerl.environment.reward import (
@@ -74,8 +98,49 @@ from scalerl.environment.reward import (
 from scalerl.workloads.trace import WorkloadReplay, WorkloadTrace
 
 SCALE_DOWN, HOLD, SCALE_UP = 0, 1, 2
+# Control-plane facts a controller always knows currently; everything else in a
+# step ``info`` is a monitoring measurement subject to telemetry delay.
+CONTROL_PLANE_KEYS = frozenset(
+    {
+        "tick",
+        "time_seconds",
+        "requested_action",
+        "applied_replica_change",
+        "active_replicas",
+        "pending_replicas",
+        "terminating_replicas",
+    }
+)
 
 Observation = NDArray[np.float32]
+
+
+@dataclass(frozen=True, slots=True)
+class TelemetrySnapshot:
+    """Measurements of one completed tick, as monitoring would report them."""
+
+    tick: int
+    measurements: Mapping[str, Any]  # the tick's non-control-plane ``info`` fields
+
+    @property
+    def request_rate(self) -> float:
+        return float(self.measurements["request_rate"])
+
+    @property
+    def queued_requests(self) -> float:
+        return float(self.measurements["queued_requests"])
+
+    @property
+    def utilization(self) -> float:
+        return float(self.measurements["utilization"])
+
+    @property
+    def p95_latency_seconds(self) -> float:
+        return float(self.measurements["p95_latency_seconds"])
+
+    @property
+    def infrastructure_cost(self) -> float:
+        return float(self.measurements["infrastructure_cost"])
 
 
 class AutoscalingEnv(gym.Env[Observation, np.int64]):
@@ -101,7 +166,13 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         pending_buckets = len(self._pending_buckets())
         self.action_space = spaces.Discrete(3)
         self._history_ticks = config.observation.traffic_history_ticks
-        self._demand_history: deque[float] = deque(maxlen=self._history_ticks)
+        self._delay_ticks = config.dynamics.telemetry_delay_ticks
+        self._jitter = config.dynamics.capacity_jitter_fraction
+        # Newest first; just enough for the delayed window the observation reads.
+        self._telemetry: deque[TelemetrySnapshot] = deque(
+            maxlen=self._delay_ticks + self._history_ticks
+        )
+        self._dynamics_rng = np.random.default_rng(config.dynamics.dynamics_seed)
         self._observation_features = (
             *(f"demand_pressure_t-{age}" for age in range(self._history_ticks)),
             "utilization",
@@ -119,13 +190,21 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._max_service_rate = config.replicas.max_replicas * config.replicas.service_capacity_rps
         self._max_tick_capacity = max_tick_capacity_of(config)
         self._max_tick_cost = max_tick_cost_of(config)
-        self._last_metrics: TickMetrics | None = None
         self._needs_reset = True
 
     @property
     def episode_ticks(self) -> int:
         """Return the number of steps in one episode."""
         return self._episode_ticks
+
+    @property
+    def telemetry_delay_ticks(self) -> int:
+        return self._delay_ticks
+
+    @property
+    def telemetry_buffer_size(self) -> int:
+        """Maximum completed-tick snapshots kept: delay + traffic history."""
+        return self._delay_ticks + self._history_ticks
 
     @property
     def observation_features(self) -> tuple[str, ...]:
@@ -140,8 +219,9 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._replay.reset()
         self._pool.reset()
         self._queue.reset()
-        self._demand_history.clear()
-        self._last_metrics = None
+        self._telemetry.clear()
+        # Restart the dynamics realization: same seed, same multiplier sequence.
+        self._dynamics_rng = np.random.default_rng(self.config.dynamics.dynamics_seed)
         self._needs_reset = False
         return self._observation(), self.replica_counts | {"tick": 0, "time_seconds": 0.0}
 
@@ -163,15 +243,18 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             applied = 0
         tick_replicas = self.replica_counts
 
-        # 2-4. serve this tick's demand with the currently active replicas
+        # 2-4. serve this tick's demand with the currently active replicas at the
+        # tick's realized capacity (one draw per tick, whatever the action)
         tick = self._clock.step_count
         request_rate = self._replay.next_demand()
-        queue_result = self._queue.step(request_rate, self._pool.active_count)
+        multiplier = self._capacity_multiplier()
+        queue_result = self._queue.step(request_rate, self._pool.active_count, multiplier)
         metrics = compute_tick_metrics(
             queue_result,
             active_replicas=self._pool.active_count,
             pending_replicas=self._pool.pending_count,
             config=self.config,
+            capacity_multiplier=multiplier,
         )
 
         # 5. reward
@@ -187,11 +270,11 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._pool.advance(self.config.timing.control_interval_seconds)
         self._clock.step()
 
-        # 8. next observation and info: history gains only the demand this tick consumed
-        self._demand_history.appendleft(self._demand_pressure(request_rate))
-        self._last_metrics = metrics
+        # 8. info describes what physically happened; telemetry records it as a
+        # completed measurement for (possibly delayed) controller views
         truncated = self._replay.is_exhausted
         self._needs_reset = truncated
+        per_replica = self.config.replicas.service_capacity_rps * multiplier
 
         info: dict[str, Any] = {
             "tick": tick,
@@ -205,6 +288,9 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             "p95_latency_seconds": metrics.p95_latency_seconds,
             "sla_violated": metrics.sla_violated,
             "infrastructure_cost": metrics.infrastructure_cost,
+            "capacity_multiplier": multiplier,
+            "effective_service_capacity_rps_per_replica": per_replica,
+            "effective_total_service_capacity_rps": tick_replicas["active_replicas"] * per_replica,
             "reward_components": {
                 "latency_penalty": breakdown.latency_penalty,
                 "cost_penalty": breakdown.cost_penalty,
@@ -214,29 +300,61 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             },
             "reward": breakdown.reward,
         }
+        measurements = {k: v for k, v in info.items() if k not in CONTROL_PLANE_KEYS}
+        self._telemetry.appendleft(TelemetrySnapshot(tick, MappingProxyType(measurements)))
         return self._observation(), breakdown.reward, False, truncated, info
+
+    def _capacity_multiplier(self) -> float:
+        if self._jitter == 0:
+            return 1.0  # nominal: exact, and no RNG draw
+        return float(self._dynamics_rng.uniform(1.0 - self._jitter, 1.0 + self._jitter))
+
+    def visible_telemetry(self) -> tuple[TelemetrySnapshot, ...]:
+        """Completed-tick snapshots a controller can see now, newest first.
+
+        With delay ``d`` the newest visible snapshot is the completed tick
+        ``d`` ticks before the latest one; empty until such a tick exists.
+        """
+        snapshots = tuple(self._telemetry)
+        return snapshots[self._delay_ticks : self._delay_ticks + self._history_ticks]
+
+    def decision_info(self, info: Mapping[str, Any]) -> dict[str, Any]:
+        """Controller-facing view of the latest step (or reset) ``info``.
+
+        Control-plane facts (tick, time, requested/applied action) come from
+        ``info``; replica counts are the current ones; load/queue/latency/cost
+        measurements come from the telemetry visible under the configured delay
+        (``telemetry_tick`` names their tick). With no delay this equals ``info``
+        plus current replica counts. Without a visible measurement yet, no
+        measurement fields are present, so controllers see "no sample".
+        """
+        view = {key: value for key, value in info.items() if key in CONTROL_PLANE_KEYS}
+        visible = self.visible_telemetry()
+        if visible:
+            view |= dict(visible[0].measurements)
+            view["telemetry_tick"] = visible[0].tick
+        return view | self.replica_counts
 
     def _demand_pressure(self, rate: float) -> float:
         return rate / (rate + self._max_service_rate)
 
     def _observation(self) -> Observation:
-        history = [*self._demand_history]
+        visible = self.visible_telemetry()
+        history = [self._demand_pressure(snapshot.request_rate) for snapshot in visible]
         history += [0.0] * (self._history_ticks - len(history))
-        queued = self._queue.queue_depth
         max_replicas = self.config.replicas.max_replicas
-        metrics = self._last_metrics
 
-        if metrics is None:
-            utilization = latency_pressure = cost_fraction = 0.0
+        if not visible:
+            queued = utilization = latency_pressure = cost_fraction = 0.0
         else:
-            latency = metrics.p95_latency_seconds
+            latest = visible[0]
+            queued = latest.queued_requests
+            latency = latest.p95_latency_seconds
             target = self.config.sla.latency_target_seconds
-            utilization = metrics.utilization
+            utilization = latest.utilization
             latency_pressure = latency / (latency + target)
             cost_fraction = (
-                metrics.infrastructure_cost / self._max_tick_cost
-                if self._max_tick_cost > 0
-                else 0.0
+                latest.infrastructure_cost / self._max_tick_cost if self._max_tick_cost > 0 else 0.0
             )
 
         return np.array(

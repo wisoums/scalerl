@@ -274,6 +274,59 @@ Every `batch_size` divides every `n_steps`, so no minibatch is ever truncated. T
 
 **Scope of #16.** It establishes that PPO trains, tunes, and evaluates under the same contract as DQN and the baselines. It makes **no claim that PPO beats DQN or any baseline**; comparisons come from tuned, multi-seed, and held-out evaluation (#19, #46).
 
+## Robustness scenarios (#65)
+
+Do controller results hold up when the world is less ideal? #65 adds two controlled, seeded perturbations of the simulator. It then evaluates the **same fixed controllers and models** under them, with no retraining and no per-scenario tuning. They are robustness tests, **not** claims that ScaleRL models AWS, Azure, or GCP precisely.
+
+| Condition | What changes |
+|---|---|
+| **Nominal** | nothing: the perfectly repeatable reference simulator |
+| **Capacity jitter** | seeded variation in *actual* service throughput |
+| **Telemetry delay** | the manager sees stale load/queue/latency measurements, but knows its current replicas |
+| **Combined** | both at once |
+
+**Capacity jitter** (model `uniform-multiplicative-v1`):
+- Each tick's real per-replica capacity is `service_capacity_rps × m`, with `m ~ Uniform(1 − f, 1 + f)`.
+- The queue serves with that capacity, and utilization, queue delay, p95 latency, and SLA are computed from the same realization, so it is physics rather than cosmetic noise.
+- Price does not jitter.
+- Each environment has its own RNG, seeded by `dynamics_seed` and restarted on every reset, with one draw per tick whatever the action. The same seed therefore gives every controller the same multiplier sequence, independent of evaluation order.
+- With `f = 0` the multiplier is exactly 1.0 and no RNG is drawn.
+- Step `info` reports `capacity_multiplier`, `effective_service_capacity_rps_per_replica`, and `effective_total_service_capacity_rps`.
+- Normalizers (demand pressure, queue pressure, max-fleet capacity) stay **nominal**, so metrics are comparable across scenarios.
+
+**Telemetry delay** (`telemetry_delay_ticks = d`):
+- **Physical view.** Step `info` always says what actually happened; evaluation metrics (`EpisodeMetrics`) come only from it.
+- **Controller view.** Both learned policies (the observation) and rule-based controllers (`decision_info`) see monitoring measurements from the completed tick `d` ticks before the latest one: request rate and recent-demand history, utilization, queue, p95 latency, SLA status, and tick cost. These come from a bounded buffer of completed-tick snapshots (at most `d + traffic_history_ticks`, cleared on reset).
+- **What stays current.** Control-plane facts: active, pending, and terminating replicas, pending readiness, episode progress and clock, and the latest requested/applied action. Threshold's cooldown is therefore never late.
+- **Before a `d`-old measurement exists:**
+  - the observation's measurement features are zero, as at reset;
+  - `decision_info` has **no** measurement fields, so Threshold holds (`no_sample`) instead of reading a fake 0% utilization, and Predictive records no sample.
+- **Readable example.** Physical demand 100, 200, 300. After tick 2, the history is 300, 200, 100, 0 with `d = 0`, and 200, 100, 0, 0 with `d = 1`. No future values are ever visible.
+
+**`robustness-v1` scenarios** are frozen before held-out evaluation (#46) and never tuned to favor a controller:
+
+| Scenario | capacity_jitter_fraction | telemetry_delay_ticks |
+|---|---|---|
+| `nominal` | 0.00 | 0 |
+| `capacity-jitter` | 0.10 (±10%: 50 RPS/replica becomes 45–55 per tick) | 0 |
+| `delayed-telemetry` | 0.00 | 1 (30 s of monitoring lag at the benchmark cadence) |
+| `combined-robustness` | 0.10 | 1 |
+
+Optional predeclared jitter levels for a later sensitivity plot are 0.00, 0.05, 0.10, and 0.20; the main comparison uses 0.10.
+
+**How it is used:**
+- `scalerl.evaluation.robustness.apply_scenario(config, scenario, dynamics_seed=…)` builds a scenario config without mutating the base.
+- `evaluate_robustness` / `evaluate_robustness_tracked` evaluate one fixed controller for one workload, scenario, and seed. They return the shared `EpisodeMetrics`, realized-capacity diagnostics (mean/min/max multiplier; never objectives), and the raw physical infos for per-seed storage.
+- #19 will loop workloads × scenarios × dynamics seeds × controllers over this.
+
+**Learned models and delay.** Telemetry delay and the jitter model are part of the model-compatibility contract; the jitter fraction and dynamics seed are not, because they are evaluation conditions.
+- A nominally trained DQN/PPO therefore loads under capacity jitter as usual.
+- Under delayed telemetry the normal loader refuses it. Evaluating a fixed nominal model with stale telemetry is exactly the robustness question, so it requires the explicit, evaluation-only `load_sb3_controller(..., robustness_evaluation=True)`.
+- That path permits only a telemetry-delay difference, still rejects every other mismatch, and records the perturbed field (MLflow tag `scalerl.robustness.perturbed_compatibility`).
+- Contracts saved before #65 load as nominal.
+
+**No cold-start penalty.** ScaleRL already models replica startup delay. A provider-specific extra first-request latency would double-count startup effects without a more specific runtime model.
+
 ## Fair comparison
 
 For every final comparison:
