@@ -15,7 +15,8 @@ existing v1 search space (``dqn-search-v1`` / ``ppo-search-v1``, via the same
 constant. Nothing is trained or evaluated, so the candidates cannot depend on
 any controller result, and their order is the generation order. The frozen
 JSON (``benchmarks/v1/action-semantics-candidates-v1.json``) is the source of
-truth; regenerating it with the same Optuna version reproduces it exactly.
+truth; regenerating it with the same Optuna version reproduces it exactly on
+one platform, and up to last-ulp noise in sampled floats across platforms.
 
     python -m scalerl.tuning.candidates --output benchmarks/v1/action-semantics-candidates-v1.json
 """

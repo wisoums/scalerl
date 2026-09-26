@@ -4,6 +4,7 @@ Tiny budgets and synthetic evidence only; nothing reads outputs/ or test workloa
 """
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,25 @@ THRESHOLDS = {
 }
 
 
+def same_values(a: Any, b: Any) -> bool:
+    """Structural equality; floats may differ only by platform last-ulp noise (rel 1e-12)."""
+    if isinstance(a, float) or isinstance(b, float):
+        return (
+            isinstance(a, int | float)
+            and isinstance(b, int | float)
+            and math.isclose(a, b, rel_tol=1e-12, abs_tol=0.0)
+        )
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same_values(a[k], b[k]) for k in a)
+    if isinstance(a, list | tuple) and isinstance(b, list | tuple):
+        return len(a) == len(b) and all(same_values(x, y) for x, y in zip(a, b, strict=True))
+    return bool(a == b)
+
+
+def dumped(value: Any) -> Any:
+    return json.loads(value.model_dump_json()) if hasattr(value, "model_dump_json") else value
+
+
 @pytest.fixture(scope="module")
 def small() -> CandidateSet:
     return generate_candidate_set(count=3)
@@ -56,7 +76,8 @@ def selection() -> SelectionSpec:
 def test_committed_candidate_set_is_the_seeded_generation() -> None:
     committed = CandidateSet.load(CANDIDATES)
     assert committed.candidate_set_id == CANDIDATE_SET_ID
-    assert committed == generate_candidate_set()
+    # The committed JSON is authoritative; regeneration reproduces it up to float ulp noise.
+    assert same_values(dumped(committed), dumped(generate_candidate_set()))
     assert committed.generation_seed == 42 and committed.independent_of_results is True
     assert (len(committed.dqn.candidates), len(committed.ppo.candidates)) == (20, 20)
     assert committed.dqn.search_space_version == "dqn-search-v1"
@@ -71,8 +92,9 @@ def test_committed_candidate_set_is_the_seeded_generation() -> None:
 def test_candidate_order_depends_only_on_the_seed(small: CandidateSet) -> None:
     committed = CandidateSet.load(CANDIDATES)
     # Generation evaluates nothing, so a prefix of the sequence is the same sequence.
-    assert small.dqn.candidates == committed.dqn.candidates[:3]
-    assert small.ppo.candidates == committed.ppo.candidates[:3]
+    for algorithm in ("dqn", "ppo"):
+        prefix = [dumped(c) for c in committed.for_algorithm(algorithm).candidates[:3]]
+        assert same_values([dumped(c) for c in small.for_algorithm(algorithm).candidates], prefix)
     assert generate_candidate_set(count=3, seed=7) != small
 
 
