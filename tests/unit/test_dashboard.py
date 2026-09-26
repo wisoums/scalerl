@@ -707,7 +707,7 @@ def playback_of(app: AppTest) -> PlaybackState:
 def live_threshold(app: AppTest) -> AppTest:
     app.selectbox(key="manager").set_value("threshold").run()
     app.button(key="build").click().run()
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
     return app
 
 
@@ -715,9 +715,20 @@ def test_app_opens_paused_in_inspect_mode(app: AppTest) -> None:
     playback = playback_of(app)
 
     assert (playback.mode, playback.playing, playback.speed) == ("inspect", False, 1.0)
-    assert app.radio(key="playback_mode").value == "inspect"
+    assert app.segmented_control(key="playback_mode").value == "inspect"
     assert session_of(app).tick == 0
     assert any("INSPECT" in markdown.value for markdown in app.markdown)
+
+
+def test_app_uses_segmented_player_controls(app: AppTest) -> None:
+    assert app.segmented_control(key="playback_mode").value == "inspect"
+    assert not list(app.radio)
+    live_threshold(app)
+    assert app.segmented_control(key="playback_mode").value == "live"
+    assert app.segmented_control(key="playback_speed").value == 1.0
+    assert app.button(key="play")
+    assert app.button(key="live_step")
+    assert app.button(key="reset_episode")
 
 
 def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
@@ -726,12 +737,12 @@ def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
     app.button(key="step").click().run()
     running = session_of(app)
 
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
     assert session_of(app) is running and running.tick == 1
-    assert app.radio(key="playback_speed").value == 1.0
+    assert app.segmented_control(key="playback_speed").value == 1.0
     assert any("LIVE CITY • ⏸ PAUSED" in markdown.value for markdown in app.markdown)
 
-    app.radio(key="playback_mode").set_value("inspect").run()
+    app.segmented_control(key="playback_mode").set_value("inspect").run()
     assert session_of(app) is running and running.tick == 1
 
 
@@ -740,8 +751,7 @@ def test_app_play_and_pause_without_extra_steps(app: AppTest) -> None:
 
     assert not app.exception
     assert playback_of(app).playing
-    assert app.button(key="play").disabled
-    assert not app.button(key="pause").disabled
+    assert app.button(key="pause")
     assert app.button(key="live_step").disabled
     assert any("PLAYING • 1x" in markdown.value for markdown in app.markdown)
 
@@ -762,7 +772,7 @@ def test_app_speed_change_keeps_the_session_and_playback(app: AppTest) -> None:
     app.button(key="play").click().run()
     running, history = session_of(app), session_of(app).history
 
-    app.radio(key="playback_speed").set_value(5.0).run()
+    app.segmented_control(key="playback_speed").set_value(5.0).run()
 
     assert playback_of(app).playing and playback_of(app).speed == 5.0
     assert session_of(app) is running
@@ -814,14 +824,14 @@ def test_app_invalid_build_keeps_the_session_but_pauses(app: AppTest) -> None:
 def test_app_leaving_live_city_pauses(app: AppTest) -> None:
     live_threshold(app).button(key="play").click().run()
 
-    app.radio(key="playback_mode").set_value("inspect").run()
+    app.segmented_control(key="playback_mode").set_value("inspect").run()
 
     assert not playback_of(app).playing
     assert app.button(key="run_to_end")
 
 
 def test_app_manual_manager_cannot_autoplay(app: AppTest) -> None:
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
 
     assert app.button(key="play").disabled
     assert app.button(key="live_step").disabled
@@ -834,9 +844,9 @@ def test_app_completed_episode_cannot_play(app: AppTest) -> None:
     app.button(key="build").click().run()
     app.button(key="run_to_end").click().run()
 
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
 
-    assert app.button(key="play").disabled and app.button(key="pause").disabled
+    assert app.button(key="play").disabled
     assert any("EPISODE COMPLETE" in markdown.value for markdown in app.markdown)
     assert session_of(app).tick == 120
 
