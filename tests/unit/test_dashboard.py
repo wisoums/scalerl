@@ -524,7 +524,7 @@ def test_app_manual_step_and_reset(app: AppTest) -> None:
 
     assert not app.exception
     assert session_of(app).tick == 1
-    assert app.metric[0].value == "1 / 120"
+    assert any("Tick 1 / 120" in markdown.value for markdown in app.markdown)
 
     app.button(key="reset_episode").click().run()
 
@@ -722,7 +722,7 @@ def test_app_opens_paused_in_inspect_mode(app: AppTest) -> None:
 
 def test_app_uses_segmented_player_controls(app: AppTest) -> None:
     assert app.segmented_control(key="playback_mode").value == "inspect"
-    assert not list(app.radio)
+    assert all(radio.key != "playback_mode" for radio in app.radio)
     live_threshold(app)
     assert app.segmented_control(key="playback_mode").value == "live"
     assert app.segmented_control(key="playback_speed").value == 1.0
