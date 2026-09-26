@@ -504,12 +504,19 @@ def test_app_starts_with_a_default_synthetic_scenario(app: AppTest) -> None:
     assert app.radio(key="source").value == "Benchmark v1"
     assert app.selectbox(key="manager").value == "manual"
     assert app.button(key="build")
+    assert app.button(key="build").label == "Apply settings & restart"
     session = session_of(app)
     assert (session.tick, session.scenario.source, session.scenario.split) == (
         0,
         "synthetic",
         "train",
     )
+
+
+def test_app_live_summary_does_not_repeat_manager_identity(app: AppTest) -> None:
+    labels = [metric.label for metric in app.metric]
+    assert "Manager" not in labels
+    assert any("Manual" in subheader.value for subheader in app.subheader)
 
 
 def test_app_manual_step_and_reset(app: AppTest) -> None:
