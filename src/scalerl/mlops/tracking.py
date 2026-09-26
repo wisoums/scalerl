@@ -166,6 +166,7 @@ def _tags(spec: RunSpec, software: Mapping[str, Any]) -> dict[str, str]:
         "scalerl.workload_id": spec.workload_id,
         "scalerl.workload_split": spec.workload_split,
         "scalerl.simulator_config_source": spec.simulator_config_source,
+        "scalerl.action_semantics": spec.simulator_config.action.semantics,
         "scalerl.git_sha": software["git_sha"],
         "scalerl.git_dirty": str(software["git_dirty"]).lower(),
         "scalerl.version": software["scalerl_version"],

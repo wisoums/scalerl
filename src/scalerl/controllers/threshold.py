@@ -7,7 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from scalerl.environment.gym_env import HOLD, SCALE_DOWN, SCALE_UP, Observation
+from scalerl.environment.actions import HOLD, SCALE_DOWN, SCALE_UP, ActionContract
+from scalerl.environment.gym_env import Observation
 
 DecisionReason = Literal[
     "no_sample",
@@ -27,7 +28,11 @@ class ThresholdDecision:
     """Why the controller chose its latest action.
 
     ``cooldown_remaining`` counts future decisions still blocked by cooldown
-    after this one (0 when no cooldown is pending).
+    after this one (0 when no cooldown is pending). ``action`` is the emitted
+    environment action code; ``target_replicas`` is the committed capacity it
+    requests (set only when the controller was given an action contract).
+    ``desired_replicas`` is the committed capacity (active + pending) the
+    decision started from.
     """
 
     utilization: float | None
@@ -35,6 +40,7 @@ class ThresholdDecision:
     action: int
     reason: DecisionReason
     cooldown_remaining: int = 0
+    target_replicas: int | None = None
 
 
 class ThresholdController:
@@ -70,6 +76,13 @@ class ThresholdController:
 
     Apart from cooldown, decisions depend only on the current inputs;
     ``last_decision`` is read-only diagnostics.
+
+    **Action contracts (#79).** The control law is the same under every
+    contract: one more replica, one fewer, or hold. Without ``action_contract``
+    (or with ``delta-v1``) the controller emits the historical codes 0/1/2
+    unchanged. Under ``desired-replicas-v1`` the same decision is encoded as
+    the target ``committed + 1`` / ``committed - 1`` / ``committed`` (clipped to
+    the environment's bounds); it is not a proportional (HPA-style) rule.
     """
 
     def __init__(
@@ -80,6 +93,7 @@ class ThresholdController:
         min_replicas: int,
         max_replicas: int,
         cooldown_ticks: int = 0,
+        action_contract: ActionContract | None = None,
     ) -> None:
         for name, value in (("low_threshold", low_threshold), ("high_threshold", high_threshold)):
             if isinstance(value, bool) or not isinstance(value, int | float):
@@ -105,6 +119,7 @@ class ThresholdController:
         self._min_replicas = min_replicas
         self._max_replicas = max_replicas
         self._cooldown_ticks = cooldown_ticks
+        self._contract = action_contract
         self._cooldown_remaining = 0
         self._consumed_tick: Any = None
         self._last_decision: ThresholdDecision | None = None
@@ -128,6 +143,10 @@ class ThresholdController:
     @property
     def cooldown_ticks(self) -> int:
         return self._cooldown_ticks
+
+    @property
+    def action_contract(self) -> ActionContract | None:
+        return self._contract
 
     @property
     def last_decision(self) -> ThresholdDecision | None:
@@ -170,8 +189,12 @@ class ThresholdController:
 
         if cooling:
             self._cooldown_remaining -= 1
+        target: int | None = None
+        if self._contract is not None:
+            action = self._contract.code_for_step(action, desired)
+            target = self._contract.target_for(action, desired)
         self._last_decision = ThresholdDecision(
-            utilization, desired, action, reason, self._cooldown_remaining
+            utilization, desired, action, reason, self._cooldown_remaining, target
         )
         return action
 

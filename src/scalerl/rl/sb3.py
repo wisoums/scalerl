@@ -17,7 +17,12 @@ trained it::
 :func:`load_sb3_controller` refuses to run a policy in an environment whose
 compatibility contract differs from the one it was trained on. Comparing the
 observation shape is not enough: two environments can have the same shape
-while their features mean different things.
+while their features mean different things. Likewise the action count is not
+enough: the contract records the action semantics (#79), so a
+``desired-replicas-v1`` policy never runs in a ``delta-v1`` environment or vice
+versa, even when both have the same number of actions. Both DQN and PPO act
+over the environment's ``Discrete`` space (PPO through its categorical policy);
+no continuous action space is used.
 """
 
 from __future__ import annotations

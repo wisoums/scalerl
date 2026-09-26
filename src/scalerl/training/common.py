@@ -42,7 +42,12 @@ import scalerl
 from scalerl.benchmarks import WorkloadEntry, build_workloads, load_benchmark_manifest
 from scalerl.environment import AutoscalingEnv, SimulatorConfig
 from scalerl.environment.reward import RewardWeights
-from scalerl.evaluation import EpisodeMetrics, evaluate_controller_episode
+from scalerl.evaluation import (
+    ActionMagnitudeMetrics,
+    EpisodeMetrics,
+    evaluate_controller_episode,
+    summarize_action_magnitude,
+)
 from scalerl.mlops import EnvironmentCompatibility, RunKind, RunSpec, SimulatorConfigSource
 from scalerl.mlops.tracking import TrackedRun
 from scalerl.rl import ModelMetadata, load_sb3_controller, save_model_bundle
@@ -296,6 +301,7 @@ class RunOutcome:
     compatibility: EnvironmentCompatibility
     training_episodes: int
     checkpoints: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    validation_action_metrics: dict[str, ActionMagnitudeMetrics] = field(default_factory=dict)
 
 
 def build_run_spec(
@@ -348,19 +354,24 @@ def train_and_validate(
     training_run_kind: RunKind,
     validation_run_kind: RunKind,
     extra_params: Mapping[str, JsonValue] | None = None,
+    tags: Mapping[str, str] | None = None,
 ) -> RunOutcome:
     """Train on one workload (one tracked run), then validate the final policy per workload.
 
     The model is saved as a bundle and logged under ``model/`` on the training
     run. Validation loads that bundle back through :func:`load_sb3_controller`
     (so the compatibility check is exercised) and evaluates it with the shared
-    ``evaluate_controller_episode``, one tracked run per validation workload.
+    ``evaluate_controller_episode``, one tracked run per validation workload,
+    which also logs the ``action.*`` magnitude diagnostics (#79). ``tags`` are
+    set on the training run and every validation run.
     """
     require_trainable(algorithm, hyperparameters, settings)
     params = {**algorithm.run_params(hyperparameters), **dict(extra_params or {})}
     config, weights = settings.config, settings.reward_weights
     spec = build_run_spec(training_run_kind, algorithm.name, training_entry, settings, params)
     with track(spec) as run, tempfile.TemporaryDirectory() as directory:
+        for key, value in (tags or {}).items():
+            run.set_tag(key, value)
         workdir = Path(directory)
         env = AutoscalingEnv(config, traces[training_entry.id], weights)
         model = algorithm.build(Monitor(env), hyperparameters, settings.seed)
@@ -423,6 +434,7 @@ def train_and_validate(
             run.log_artifact(path, artifact_path=MODEL_ARTIFACT_PATH)
 
         results: dict[str, EpisodeMetrics] = {}
+        action_results: dict[str, ActionMagnitudeMetrics] = {}
         validation_run_ids = []
         for entry in validation_entries:
             validation_env = AutoscalingEnv(config, traces[entry.id], weights)
@@ -431,11 +443,17 @@ def train_and_validate(
                 validation_run_kind, algorithm.name, entry, settings, params
             )
             with track(validation_spec) as validation_run:
+                for key, value in (tags or {}).items():
+                    validation_run.set_tag(key, value)
                 validation_run.set_tag(MODEL_SOURCE_TAG, run.run_id)
                 validation_run.set_tag("scalerl.model_artifact_path", MODEL_ARTIFACT_PATH)
                 evaluation = evaluate_controller_episode(validation_env, controller, seed=0)
-                validation_run.log_metrics(evaluation.metrics.as_metrics())
+                magnitude = summarize_action_magnitude(evaluation.infos)
+                validation_run.log_metrics(
+                    {**evaluation.metrics.as_metrics(), **magnitude.as_metrics()}
+                )
             results[entry.id] = evaluation.metrics
+            action_results[entry.id] = magnitude
             validation_run_ids.append(validation_run.run_id)
 
         aggregate = aggregate_validation(list(results.values()))
@@ -457,6 +475,7 @@ def train_and_validate(
         compatibility=compatibility,
         training_episodes=curve.episode_count,
         checkpoints=saved_checkpoints,
+        validation_action_metrics=action_results,
     )
 
 

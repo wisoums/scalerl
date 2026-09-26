@@ -1,8 +1,21 @@
 """Gymnasium environment composing the ScaleRL cloud simulator.
 
-Actions (``Discrete(3)``): ``0`` scale down by one, ``1`` hold, ``2`` scale
-up by one. Scaling past ``min_replicas``/``max_replicas`` is a no-op, reported
-as ``applied_replica_change == 0`` in ``info``.
+Actions are integer **codes** from a ``Discrete`` space whose meaning is the
+versioned action contract ``config.action.semantics`` (#79, see
+:mod:`scalerl.environment.actions`):
+
+* ``delta-v1`` (default): ``Discrete(3)``, ``0`` scale down by one, ``1`` hold,
+  ``2`` scale up by one (effects -1/0/+1; ``-1`` is not a valid code);
+* ``desired-replicas-v1``: ``Discrete(max_replicas - min_replicas + 1)``, code
+  ``c`` requests ``min_replicas + c`` committed replicas.
+
+The code becomes a requested target for committed capacity (``active +
+pending``), and ``|target - committed|`` replicas are started or cancelled in
+that one step through the normal lifecycle. Scaling past
+``min_replicas``/``max_replicas`` is clipped; ``info`` reports the code
+(``requested_action``), the bounded target (``requested_replica_target``) and
+the signed change actually applied (``applied_replica_change``, which can
+exceed one replica under ``desired-replicas-v1``).
 
 Each ``step`` runs one tick in this order:
 
@@ -84,6 +97,7 @@ import numpy as np
 from gymnasium import spaces
 from numpy.typing import NDArray
 
+from scalerl.environment.actions import HOLD, SCALE_DOWN, SCALE_UP, ActionContract
 from scalerl.environment.clock import SimulationClock
 from scalerl.environment.config import SimulatorConfig
 from scalerl.environment.metrics import compute_tick_metrics
@@ -97,7 +111,16 @@ from scalerl.environment.reward import (
 )
 from scalerl.workloads.trace import WorkloadReplay, WorkloadTrace
 
-SCALE_DOWN, HOLD, SCALE_UP = 0, 1, 2
+__all__ = [
+    "CONTROL_PLANE_KEYS",
+    "HOLD",
+    "SCALE_DOWN",
+    "SCALE_UP",
+    "AutoscalingEnv",
+    "Observation",
+    "TelemetrySnapshot",
+]
+
 # Control-plane facts a controller always knows currently; everything else in a
 # step ``info`` is a monitoring measurement subject to telemetry delay.
 CONTROL_PLANE_KEYS = frozenset(
@@ -105,6 +128,7 @@ CONTROL_PLANE_KEYS = frozenset(
         "tick",
         "time_seconds",
         "requested_action",
+        "requested_replica_target",
         "applied_replica_change",
         "active_replicas",
         "pending_replicas",
@@ -164,7 +188,8 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._pool = ReplicaPool(config.replicas)
 
         pending_buckets = len(self._pending_buckets())
-        self.action_space = spaces.Discrete(3)
+        self._actions = ActionContract.from_config(config)
+        self.action_space = spaces.Discrete(self._actions.action_count)
         self._history_ticks = config.observation.traffic_history_ticks
         self._delay_ticks = config.dynamics.telemetry_delay_ticks
         self._jitter = config.dynamics.capacity_jitter_fraction
@@ -196,6 +221,15 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
     def episode_ticks(self) -> int:
         """Return the number of steps in one episode."""
         return self._episode_ticks
+
+    @property
+    def action_contract(self) -> ActionContract:
+        """The versioned action contract (codes -> requested replica targets)."""
+        return self._actions
+
+    @property
+    def action_semantics(self) -> str:
+        return self._actions.semantics
 
     @property
     def telemetry_delay_ticks(self) -> int:
@@ -230,15 +264,16 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
     ) -> tuple[Observation, SupportsFloat, bool, bool, dict[str, Any]]:
         if self._needs_reset:
             raise RuntimeError("episode has ended or not started; call reset() before step()")
-        if isinstance(action, bool) or not self.action_space.contains(action):
-            raise ValueError(f"invalid action {action!r}; expected 0, 1, or 2")
-        requested = int(action)
+        requested = self._actions.validate_code(action)
 
-        # 1. apply the action
-        if requested == SCALE_UP:
-            applied = self._pool.scale_up()
-        elif requested == SCALE_DOWN:
-            applied = -self._pool.scale_down()
+        # 1. apply the action: move committed capacity to the requested target in
+        # one step; new replicas start pending and follow the startup lifecycle
+        committed = self._pool.desired_count
+        target = self._actions.target_for(requested, committed)
+        if target > committed:
+            applied = self._pool.scale_up(target - committed)
+        elif target < committed:
+            applied = -self._pool.scale_down(committed - target)
         else:
             applied = 0
         tick_replicas = self.replica_counts
@@ -281,6 +316,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             "time_seconds": self._clock.time_seconds,
             "request_rate": request_rate,
             "requested_action": requested,
+            "requested_replica_target": target,
             "applied_replica_change": applied,
             **tick_replicas,
             **_queue_info(queue_result),

@@ -10,7 +10,14 @@ from scalerl.environment.gym_env import AutoscalingEnv, Observation
 
 @runtime_checkable
 class Controller(Protocol):
-    """Chooses one ``AutoscalingEnv`` action (0 down, 1 hold, 2 up) per tick.
+    """Chooses one ``AutoscalingEnv`` action code per tick.
+
+    The code's meaning is the environment's versioned action contract
+    (``env.action_contract``, #79): under ``delta-v1`` 0/1/2 = down/hold/up;
+    under ``desired-replicas-v1`` code ``c`` requests ``min_replicas + c``
+    replicas. A controller must emit codes for the contract of the environment
+    it runs in (rule-based controllers take an ``action_contract``; learned
+    policies are bound to theirs by the model compatibility check).
 
     ``info`` is the latest ``reset()``/``step()`` info with replica counts
     replaced by the current, decision-time counts (see :func:`decision_info`).
