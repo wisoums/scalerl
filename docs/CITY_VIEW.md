@@ -88,15 +88,26 @@ Manager panels use only diagnostics the controller really provides. Random and S
 
 ## Inspect vs Live City
 
-A compact control toolbar offers two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+A native two-state segmented control switches between two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+
+```text
+[ 🔎 Inspect | 🏙 Live City ]
+```
+
+The simulation itself is presented as one **scenario player**: the current city/manager state is the stage, episode progress sits with it, and the mode-specific transport controls are directly underneath. History charts remain below the player.
 
 Conceptually:
 
 ```text
-Mode [ Inspect | Live City ]   playback controls   Speed [0.5x 1x 2x 5x]
+┌─────────────────────────────────────────────────────────┐
+│ scenario stage · status · tick/time · progress          │
+│ City View                         Manager               │
+├─────────────────────────────────────────────────────────┤
+│ mode-specific controls underneath                       │
+└─────────────────────────────────────────────────────────┘
 ```
 
-The toolbar is intentionally compact so City View appears near the top of the page rather than below a large controls card.
+This keeps the causal simulation visually together instead of making playback controls feel like an unrelated form.
 
 | Mode | Controls |
 |---|---|
@@ -125,3 +136,17 @@ After each tick the page charts traffic, replicas serving each tick (active and 
 | Results Explorer (#39, planned) | browsing stored experiment runs |
 
 The City View, including Live City playback, does not log to MLflow and is not an experiment database; it is interactive Scenario Lab exploration. Numbers used in results must come from tracked MLflow runs.
+
+
+## Scenario player layout
+
+The player is intentionally designed to feel closer to a video/simulation stage than a dashboard form:
+
+- **mode toggle above**: Inspect vs Live City;
+- **stage inside one outer rectangle**: status, tick/time, progress, City View, manager;
+- **transport controls below the stage**;
+- **History below the player**.
+
+The progress bar is display-only. ScaleRL does not support arbitrary seeking/rewinding because controller state, queue state, and replica lifecycle are sequential. Use **Reset episode** and replay when you need to return to the start.
+
+History is rendered read-only and must never advance simulation state. During Live playback, only the scenario-stage fragment is allowed to call the environment/controller step path.
