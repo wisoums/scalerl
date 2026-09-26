@@ -1023,6 +1023,7 @@ def _write_csv(path: Path, rows: Iterable[Mapping[str, Any]], fields: Sequence[s
         writer.writeheader()
         for row in rows:
             writer.writerow({key: _csv_value(row.get(key)) for key in fields})
+    os.chmod(handle.name, 0o644)  # temp files are private by default
     os.replace(handle.name, path)
 
 
@@ -1036,6 +1037,7 @@ def _write_text(path: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent) as handle:
         handle.write(content)
+    os.chmod(handle.name, 0o644)  # temp files are private by default
     os.replace(handle.name, path)
     return path
 
@@ -1080,13 +1082,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{len(rows)} rows summarized in {args.output_dir}")
         return 0
 
-    plan = make_plan(
-        ControllerManifest.load(args.manifest),
-        workload_ids=args.workloads or DEFAULT_WORKLOADS,
-        scenario_names=args.scenarios,
-        dynamics_seeds=args.dynamics_seeds or DYNAMICS_SEEDS,
-        variant_ids=args.variants,
-    )
+    try:
+        plan = make_plan(
+            ControllerManifest.load(args.manifest),
+            workload_ids=args.workloads or DEFAULT_WORKLOADS,
+            scenario_names=args.scenarios,
+            dynamics_seeds=args.dynamics_seeds or DYNAMICS_SEEDS,
+            variant_ids=args.variants,
+        )
+    except ValueError as error:  # includes pydantic validation errors
+        parser.error(f"invalid evaluation plan: {error}")
     rows = run_plan(
         plan,
         output_dir=args.output_dir,

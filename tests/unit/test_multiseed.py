@@ -259,12 +259,21 @@ def test_base_config_must_be_nominal(manifest: ControllerManifest) -> None:
 
 
 def test_cli_rejects_test_workloads_before_evaluating(
-    manifest: ControllerManifest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    manifest: ControllerManifest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(multiseed, "run_plan", lambda *a, **k: pytest.fail("ran"))
     path = manifest.save(tmp_path / "m.json")
-    with pytest.raises(ValidationError, match="held-out test"):
-        multiseed.main(["run", "--manifest", str(path), "--workload", "syn-test-seasonal-shifted"])
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        multiseed.main(
+            ["run", "--manifest", str(path), "--workload", "syn-test-seasonal-shifted"]
+            + ["--output-dir", str(out)]
+        )
+    assert "held-out test workload" in capsys.readouterr().err
+    assert not out.exists()
 
 
 # --- cases ------------------------------------------------------------------------------------
