@@ -556,3 +556,20 @@ def test_run_is_resumable_and_logs_distinct_seed_metadata(
     freeze = sr.build_freeze(spec, again)
     assert freeze.held_out_data_used is False and freeze.reward_changed is False
     assert len(freeze.mlflow_run_ids) == len(again)
+
+
+def test_committed_freeze_artifact() -> None:
+    path = REPO / "benchmarks" / "v1" / "startup-robustness-freeze-v1.json"
+    freeze = sr.StartupRobustnessFreeze.model_validate_json(path.read_text())
+    assert freeze.freeze_id == "5907ade36ebd"
+    assert freeze.experiment_spec_id == SPEC_ID
+    assert freeze.startup_robustness_version == "startup-robustness-v1"
+    assert freeze.startup_model["id"] == TRI_POINT_MULTIPLICATIVE_V1
+    assert list(freeze.scenarios) == ["startup-delay-jitter", "combined-startup-robustness"]
+    assert freeze.startup_seeds == (0, 1, 2, 3, 4)
+    assert freeze.action_semantics == DESIRED_REPLICAS_V1
+    assert len(freeze.mlflow_run_ids) == 3 * 8 * 11
+    assert all(case.split("|")[1] in sr.VALIDATION_WORKLOADS for case in freeze.mlflow_run_ids)
+    assert freeze.held_out_data_used is False and freeze.reward_changed is False
+    assert freeze.declares_overall_winner is False
+    assert "-test-" not in path.read_text()

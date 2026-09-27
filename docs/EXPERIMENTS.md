@@ -607,9 +607,68 @@ Forecast accuracy is reported separately from control quality: on bursty, identi
 
 ### #81 — stochastic startup delay
 
-`robustness-v1` varies service capacity and telemetry freshness, but startup/readiness time is fixed. #81 adds a **separate** seeded per-replica startup-delay stress test. It must not retroactively alter the four frozen #65 scenarios.
+`robustness-v1` stays **frozen and unchanged**: nominal, capacity jitter, delayed telemetry, and combined robustness, all with fixed startup. #81 adds a **separate** versioned extension, `startup-robustness-v1`. Actual launch time does vary in practice, with factors such as instance size and startup scripts: <https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredictiveScalingConfiguration.html>.
 
-AWS explicitly notes that actual launch time can vary with factors such as instance size and startup scripts: <https://docs.aws.amazon.com/autoscaling/ec2/APIReference/API_PredictiveScalingConfiguration.html>.
+**Startup model `tri-point-multiplicative-v1`.** A bounded, seeded **robustness stress model**. It is **not** a provider-calibrated startup distribution.
+- Each newly requested replica independently draws a multiplier of 0.5 (p = 0.25), 1.0 (p = 0.50) or 1.5 (p = 0.25); the expected multiplier is exactly 1.0.
+- Its realized delay is `startup_delay_seconds × multiplier`. The seconds are not rounded; a replica still activates only through the per-tick lifecycle.
+- At 60 s nominal and 30 s ticks, that means 30 / 60 / 90 s, ready after 1 / 2 / 3 ticks. A continuous ±25% model would mostly collapse into 2 vs 3 ticks at this cadence; three explicit points make early, nominal and late readiness visible.
+- The default `fixed-v1` keeps every delay exactly nominal and draws nothing, so every earlier run and model is unchanged.
+
+**Configuration and RNGs.**
+- `DynamicsConfig.startup_delay_model` (`fixed-v1` | `tri-point-multiplicative-v1`) and `startup_delay_seed` are serialized only when not at their defaults. Pre-#81 config hashes, study identities and plan IDs therefore do not move.
+- The startup RNG is a dedicated per-environment stream seeded by `startup_delay_seed`. It is separate from the capacity-jitter stream (`dynamics_seed`), and both restart on reset. Each new replica takes one draw, in request order; no global random state is used.
+- A `desired-replicas-v1` decision that adds five replicas draws five independent delays, and they can activate on different ticks.
+- Cancellation still removes the newest pending replicas first, and a cancelled replica never activates.
+
+**Information contract.**
+- Controllers know the nominal startup delay and see pending replicas by their **nominal** readiness: their age against the configured delay.
+- The observation shape is unchanged. A replica past its nominal readiness that is still physically pending counts as "due now" (the first bucket).
+- The sampled realization is physical evaluation truth only. It appears in step `info` (`startup_realized_delays_seconds`, `startup_multipliers`, `physical_pending_by_ticks`, listed in `PHYSICAL_ONLY_KEYS`) and never in telemetry, `decision_info`, or the observation. Tests pin this.
+
+**Compatibility.**
+- `EnvironmentCompatibility.startup_delay_model` is compatibility-defining. Old contracts load as `fixed-v1`, and the seed is evaluation metadata only.
+- Ordinary loading rejects a startup-model mismatch. The robustness-only path may perturb it, alongside telemetry delay; action semantics are never perturbable.
+
+**Fairness.**
+- Same workload, scenario, startup seed and request sequence give an identical startup realization, whatever the evaluation order.
+- Controllers that request different replicas at different times consume the stream differently, so their realized delay lists legitimately differ. The guarantee is not "identical delay lists across controllers".
+
+**Experiment `startup-robustness-experiment-v1`** ([spec](../benchmarks/v1/startup-robustness-v1.json), ID `bec43981bfc8`, committed before any run):
+- **Scenarios:**
+  - `startup-delay-jitter`: no capacity jitter, no telemetry delay, tri-point startup; startup seeds 0–4.
+  - `combined-startup-robustness`: ±10% capacity jitter, 1-tick telemetry delay, tri-point startup; matched `dynamics_seed = startup_delay_seed = s` for s in 0–4, with separate streams.
+  - Reference: the frozen `robustness-v1` nominal scenario.
+- **Setup:** validation workloads only, all under an explicit `desired-replicas-v1` (`action-contract-v2`); evaluation seed 0; unchanged reward.
+- **Controllers:** Threshold, `predictive-v1`, `predictive-seasonal-v1`, and the frozen #79 PPO `ppo-c08`, training seeds 0–4. PPO was loaded from its MLflow run with **no retraining**: strictly for nominal, and through the robustness path under the startup scenarios.
+- **No DQN:** no canonical desired-replicas-v1 DQN exists, and the #79 diagnostic fallback is not used.
+- **Runs:** 264 runs in the MLflow experiment `scalerl-startup-robustness`, all at clean commit `eeb3ea3`. The 24 nominal rows reproduce the #79/#80 results exactly.
+- **Command:** `python -m scalerl.evaluation.startup_robustness check | run | freeze`.
+
+**Results (validation only; mean over 5 startup seeds, with min–max; nominal is one run; PPO is the mean over its 5 training seeds, each averaged over startup seeds):**
+
+| Workload | Controller | SLA: nominal / startup-jitter / combined | Norm. cost: nominal / startup / combined | Replicas moved: nominal / startup / combined |
+|---|---|---|---|---|
+| steady-high | Threshold | 0.275 / 0.278 / 0.293 | 0.872 / 0.872 / 0.865 | 9 / 9 / 9 |
+| steady-high | predictive-v1 | 0.042 / 0.038 / 0.053 | 0.708 / 0.707 / 0.706 | 12 / 12 / 12 |
+| steady-high | predictive-seasonal-v1 | 0.042 / 0.038 / 0.053 | 0.710 / 0.709 / 0.709 | 12 / 12 / 12 |
+| steady-high | PPO (5 seeds) | 0.052 / 0.054 / 0.055 | 0.795 / 0.795 / 0.795 | 7.8 / 7.9 / 7.8 |
+| ramp-down | Threshold | 0.350 / 0.350 / 0.362 | 0.839 / 0.839 / 0.837 | 13 / 13 / 13 |
+| ramp-down | predictive-v1 | 0.067 / 0.067 / 0.087 | 0.550 / 0.550 / 0.552 | 17 / 17 / 17 |
+| ramp-down | predictive-seasonal-v1 | 0.067 / 0.067 / 0.087 | 0.568 / 0.568 / 0.569 | 17 / 17 / 17 |
+| ramp-down | PPO (5 seeds) | 0.115 / 0.114 / 0.115 | 0.807 / 0.806 / 0.797 | 9.6 / 10.0 / 10.2 |
+| bursty | Threshold | 0.208 / 0.213 (0.20–0.23) / 0.245 (0.22–0.27) | 0.823 / 0.814 / 0.811 | 14 / 14 / 14.6 |
+| bursty | predictive-v1 | 0.600 / 0.585 (0.57–0.59) / 0.525 (0.51–0.54) | 0.600 / 0.582 / 0.577 | 249 / 233 / 178 |
+| bursty | predictive-seasonal-v1 | 0.267 / 0.275 (0.27–0.28) / 0.315 (0.31–0.33) | 0.609 / 0.609 / 0.626 | 115 / 115 / 111 |
+| bursty | PPO (5 seeds) | 0.092 / 0.089 / 0.097 | 0.792 / 0.792 / 0.793 | 9.6 / 9.6 / 9.9 |
+
+- **The trade-offs are stable.** Startup-delay jitter alone moves SLA by at most about 0.015 per controller and workload, and no controller's relative position changes. The combined scenario (with jitter and stale telemetry) costs more, mostly through the #65 components.
+- **predictive-seasonal-v1** degrades modestly on bursty (0.267 → 0.275 → 0.315) and keeps its large advantage over `predictive-v1`.
+- **predictive-v1** is slightly *better* on bursty under the perturbations (0.600 → 0.525). Late replicas and stale telemetry damp its oscillation, and it moves fewer replicas (249 → 178). That is not a reason to prefer noise; its oscillation is the defect.
+- **PPO seeds** are almost unaffected: their fleets are mostly provisioned ahead of demand, so they request few replicas (6–12 per episode).
+- **Startup diagnostics:** realized delays span 30–90 s. Per-episode mean delays range from 49 to 68 s where few replicas are requested (9–12 per episode) and from 59 to 65 s on bursty for the predictive controllers (60–130 requests); PPO's range is 58.5–60.9 s. The maximum readiness spread within one multi-replica request is 60 s (a 30 s and a 90 s replica in the same request).
+
+The freeze artifact [`benchmarks/v1/startup-robustness-freeze-v1.json`](../benchmarks/v1/startup-robustness-freeze-v1.json) (ID `5907ade36ebd`) records the model, scenarios, seeds, controllers, compact evidence and all 264 run IDs for #72/#46. It declares no winner, uses no held-out data, and leaves the reward unchanged.
 
 ### Freeze order
 

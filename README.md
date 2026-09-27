@@ -86,7 +86,7 @@ Before opening the held-out test suite in #46, ScaleRL now freezes four addition
   - On Azure validation the historical profile did not improve forecast accuracy, and every controller stays at one replica.
 
   See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#80--cloud-style-proactive-predictive-baseline).
-- **#81 — startup-delay robustness:** preserve frozen `robustness-v1` exactly, then add a separate seeded test for variable replica startup/readiness times.
+- **#81 — startup-delay robustness (frozen: [`startup-robustness-v1`](benchmarks/v1/startup-robustness-freeze-v1.json)):** `robustness-v1` is unchanged. A separate extension adds a seeded per-replica startup-delay stress model, `tri-point-multiplicative-v1`: 0.5× / 1.0× / 1.5× nominal startup with probabilities 0.25 / 0.50 / 0.25. It is not a provider calibration. It has its own RNG stream, and the sampled realizations are hidden from controllers, which see nominal readiness only. There are two scenarios (`startup-delay-jitter`, `combined-startup-robustness`, seeds 0–4). In validation, controller trade-offs stayed stable.
 
 Kubernetes HPA itself calculates an integer **desired replica count**, which is why #79 tests direct target-capacity semantics instead of treating horizontal autoscaling as a continuous CPU/RAM action problem: <https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/>.
 
