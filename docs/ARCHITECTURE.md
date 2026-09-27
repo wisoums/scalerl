@@ -67,6 +67,12 @@ A simulation tick applies the controller action, reads workload demand, processe
 
 Controller-specific state such as threshold cooldown/stabilization belongs to that controller, not the core environment.
 
+## Predictive baselines
+
+`predictive-v1` (`controllers/predictive.py`, `linear-trend` + `forecast-plus-backlog-v1`) and `predictive-seasonal-v1` (`controllers/proactive_predictive.py`, `historical-profile-plus-linear-v1` + `proactive-scaleout-conservative-scalein-v1`, #80) are separate controllers. They share pure helpers: the startup horizon (`startup_ticks`), `linear_trend_forecast`, `size_replicas` and `backlog_recovery_rate`. Both encode their targets through the environment's `ActionContract`, derived from the simulator config.
+
+`HistoricalDemandProfile` is an immutable per-tick median of aligned TRAIN traces; validation and test workloads are refused as history. Forecast records store only what was known at decision time, and actual demand is joined for scoring after the episode.
+
 ## MLOps flow
 
 ```text

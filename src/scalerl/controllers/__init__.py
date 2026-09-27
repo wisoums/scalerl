@@ -9,13 +9,24 @@ from scalerl.controllers.predictive import (
     backlog_recovery_rate,
     effective_sizing_demand,
 )
+from scalerl.controllers.proactive_predictive import (
+    HistoricalDemandProfile,
+    ProactiveForecastRecord,
+    ProactivePredictiveController,
+    ProactivePredictiveDecision,
+    profile_level_factor,
+)
 from scalerl.controllers.threshold import ThresholdController, ThresholdDecision
 
 __all__ = [
     "Controller",
     "ForecastRecord",
+    "HistoricalDemandProfile",
     "PredictiveController",
     "PredictiveDecision",
+    "ProactiveForecastRecord",
+    "ProactivePredictiveController",
+    "ProactivePredictiveDecision",
     "RandomController",
     "StaticController",
     "ThresholdController",
@@ -23,5 +34,6 @@ __all__ = [
     "backlog_recovery_rate",
     "decision_info",
     "effective_sizing_demand",
+    "profile_level_factor",
     "run_episode",
 ]
