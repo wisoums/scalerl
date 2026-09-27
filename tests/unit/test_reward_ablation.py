@@ -430,12 +430,30 @@ def test_run_reward_trains_fresh_desired_models_and_resumes(
     ra.run_reward(spec, candidates, selection, "full-cost-high-v1", **kwargs)
     assert len(client.search_runs([experiment.experiment_id], max_results=1000)) == count
     ids = ["dqn-c00", "dqn-c01"]
-    loaded = ra.load_reward_models(spec, out, "full-cost-high-v1", ids)
+    loaded = ra.load_reward_models(spec, out, "full-cost-high-v1", selection, ids)
     assert [m.training_seed for m in loaded[3]] == [0, 1, 2, 3, 4]
+    assert loaded[0] == result  # recomputed from the screening evidence
+    # A selection made over a different candidate subset is refused, not trusted.
+    stored = out / "full-cost-high-v1" / "dqn-selection.json"
+    original = stored.read_text()
+    subset = ra.model_selection.select(
+        selection,
+        "dqn-full-cost-high-v1",
+        ra.dqn_candidates(loaded[1][:1], "dqn-full-cost-high-v1"),
+    )
+    subset.save(stored)
+    with pytest.raises(ValueError, match="does not match"):
+        ra.load_reward_models(spec, out, "full-cost-high-v1", selection, ids)
+    # So is a selection copied from another reward (different family).
+    foreign = result.model_copy(update={"family": "dqn-full-default-v1"})
+    foreign.save(stored)
+    with pytest.raises(ValueError, match="does not match"):
+        ra.load_reward_models(spec, out, "full-cost-high-v1", selection, ids)
+    stored.write_text(original)
     stray = out / "full-cost-high-v1" / "ppo-training" / "ppo-c08-seed7.json"
     stray.write_text((out / ppo_files[0]).read_text())
     with pytest.raises(ValueError, match="unexpected evidence"):
-        ra.load_reward_models(spec, out, "full-cost-high-v1", ids)
+        ra.load_reward_models(spec, out, "full-cost-high-v1", selection, ids)
 
 
 # --- the frozen reward contract -------------------------------------------------------------------

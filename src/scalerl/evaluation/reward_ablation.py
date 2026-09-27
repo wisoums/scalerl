@@ -664,12 +664,22 @@ def _equal_workload(means: Mapping[str, Mapping[str, float]], metric: str) -> fl
 
 
 def load_reward_models(
-    spec: ExperimentSpec, out: Path, reward: str, dqn_ids: Sequence[str] | None = None
+    spec: ExperimentSpec,
+    out: Path,
+    reward: str,
+    selection_spec: SelectionSpec,
+    dqn_ids: Sequence[str] | None = None,
 ) -> tuple[SelectionResult, list[TrainingEvidence], list[TrainingEvidence], list[TrainingEvidence]]:
-    """(DQN selection, DQN screening, DQN retrained, PPO) of one reward; exact matrix only."""
-    selection = SelectionResult.model_validate_json(
-        (out / reward / "dqn-selection.json").read_text()
-    )
+    """(DQN selection, DQN screening, DQN retrained, PPO) of one reward; exact matrix only.
+
+    The #78 selection is recomputed from the loaded screening evidence with the
+    frozen selection spec; a stored ``dqn-selection.json`` that differs (stale,
+    copied from another reward, or made over a different candidate subset) is
+    refused, never trusted.
+    """
+    if selection_spec.spec_id != spec.selection_spec_id:
+        raise ValueError(f"selection spec {selection_spec.spec_id} is not {spec.selection_spec_id}")
+    stored = SelectionResult.model_validate_json((out / reward / "dqn-selection.json").read_text())
     screening = [
         _load_evidence(
             evidence_path(out, reward, "dqn-screening", cid, SCREENING_SEED),
@@ -680,6 +690,13 @@ def load_reward_models(
         )
         for cid in (dqn_ids if dqn_ids is not None else dqn_candidate_ids(spec))
     ]
+    family = f"dqn-{reward}"
+    selection = model_selection.select(selection_spec, family, dqn_candidates(screening, family))
+    if stored != selection:
+        raise ValueError(
+            f"{out / reward / 'dqn-selection.json'} does not match the #78 selection recomputed "
+            "from the screening evidence; refusing a stale or foreign selection"
+        )
     dqn: list[TrainingEvidence] = []
     if selection.selection_succeeded and selection.selected_candidate_id is not None:
         cid = selection.selected_candidate_id
@@ -855,12 +872,12 @@ def reward_mismatch(
     }
 
 
-def build_report(spec: ExperimentSpec, out: Path) -> dict[str, Any]:
+def build_report(spec: ExperimentSpec, out: Path, selection_spec: SelectionSpec) -> dict[str, Any]:
     thresholds = dict(spec.sla_thresholds)
     per_reward: dict[str, dict[str, Any]] = {}
     details: dict[str, Any] = {}
     for reward in spec.reward_variants:
-        selection, screening, dqn, ppo = load_reward_models(spec, out, reward)
+        selection, screening, dqn, ppo = load_reward_models(spec, out, reward, selection_spec)
         dqn_means = _equal_seed_means(dqn) if dqn else None
         ppo_means = _equal_seed_means(ppo)
         per_reward[reward] = {
@@ -1115,7 +1132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{args.reward}: DQN {result.feasible_candidate_count}/20 feasible; selected {chosen}"
         )
         return 0
-    report = build_report(spec, out)
+    report = build_report(spec, out, selection)
     _write_text(
         out / "decision-report.json", json.dumps(_json(report), indent=2, sort_keys=True) + "\n"
     )
