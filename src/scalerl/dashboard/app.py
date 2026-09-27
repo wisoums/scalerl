@@ -668,9 +668,7 @@ def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -
     target_value: str | int = "—"
     applied_value = "—"
     if last is not None:
-        decision_value = ACTION_LABELS.get(
-            last["requested_action"], str(last["requested_action"])
-        )
+        decision_value = ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
         target_value = last["requested_replica_target"]
         applied_value = f"{last['applied_replica_change']:+d}"
 
@@ -687,6 +685,8 @@ def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -
             st.caption("Press Play or Step once below to complete the first tick.")
     else:
         _render_live_manager_reason(session)
+
+
 def _render_live_manager_reason(session: ScenarioSession) -> None:
     decision = session.threshold_decision
     if decision is not None:

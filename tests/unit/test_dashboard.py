@@ -882,7 +882,10 @@ def test_inspect_uses_the_same_compact_snapshot_as_live_city(app: AppTest) -> No
     assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
     assert "🚗 Incoming traffic" not in labels
     assert "👥 Waiting queue" not in labels
-    assert not any("Traffic" in markdown.value and "→" in markdown.value for markdown in app.markdown)
+    # No stale one-line "Traffic … → …" snapshot; checked per line because the static
+    # glossary legitimately mentions "Traffic" and uses arrows on other lines.
+    lines = [line for markdown in app.markdown for line in markdown.value.splitlines()]
+    assert not any("Traffic" in line and "→" in line for line in lines)
 
 
 def test_app_guidance_explains_live_city(app: AppTest) -> None:
