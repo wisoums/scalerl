@@ -1,0 +1,256 @@
+{
+  "experiment_version": "startup-robustness-experiment-v1",
+  "startup_robustness_version": "startup-robustness-v1",
+  "benchmark_version": "v1",
+  "startup_model": {
+    "id": "tri-point-multiplicative-v1",
+    "multipliers": [
+      0.5,
+      1.0,
+      1.5
+    ],
+    "probabilities": [
+      0.25,
+      0.5,
+      0.25
+    ],
+    "expected_multiplier": 1.0,
+    "support": [
+      0.5,
+      1.5
+    ],
+    "per_replica": "one independent draw per newly requested replica, in request order",
+    "rounding": "no pre-rounding of realized seconds; activation only through the lifecycle's per-tick advance",
+    "canonical_example": "60 s nominal -> 30 / 60 / 90 s: ready after 1 / 2 / 3 ticks of 30 s",
+    "rng": "dedicated per-environment RNG: default_rng(SeedSequence(startup_delay_seed, spawn_key=(1937012080,))), domain-separated from the capacity RNG default_rng(dynamics_seed); reset restarts both",
+    "calibration": "robustness stress model, not a provider-calibrated distribution"
+  },
+  "fixed_model": "fixed-v1: realized delay = nominal delay exactly, no RNG draw (default)",
+  "scenarios": {
+    "startup-delay-jitter": {
+      "version": "startup-robustness-v1",
+      "capacity_jitter_fraction": 0.0,
+      "telemetry_delay_ticks": 0,
+      "startup_delay_model": "tri-point-multiplicative-v1",
+      "seed_pairs_dynamics_startup": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          4
+        ]
+      ]
+    },
+    "combined-startup-robustness": {
+      "version": "startup-robustness-v1",
+      "capacity_jitter_fraction": 0.1,
+      "telemetry_delay_ticks": 1,
+      "startup_delay_model": "tri-point-multiplicative-v1",
+      "seed_pairs_dynamics_startup": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          4,
+          4
+        ]
+      ]
+    }
+  },
+  "reference": {
+    "robustness_version": "robustness-v1",
+    "scenario": "nominal",
+    "dynamics_seed": 0,
+    "startup_delay_model": "fixed-v1"
+  },
+  "robustness_v1_scenarios": [
+    "nominal",
+    "capacity-jitter",
+    "delayed-telemetry",
+    "combined-robustness"
+  ],
+  "startup_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "combined_dynamics_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "evaluation_seed": 0,
+  "action_semantics": "desired-replicas-v1",
+  "action_decision_version": "action-contract-v2",
+  "simulator_config": {
+    "timing": {
+      "control_interval_seconds": 30.0,
+      "episode_duration_seconds": 3600.0
+    },
+    "replicas": {
+      "min_replicas": 1,
+      "max_replicas": 10,
+      "initial_replicas": 1,
+      "startup_delay_seconds": 60.0,
+      "service_capacity_rps": 50.0,
+      "cost_per_hour": 0.1
+    },
+    "sla": {
+      "latency_target_seconds": 0.5
+    },
+    "observation": {
+      "traffic_history_ticks": 4
+    },
+    "dynamics": {
+      "capacity_jitter_fraction": 0.0,
+      "dynamics_seed": 0,
+      "telemetry_delay_ticks": 0
+    },
+    "action": {
+      "semantics": "desired-replicas-v1"
+    }
+  },
+  "validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "test_workload_ids": [],
+  "controller_variants": [
+    "threshold-v1",
+    "predictive-v1",
+    "predictive-seasonal-v1",
+    "ppo-desired-replicas-v1-seed0",
+    "ppo-desired-replicas-v1-seed1",
+    "ppo-desired-replicas-v1-seed2",
+    "ppo-desired-replicas-v1-seed3",
+    "ppo-desired-replicas-v1-seed4"
+  ],
+  "ppo_models": [
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 0,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "47da383ccf324d468c58214000a3cd0c",
+      "model_artifact_uri": "runs:/47da383ccf324d468c58214000a3cd0c/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 1,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "bcdb78ceca944bf8be428e82e19a1e94",
+      "model_artifact_uri": "runs:/bcdb78ceca944bf8be428e82e19a1e94/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 2,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "c4a087c1c87e4937be8d2a11f5fc76bf",
+      "model_artifact_uri": "runs:/c4a087c1c87e4937be8d2a11f5fc76bf/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 3,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "fa795d09f04d4974aad862abcdd26460",
+      "model_artifact_uri": "runs:/fa795d09f04d4974aad862abcdd26460/model"
+    },
+    {
+      "family": "ppo-desired-replicas-v1",
+      "training_seed": 4,
+      "selected_candidate_id": "ppo-c08",
+      "training_run_id": "11f632851e91409a85c4dcdd69d00aeb",
+      "model_artifact_uri": "runs:/11f632851e91409a85c4dcdd69d00aeb/model"
+    }
+  ],
+  "dqn": "no canonical desired-replicas-v1 DQN exists (#79: 0/20 feasible); the diagnostic fallback is not used and no DQN is run",
+  "metrics": {
+    "system": [
+      "infrastructure_cost",
+      "normalized_cost",
+      "sla_violation_rate",
+      "mean_p95_latency_seconds",
+      "max_p95_latency_seconds",
+      "mean_queue_depth",
+      "max_queue_depth",
+      "queue_pressure",
+      "scaling_actions",
+      "churn_rate",
+      "episode_reward"
+    ],
+    "action": [
+      "scaling_events",
+      "total_absolute_replica_change",
+      "mean_absolute_replica_change_when_scaling",
+      "max_absolute_replica_change_in_one_tick",
+      "max_pending_replicas"
+    ],
+    "startup": [
+      "replicas_requested",
+      "mean_realized_delay_seconds",
+      "min_realized_delay_seconds",
+      "max_realized_delay_seconds",
+      "mean_multiplier",
+      "min_multiplier",
+      "max_multiplier",
+      "multi_replica_batches",
+      "mean_batch_readiness_spread_seconds",
+      "max_batch_readiness_spread_seconds"
+    ],
+    "dynamics": [
+      "mean/min/max capacity multiplier"
+    ],
+    "reporting": "descriptive per controller/workload/scenario over startup seeds; PPO training seeds summarized separately; no significance tests, no ranking"
+  },
+  "compatibility": {
+    "compatibility_defining": "startup_delay_model",
+    "evaluation_metadata": "startup_delay_seed",
+    "robustness_perturbable": [
+      "telemetry_delay_ticks",
+      "startup_delay_model"
+    ],
+    "ppo_loading": "strict for nominal; robustness-only path for startup scenarios"
+  },
+  "fairness": "same workload, scenario, startup seed and request sequence -> identical startup realization, independent of evaluation order; divergent request histories legitimately consume the stream differently",
+  "information_contract": "controllers know the nominal startup delay and pending replicas by nominal readiness; sampled realizations are physical-only info, never decision_info or the observation",
+  "reward_weights": {
+    "latency": 1.0,
+    "cost": 1.0,
+    "sla": 1.0,
+    "queue": 1.0,
+    "churn": 0.1
+  },
+  "reward_changed": false,
+  "held_out_data_used": false
+}

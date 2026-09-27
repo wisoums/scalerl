@@ -45,7 +45,11 @@ h + 3. active replicas / ``max_replicas``
 h + 4. tick cost / cost of ``max_replicas`` for one tick
 h + 5. episode progress: completed ticks / episode ticks
 h + 6 ... h + 6 + k - 1. pending replicas that become active after 1 ... k more
-   ticks, each / ``max_replicas``
+   ticks, each / ``max_replicas``, by their **nominal** readiness (age against
+   the configured startup delay). Under a stochastic startup-delay model (#81)
+   the sampled realization is hidden: a replica past its nominal readiness but
+   still physically pending counts in the first bucket, and the shape is
+   unchanged, so already-trained policies can be evaluated under it.
 
 ``observation_features`` names every position. The traffic history holds only
 demand consumed by completed ticks, never the next workload value.
@@ -109,6 +113,7 @@ from scalerl.environment.reward import (
     max_tick_capacity_of,
     max_tick_cost_of,
 )
+from scalerl.environment.startup import FIXED_V1, draw_tri_point_multiplier, startup_rng
 from scalerl.workloads.trace import WorkloadReplay, WorkloadTrace
 
 __all__ = [
@@ -118,6 +123,7 @@ __all__ = [
     "SCALE_UP",
     "AutoscalingEnv",
     "Observation",
+    "PHYSICAL_ONLY_KEYS",
     "TelemetrySnapshot",
 ]
 
@@ -133,6 +139,18 @@ CONTROL_PLANE_KEYS = frozenset(
         "active_replicas",
         "pending_replicas",
         "terminating_replicas",
+    }
+)
+
+# Physical-truth diagnostics that describe hidden future lifecycle state (sampled
+# startup realizations, #81): kept in step ``info`` for evaluation, but never in
+# telemetry snapshots, ``decision_info``, or the observation.
+PHYSICAL_ONLY_KEYS = frozenset(
+    {
+        "startup_delay_model",
+        "startup_realized_delays_seconds",
+        "startup_multipliers",
+        "physical_pending_by_ticks",
     }
 )
 
@@ -185,7 +203,14 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
 
         self._clock = SimulationClock(config.timing.control_interval_seconds)
         self._replay = WorkloadReplay(trace)
-        self._pool = ReplicaPool(config.replicas)
+        self._startup_model = config.dynamics.startup_delay_model
+        self._startup_rng = startup_rng(config.dynamics.startup_delay_seed)
+        self._pool = ReplicaPool(
+            config.replicas,
+            startup_multiplier=(
+                None if self._startup_model == FIXED_V1 else self._draw_startup_multiplier
+            ),
+        )
 
         pending_buckets = len(self._pending_buckets())
         self._actions = ActionContract.from_config(config)
@@ -256,6 +281,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._telemetry.clear()
         # Restart the dynamics realization: same seed, same multiplier sequence.
         self._dynamics_rng = np.random.default_rng(self.config.dynamics.dynamics_seed)
+        self._startup_rng = startup_rng(self.config.dynamics.startup_delay_seed)
         self._needs_reset = False
         return self._observation(), self.replica_counts | {"tick": 0, "time_seconds": 0.0}
 
@@ -270,8 +296,10 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         # one step; new replicas start pending and follow the startup lifecycle
         committed = self._pool.desired_count
         target = self._actions.target_for(requested, committed)
+        started: tuple[Any, ...] = ()
         if target > committed:
             applied = self._pool.scale_up(target - committed)
+            started = self._pool.last_started
         elif target < committed:
             applied = -self._pool.scale_down(committed - target)
         else:
@@ -336,9 +364,27 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             },
             "reward": breakdown.reward,
         }
-        measurements = {k: v for k, v in info.items() if k not in CONTROL_PLANE_KEYS}
+        if self._startup_model != FIXED_V1:
+            interval = self.config.timing.control_interval_seconds
+            info |= {
+                "startup_delay_model": self._startup_model,
+                "startup_realized_delays_seconds": [r.realized_delay_seconds for r in started],
+                "startup_multipliers": [r.multiplier for r in started],
+                "physical_pending_by_ticks": list(
+                    self._pool.physical_pending_by_ticks_until_active(interval)
+                ),
+            }
+        measurements = {
+            k: v
+            for k, v in info.items()
+            if k not in CONTROL_PLANE_KEYS and k not in PHYSICAL_ONLY_KEYS
+        }
         self._telemetry.appendleft(TelemetrySnapshot(tick, MappingProxyType(measurements)))
         return self._observation(), breakdown.reward, False, truncated, info
+
+    def _draw_startup_multiplier(self) -> float:
+        """One per-replica startup multiplier from the dedicated startup RNG."""
+        return draw_tri_point_multiplier(self._startup_rng)
 
     def _capacity_multiplier(self) -> float:
         if self._jitter == 0:

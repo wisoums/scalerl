@@ -32,6 +32,16 @@ from scalerl.environment.reward import (
     RewardWeights,
     compute_reward,
 )
+from scalerl.environment.startup import (
+    FIXED_V1,
+    STARTUP_DELAY_MODELS,
+    STARTUP_RNG_DOMAIN,
+    TRI_POINT_EXPECTED_MULTIPLIER,
+    TRI_POINT_MULTIPLICATIVE_V1,
+    TRI_POINT_MULTIPLIERS,
+    TRI_POINT_PROBABILITIES,
+    StartupDelayModel,
+)
 
 __all__ = [
     "ACTION_SEMANTICS",
@@ -39,6 +49,13 @@ __all__ = [
     "DELTA_EFFECTS",
     "DELTA_V1",
     "DESIRED_REPLICAS_V1",
+    "FIXED_V1",
+    "STARTUP_DELAY_MODELS",
+    "STARTUP_RNG_DOMAIN",
+    "TRI_POINT_EXPECTED_MULTIPLIER",
+    "TRI_POINT_MULTIPLICATIVE_V1",
+    "TRI_POINT_MULTIPLIERS",
+    "TRI_POINT_PROBABILITIES",
     "HOLD",
     "SCALE_DOWN",
     "SCALE_UP",
@@ -58,6 +75,7 @@ __all__ = [
     "SimulationClock",
     "SimulatorConfig",
     "SlaConfig",
+    "StartupDelayModel",
     "TickMetrics",
     "TimingConfig",
     "compute_reward",

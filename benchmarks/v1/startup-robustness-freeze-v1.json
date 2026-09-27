@@ -1,0 +1,2009 @@
+{
+  "freeze_version": "startup-robustness-freeze-v1",
+  "startup_robustness_version": "startup-robustness-v1",
+  "experiment_spec_id": "60f1f14972a7",
+  "startup_model": {
+    "id": "tri-point-multiplicative-v1",
+    "multipliers": [
+      0.5,
+      1.0,
+      1.5
+    ],
+    "probabilities": [
+      0.25,
+      0.5,
+      0.25
+    ],
+    "expected_multiplier": 1.0,
+    "support": [
+      0.5,
+      1.5
+    ],
+    "per_replica": "one independent draw per newly requested replica, in request order",
+    "rounding": "no pre-rounding of realized seconds; activation only through the lifecycle's per-tick advance",
+    "canonical_example": "60 s nominal -> 30 / 60 / 90 s: ready after 1 / 2 / 3 ticks of 30 s",
+    "rng": "dedicated per-environment RNG: default_rng(SeedSequence(startup_delay_seed, spawn_key=(1937012080,))), domain-separated from the capacity RNG default_rng(dynamics_seed); reset restarts both",
+    "calibration": "robustness stress model, not a provider-calibrated distribution"
+  },
+  "scenarios": {
+    "startup-delay-jitter": {
+      "version": "startup-robustness-v1",
+      "capacity_jitter_fraction": 0.0,
+      "telemetry_delay_ticks": 0,
+      "startup_delay_model": "tri-point-multiplicative-v1",
+      "seed_pairs_dynamics_startup": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          0,
+          4
+        ]
+      ]
+    },
+    "combined-startup-robustness": {
+      "version": "startup-robustness-v1",
+      "capacity_jitter_fraction": 0.1,
+      "telemetry_delay_ticks": 1,
+      "startup_delay_model": "tri-point-multiplicative-v1",
+      "seed_pairs_dynamics_startup": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          4,
+          4
+        ]
+      ]
+    }
+  },
+  "reference": {
+    "robustness_version": "robustness-v1",
+    "scenario": "nominal",
+    "dynamics_seed": 0,
+    "startup_delay_model": "fixed-v1"
+  },
+  "startup_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "action_semantics": "desired-replicas-v1",
+  "action_decision_version": "action-contract-v2",
+  "validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "controller_variants": [
+    "threshold-v1",
+    "predictive-v1",
+    "predictive-seasonal-v1",
+    "ppo-desired-replicas-v1-seed0",
+    "ppo-desired-replicas-v1-seed1",
+    "ppo-desired-replicas-v1-seed2",
+    "ppo-desired-replicas-v1-seed3",
+    "ppo-desired-replicas-v1-seed4"
+  ],
+  "dqn": "no canonical desired-replicas-v1 DQN exists (#79: 0/20 feasible); the diagnostic fallback is not used and no DQN is run",
+  "mlflow_experiment": "scalerl-startup-robustness",
+  "mlflow_run_ids": {
+    "threshold-v1|syn-val-steady-high|nominal|dyn0|fixed|eval0": "7e0d1980920647329d7fe1dfae716931",
+    "threshold-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "b9c7dbb803824d049a1f8ca0aa56471a",
+    "threshold-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "650e53060a724519b973aa87fb3167db",
+    "threshold-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "09db6fce5e7c457ca1cb891ab8af651d",
+    "threshold-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "2df4a6fcc8bd432f8275d251bf110972",
+    "threshold-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "889dd3920b354a0ca697c36fb190e3f2",
+    "threshold-v1|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "b12b4eaedda44440b8c5d3dc9b4fb66f",
+    "threshold-v1|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "dd68e76284004435ab8617bff1ce4a29",
+    "threshold-v1|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "b1462898c1b24f7f85c2c272c0ab9aa7",
+    "threshold-v1|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "72a6c59dcc1e4a1b954e9082e1b8b3e4",
+    "threshold-v1|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "83c9effe8d2347a79df6cf2c1ed680e4",
+    "predictive-v1|syn-val-steady-high|nominal|dyn0|fixed|eval0": "85de3cc780a74200b9e8ac329443af6b",
+    "predictive-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "1f0fc18028f940e68781743ead507e5f",
+    "predictive-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "a995c1d1e4e04484872621f010188e72",
+    "predictive-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "4f67a22e018a45e0926290a50f749f57",
+    "predictive-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "aca24a610a024459899d26a7b0de73e5",
+    "predictive-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "bdaf869caf65412594d5793826221fbb",
+    "predictive-v1|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "b4198d8f132d4dd5a62ff285688d162f",
+    "predictive-v1|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "cb9dd18d709749dcbd48046131bd31a9",
+    "predictive-v1|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "72bbdfee98cf4c6f87f3932f4778b76c",
+    "predictive-v1|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "f1b45022c8c34841a8e8b57b34e9870f",
+    "predictive-v1|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "ee8db88269414a7d87890468b32c50a6",
+    "predictive-seasonal-v1|syn-val-steady-high|nominal|dyn0|fixed|eval0": "e3a6751a032c4a1fa4193c94e6e4b64f",
+    "predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "56e6ffeed6ff4cf6b4327ecf356f114b",
+    "predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "04d2d51f3b6d440d8e080a779bbfe458",
+    "predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "627554a305f74b3199e8810a6560c069",
+    "predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "7f6c74fa8a8a456e83afc417d41447f3",
+    "predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "22fa426c31f4427eb114ddd3f5038b57",
+    "predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "4e5ad63f3be740a8a59bbf2fa7254c2f",
+    "predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "1b134f24dda64301b03a9cd2b9d9595d",
+    "predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "e15c00b46b374e20bff6738366cb0681",
+    "predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "f7f63bfc0790425ba483403411b0fee1",
+    "predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "f2b17c16a5594371bb5852c0aad85fe1",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|nominal|dyn0|fixed|eval0": "27cb053e293349ce8e180118b9f729bb",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "06879aa0f18740bd9a4bc1fc1da1704a",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "4ca0f68269fc4cb389327ab43a8a63fd",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "7309adf9a9814c4b8da18c5cfdcbaeea",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "67aa6413059a45faa2f3e22b4e593959",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "8b0746f65eb44e45a04178223a106a45",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "5597ee0285e04920a877e022983c1678",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "c8a554fc48944aaf9635fb01417909c4",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "0a8aea0648b2469896cfd26e84f7216a",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "a2afd1cfee7f4d86b2c07257077a7fc1",
+    "ppo-desired-replicas-v1-seed0|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "ff933ad269a84d1ba666a7ac3267df71",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|nominal|dyn0|fixed|eval0": "447f678215204a40a0b2b1b8d30281fc",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "ae69c62080ec4d0d98d47dd8f76e03d1",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "2f279684056245c491a17566fbd6e069",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "2153710dde664dc5aa4b1fd32f58b874",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "1e0494f080f94f6b833506a944188cdb",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "0addcb4977674ec0b4bf698ca1cc7937",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "e06c99fff2cf4f4895f338cc43c664fe",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "36615153bc154e69bd03e1ac5bd4b9bc",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "26264bfc053947e794c067e4a6ddd917",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "a462ecda0b944cc593c571e2f2134966",
+    "ppo-desired-replicas-v1-seed1|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "736611ccb8254d5f9d8704cc1de2835f",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|nominal|dyn0|fixed|eval0": "2689415ef8da45db89e9a592e0660e46",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "3d9bead394574154a79a0145748fc968",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "93813f67170a4bbeb28482c4adac525c",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "9ec2a86b82c840a3879493f8518f9cb5",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "c6efcc55e06145cf8181223c5128e8e2",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "f5eb540f955848e3b5266632e4297b98",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "bdf8e21929e647e3a148296877e98594",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "c375072309e249c5a416b022b7d2abd9",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "97c8571c7ce8483e9c0cac4a7b64f167",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "c607fabe9f4042d4bdad9014df101e75",
+    "ppo-desired-replicas-v1-seed2|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "ed6922c4b7fe40e9a67ab7aa9d76d585",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|nominal|dyn0|fixed|eval0": "6f1b24e090024ad0b73128a26eed52e8",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "3b08f62b37d642a3850ac7699292a53f",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "57177a37cbaf4c8b9f7b95f07bbe5744",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "65610b50af1d480b914e3acec6144a59",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "56a51801bfe24899b1b81d42f9dc05b5",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "025ab50dcd124a5582d327211d0549bc",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "edb51ad2f8d54652995edb8a0deb4f64",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "43ca6d4dcafc40da960fd1c278d5afcb",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "7eaca5d75de243bfb5c67f57248aa468",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "49e0b61424fc40568774b153a51a5d80",
+    "ppo-desired-replicas-v1-seed3|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "7f259634e1304b3ea78c01ac82555909",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|nominal|dyn0|fixed|eval0": "b74218fa076444aba751df84c87cbec3",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|startup-delay-jitter|dyn0|startup0|eval0": "434b8c7015d44d62b4ab819d208add3f",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|startup-delay-jitter|dyn0|startup1|eval0": "5fa2b1e9e2ba48e7b94556d1aa90f63a",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|startup-delay-jitter|dyn0|startup2|eval0": "5c3f7aa6af06460089a3b2b03b1a92db",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|startup-delay-jitter|dyn0|startup3|eval0": "f9a3be35418148cb967407c0bec80678",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|startup-delay-jitter|dyn0|startup4|eval0": "b1817b4ab6a94165b113c87ce18f88ff",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|combined-startup-robustness|dyn0|startup0|eval0": "1c84ae921d2a40f3a48f20af87beb9d1",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|combined-startup-robustness|dyn1|startup1|eval0": "1c20aab2349f468786ff6b912cfe5efb",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|combined-startup-robustness|dyn2|startup2|eval0": "e456e7270a5d48848af1ccbfb0bdd141",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|combined-startup-robustness|dyn3|startup3|eval0": "e51ae99a6b44452f9f7134e05d1cb70e",
+    "ppo-desired-replicas-v1-seed4|syn-val-steady-high|combined-startup-robustness|dyn4|startup4|eval0": "e78caf8b2f05481e8c4ad2c3a650248c",
+    "threshold-v1|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "7b31ac04df1f42f8b3e41aba9299fe94",
+    "threshold-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "86eb966177e548c1865f00e3e300779d",
+    "threshold-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "61b68d169f904927988f1159ab9e9244",
+    "threshold-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "b5517ae5492946b2b0d8ac6b6c28a1af",
+    "threshold-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "7fcf5d9a4c454e1aac705fb2cd0b1071",
+    "threshold-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "7e0d709548ef40358932ed82bb1db755",
+    "threshold-v1|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "95c01ea9272b4e5989af02695b673bd8",
+    "threshold-v1|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "d0de574a93d2480e97444dfbe6da81b1",
+    "threshold-v1|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "3149403fd20c4fde8f4eebd629326dff",
+    "threshold-v1|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "2aeecf9495404655be252b5078a69433",
+    "threshold-v1|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "a67c162eb16e49a2b430d33c41a488cf",
+    "predictive-v1|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "027a64a503eb48b79f052b1f4238871f",
+    "predictive-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "68e527639c284a268fe47dc40bb7bcbd",
+    "predictive-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "64e4c143361647198f379d0ba48797e3",
+    "predictive-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "f528b7bd0bfb4387a8fe541100ad9f58",
+    "predictive-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "71e26f6500804660914027aea7fe73d8",
+    "predictive-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "2b689beb99cd4f8ebde18516ad61a3ab",
+    "predictive-v1|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "7852438b4ce34e009f954970d1e334cf",
+    "predictive-v1|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "3fd924d3b7bc4bd9a8d06d90380bce06",
+    "predictive-v1|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "aa5e758dbfb941e98e3c9dc4cbeebb74",
+    "predictive-v1|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "5a5243bfb0a541b082d6b9d29d484e43",
+    "predictive-v1|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "616eeaeb8f7a48529f9429540fdecb50",
+    "predictive-seasonal-v1|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "ab2910c49320453aad851510d4ccc77e",
+    "predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "c27ec2f428cf4258adadaa2ce14bde18",
+    "predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "0e60beb0e89a480893513e7fc76a919d",
+    "predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "b1226c9560a94dea8b28ebf8e9444026",
+    "predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "5ab60dc0400c4aab9a46e8f08264d4d4",
+    "predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "a73c1f1bc44d4f13b7aa81e8bb9be841",
+    "predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "69774b675e0b44abbe5b4b6be25f9bf7",
+    "predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "7d9eb43651de4703bb69c5f9d375cba6",
+    "predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "c31940e16d8b455296647ca594e416cf",
+    "predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "9ad17d169e37458299082fb72da23ee0",
+    "predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "6350840f665b4d569718de79eddfe70b",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "c44cb2b6eb494366a765fcb8773ccae4",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "0da3b59c59794170892f5f9ae74f797c",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "d693ca3e305b46fda1d4896086a73d5a",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "4b27727feb504c49816dbea2db7d9943",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "3ec73afba2964bb5aee117af9400dbd5",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "698ca29b89c34fb08942439a25e2e486",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "449c6a5941a04a2c8349e8142d710027",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "6e73d6cb691642edb39d2cb9144f7aaa",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "b21a3e8fa0b4442fab69f2ad548580fd",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "480353c6d4ba45ea85964388475871de",
+    "ppo-desired-replicas-v1-seed0|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "a95ad859e96a48af99b2ea66ddd1b518",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "0426411fec1e4648baf087009c336deb",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "daf36f101ba44834a87af696c4c0b206",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "e2e762c8795e4ea1896a05144a91e956",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "3fd6f36e3ddb4c45ae52d49e2065ce7a",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "d4552d913210483eb82326d5e41eeda7",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "6cb4048facc7400aa07efa93e8e8a59c",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "634238a5ee304f51ab61d0defb64629e",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "2301dd29abfc4ea3933cfc68942ad978",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "8ba5260c52ea4177b2b3c9c0c2f7ce38",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "f8a22d9235a04fa98e082835e2a303ac",
+    "ppo-desired-replicas-v1-seed1|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "dfdda7941ee64b4f99a1303b995a4bf2",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "72d4bd0a1329499c942b9d484c62307e",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "e958a54f4415434284ed16e2339e4dde",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "203c73b37313463588d9eed3efa0b9e1",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "9648bb2b9f5f4a07a8dbe9d1e4ef1fad",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "7d5739f147f243299bccd340913f56e4",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "271968c4b04b43ecafdbe13f1479c883",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "8d0d1f1c1181439597eae429a950e8ed",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "f6af9258fac84d9fbbfcea0484e40598",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "87e4054bf17d42699d9ccdd271cd1a69",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "28527d7c9d6d4c4cb242969ae008ca82",
+    "ppo-desired-replicas-v1-seed2|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "7e559e6c79ba4ed0b5953fc86dc40f36",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "23fc6789376c4a7b8c79b43307b69deb",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "ff2036a0eb6e47bb96704fdacef5cd80",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "b576767148a2447badb42d35701c71e4",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "9690e8b9355b4644b40b605aec0a9212",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "29ce96b2a3a14b598761d10a0244e68f",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "24d59c539aa14a6297619c5feb8a7b1a",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "61af9eb879ae4f57b4208e338029cf54",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "483883cf8a724e23a19f77ea6a358bb0",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "2497fc0aec654ac29281be697e2b05cc",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "faea10f9a16e4a07873a0d0586eaf661",
+    "ppo-desired-replicas-v1-seed3|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "385302f87599480d85a414d8057378be",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|nominal|dyn0|fixed|eval0": "d6109cf9bcb5414eb2ae20a9c02fdd60",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|startup-delay-jitter|dyn0|startup0|eval0": "5dd6443bd62e4512ad4c2433991e73c3",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|startup-delay-jitter|dyn0|startup1|eval0": "989876e024e54f32a03f91392b0e22f3",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|startup-delay-jitter|dyn0|startup2|eval0": "27773ae0e86b490e8bb71ac5fc6e8166",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|startup-delay-jitter|dyn0|startup3|eval0": "85841fa0045b4708a16e03f0f7da131c",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|startup-delay-jitter|dyn0|startup4|eval0": "7fc9f461f496420ba4582944a4092372",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|combined-startup-robustness|dyn0|startup0|eval0": "f7bf31782449480687ced49fe44b3bf1",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|combined-startup-robustness|dyn1|startup1|eval0": "68f92082fd3340e0b05d7da0e03ac492",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|combined-startup-robustness|dyn2|startup2|eval0": "dcbf821056bf47d5a3bb285e42b825fe",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|combined-startup-robustness|dyn3|startup3|eval0": "68652bebeec1422389a54af403580dc7",
+    "ppo-desired-replicas-v1-seed4|syn-val-ramp-down|combined-startup-robustness|dyn4|startup4|eval0": "df4d3fa567294d5c84aaad97948598fd",
+    "threshold-v1|syn-val-bursty|nominal|dyn0|fixed|eval0": "618b1fbee2034b7a820152201c43c7d1",
+    "threshold-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "1b6b317023434833b07de585be37d086",
+    "threshold-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "406568b4f69a4e4bb7739d1f739b5d68",
+    "threshold-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "c5784ad2687b4228b0ad2581a0c507e2",
+    "threshold-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "49a71c698bc243d0b4ce705b68ad8bb9",
+    "threshold-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "cd0d7151dfd1462ab76756d72c6b3ad3",
+    "threshold-v1|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "d470c37e9277442bbdf2754d07db412b",
+    "threshold-v1|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "0d419336666e42bcb17fb59b49a88d37",
+    "threshold-v1|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "1776f6ac2aa24dc191d4b95104d3ab90",
+    "threshold-v1|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "09b08cc71a5b4d5f8b2f3e40a7d2a5de",
+    "threshold-v1|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "c2dce0b9f98c405da0e420db1a21921f",
+    "predictive-v1|syn-val-bursty|nominal|dyn0|fixed|eval0": "d6c532c958f242548245d2ef993ae2d0",
+    "predictive-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "d70d71eaaa09466c81e8e5bdab9c0fb1",
+    "predictive-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "8b9110098395408384f64fc6bc5d93c0",
+    "predictive-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "ab223e82c07749bbbc154c02e6376061",
+    "predictive-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "f307338ded3b43c3a0b680caa37bef54",
+    "predictive-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "3cfe9bbc80b14b4dae4a28141af2cade",
+    "predictive-v1|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "59f72b94124e46619ff2178e0f64c54f",
+    "predictive-v1|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "1c79c4fbebfa4521b95f6dd3451f6ad8",
+    "predictive-v1|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "edca9083e9c746bb8149bc65132df449",
+    "predictive-v1|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "b52d3538dd4244bb9d9427d65ed61f50",
+    "predictive-v1|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "dc39c1fa8b2a47439d3326e13d4bf530",
+    "predictive-seasonal-v1|syn-val-bursty|nominal|dyn0|fixed|eval0": "50b0f279001a46b5808552033232d3aa",
+    "predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "92e812d225de49c88512c90cecda5e59",
+    "predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "fcd61928723149fea9871e1a5de50273",
+    "predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "f4aa51abefaf43bdbb38c2d3b6b922b1",
+    "predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "6fdb81575d664011a54fc39ca9a5da29",
+    "predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "5bbde3bd8e6f4efc9d61a09de9301e09",
+    "predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "4c4ff0c42fa64ec086841d9c23a64150",
+    "predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "537abe14dece48e29e02073fabf1e739",
+    "predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "c956271ccded4d56995e48b9e6683863",
+    "predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "0c1957ab8fc74607873d5df8420bae34",
+    "predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "ece9887cfcd0454ea07b1da60608233f",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|nominal|dyn0|fixed|eval0": "6771077ddb544b32b4bbfec7c563ac0a",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "5a7946f8879e4b5fb83e21037ae71024",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "62fffb9201fd4d2891a5674a4396fb10",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "63da57560a464f61b56633e5b122c7ab",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "f1fd88b4660841db80871f25ff1c6b96",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "78e18702589d4e279f7ea1cbe76e223a",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "660cf24cef164a8d8cc8c815bd67b96c",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "a93e790aa3514b8eacb88380cd176827",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "a5f03a51ee584391b8420baecf4cca49",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "37cba24f6d4e45ab9e885e9e9ef3f1af",
+    "ppo-desired-replicas-v1-seed0|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "eb935211de334942a851ec6ef1b6f850",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|nominal|dyn0|fixed|eval0": "9795edf7380f405aa75d259992795378",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "c0037a41ce2c43abb9d17a1fb9fc4960",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "ef690acbdbff4b36bf0a5185c28ab3e7",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "78f36ae4d24848af9315a4ef57f43391",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "3521c72793f442c8a1941e64ce27811f",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "c76ff499c2e7423191501d48ee2b3d47",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "446db368012e4ffa9377ca346467f249",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "1b02bd4d4cc34c1c9830a102bed27b8e",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "4c3782d751504c86a3e3c11d419e43c8",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "9c7e42a6b3ce4a428acd281bd437d677",
+    "ppo-desired-replicas-v1-seed1|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "b4dd54e99ee34636bf3c424f0dba78c4",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|nominal|dyn0|fixed|eval0": "9587f1ad57ef4436ba9df87185a513cd",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "2e7d689470e24cbe8f0cfc8dafb6625f",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "db7316255a224e7b8d05e3327234de59",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "1daa524ae46947c2843bdde995998962",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "05c06b4c03ba40bd80f3a75ebbfab40b",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "8a10eada97454602845db0f605b76d5e",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "e66aa3ad94f24e248248374e503ce5d2",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "caadec21fc7d404ba87b365f6c9b6f8b",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "0f97b7d648ac45bcae805c1c8d38a222",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "78c6a5b328844c9897f973ccb32d4bc5",
+    "ppo-desired-replicas-v1-seed2|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "cf5f6ce9ca41485b8003556a327ac507",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|nominal|dyn0|fixed|eval0": "2bb4eb14747d4de890446923ef2c23b4",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "347b77b0cba348b0ae828fca77ee02f7",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "4cf14a2613e542a7bc0dad4a3ce79130",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "93e18f6a8ac24c609d1a0636150aba17",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "d733bcef5bb44bd889e31f75cc59b8ca",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "71507c90762c4c57b6a779551906e3a2",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "cad4b987826541a5b58b9593e1455ced",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "9b661ed4219e4e448f96123cb2956eee",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "02e3be3912a14f7fb0a80d1bb013334e",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "0d44ade111c441c79f55ae6f37ae666b",
+    "ppo-desired-replicas-v1-seed3|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "c8536cc9aa0043bbab6ee1e86b45537b",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|nominal|dyn0|fixed|eval0": "6579a27b75ab46c08864300ee95a8b2c",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|startup-delay-jitter|dyn0|startup0|eval0": "230eaf5ec65d4bb7bdd2d6c93d307a47",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|startup-delay-jitter|dyn0|startup1|eval0": "6ad4fde7e0d04627952ca5204c164cbe",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|startup-delay-jitter|dyn0|startup2|eval0": "4e5c8a69e80745c6ac41cdb16c4674f1",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|startup-delay-jitter|dyn0|startup3|eval0": "f12ff6ea1b6d46cbb2e77b950fe6aa24",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|startup-delay-jitter|dyn0|startup4|eval0": "54430dac44024809b5240c17acffadb0",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|combined-startup-robustness|dyn0|startup0|eval0": "f5fbefeffce34646aed8c37ed397ace9",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|combined-startup-robustness|dyn1|startup1|eval0": "c19785da9af340c7a2359161d7e14328",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|combined-startup-robustness|dyn2|startup2|eval0": "8db7262351f24e9ea348407e60c22712",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|combined-startup-robustness|dyn3|startup3|eval0": "583f273285634ebeaabee9e29ce4c4b8",
+    "ppo-desired-replicas-v1-seed4|syn-val-bursty|combined-startup-robustness|dyn4|startup4|eval0": "1b23cf6ce6e245e0892f469588701c0a"
+  },
+  "validation_evidence": {
+    "variant|threshold-v1|syn-val-steady-high|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.275,
+        "median": 0.275,
+        "std": null,
+        "min": 0.275,
+        "max": 0.275
+      },
+      "normalized_cost": {
+        "mean": 0.8724999999999999,
+        "median": 0.8724999999999999,
+        "std": null,
+        "min": 0.8724999999999999,
+        "max": 0.8724999999999999
+      },
+      "queue_pressure": {
+        "mean": 0.18578683109568414,
+        "median": 0.18578683109568414,
+        "std": null,
+        "min": 0.18578683109568414,
+        "max": 0.18578683109568414
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": null,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.0,
+        "median": 9.0,
+        "std": null,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|threshold-v1|syn-val-steady-high|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.2783333333333333,
+        "median": 0.275,
+        "std": 0.004564354645876368,
+        "min": 0.275,
+        "max": 0.2833333333333333
+      },
+      "normalized_cost": {
+        "mean": 0.8724999999999999,
+        "median": 0.8724999999999999,
+        "std": 0.0,
+        "min": 0.8724999999999999,
+        "max": 0.8724999999999999
+      },
+      "queue_pressure": {
+        "mean": 0.18530939262287455,
+        "median": 0.18428815192248715,
+        "std": 0.0024125522679628152,
+        "min": 0.18304232326936365,
+        "max": 0.1891574009673906
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": 0.0,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.0,
+        "median": 9.0,
+        "std": 0.0,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|threshold-v1|syn-val-steady-high|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.2916666666666667,
+        "median": 0.2916666666666667,
+        "std": 0.0,
+        "min": 0.2916666666666667,
+        "max": 0.2916666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.865,
+        "median": 0.865,
+        "std": 0.0,
+        "min": 0.865,
+        "max": 0.865
+      },
+      "queue_pressure": {
+        "mean": 0.19970895167900374,
+        "median": 0.19920513548060678,
+        "std": 0.0015561279586016501,
+        "min": 0.19782409066453116,
+        "max": 0.20145620049969823
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": 0.0,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.0,
+        "median": 9.0,
+        "std": 0.0,
+        "min": 9.0,
+        "max": 9.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-v1|syn-val-steady-high|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.041666666666666664,
+        "median": 0.041666666666666664,
+        "std": null,
+        "min": 0.041666666666666664,
+        "max": 0.041666666666666664
+      },
+      "normalized_cost": {
+        "mean": 0.7075,
+        "median": 0.7075,
+        "std": null,
+        "min": 0.7075,
+        "max": 0.7075
+      },
+      "queue_pressure": {
+        "mean": 0.015450372068019127,
+        "median": 0.015450372068019127,
+        "std": null,
+        "min": 0.015450372068019127,
+        "max": 0.015450372068019127
+      },
+      "churn_rate": {
+        "mean": 0.016666666666666666,
+        "median": 0.016666666666666666,
+        "std": null,
+        "min": 0.016666666666666666,
+        "max": 0.016666666666666666
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-v1|syn-val-steady-high|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.03833333333333333,
+        "median": 0.041666666666666664,
+        "std": 0.004564354645876383,
+        "min": 0.03333333333333333,
+        "max": 0.041666666666666664
+      },
+      "normalized_cost": {
+        "mean": 0.7065,
+        "median": 0.7075,
+        "std": 0.001369306393762886,
+        "min": 0.7050000000000001,
+        "max": 0.7075
+      },
+      "queue_pressure": {
+        "mean": 0.014107484649280314,
+        "median": 0.014852285943617212,
+        "std": 0.0016394794117841986,
+        "min": 0.012169312169312168,
+        "max": 0.015878103378103376
+      },
+      "churn_rate": {
+        "mean": 0.016666666666666666,
+        "median": 0.016666666666666666,
+        "std": 0.0,
+        "min": 0.016666666666666666,
+        "max": 0.016666666666666666
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": 0.0,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-v1|syn-val-steady-high|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.05333333333333333,
+        "median": 0.05,
+        "std": 0.004564354645876383,
+        "min": 0.05,
+        "max": 0.058333333333333334
+      },
+      "normalized_cost": {
+        "mean": 0.7065,
+        "median": 0.7075,
+        "std": 0.001369306393762886,
+        "min": 0.7050000000000001,
+        "max": 0.7075
+      },
+      "queue_pressure": {
+        "mean": 0.02275536488355085,
+        "median": 0.02268443830255941,
+        "std": 0.0016143379899036425,
+        "min": 0.02066797324693344,
+        "max": 0.025036288684899256
+      },
+      "churn_rate": {
+        "mean": 0.016666666666666666,
+        "median": 0.016666666666666666,
+        "std": 0.0,
+        "min": 0.016666666666666666,
+        "max": 0.016666666666666666
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": 0.0,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-steady-high|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.041666666666666664,
+        "median": 0.041666666666666664,
+        "std": null,
+        "min": 0.041666666666666664,
+        "max": 0.041666666666666664
+      },
+      "normalized_cost": {
+        "mean": 0.7100000000000001,
+        "median": 0.7100000000000001,
+        "std": null,
+        "min": 0.7100000000000001,
+        "max": 0.7100000000000001
+      },
+      "queue_pressure": {
+        "mean": 0.015450372068019127,
+        "median": 0.015450372068019127,
+        "std": null,
+        "min": 0.015450372068019127,
+        "max": 0.015450372068019127
+      },
+      "churn_rate": {
+        "mean": 0.03333333333333333,
+        "median": 0.03333333333333333,
+        "std": null,
+        "min": 0.03333333333333333,
+        "max": 0.03333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": null,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-steady-high|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.03833333333333333,
+        "median": 0.041666666666666664,
+        "std": 0.004564354645876383,
+        "min": 0.03333333333333333,
+        "max": 0.041666666666666664
+      },
+      "normalized_cost": {
+        "mean": 0.7090000000000001,
+        "median": 0.7100000000000001,
+        "std": 0.001369306393762947,
+        "min": 0.7075,
+        "max": 0.7100000000000001
+      },
+      "queue_pressure": {
+        "mean": 0.014107484649280314,
+        "median": 0.014852285943617212,
+        "std": 0.0016394794117841986,
+        "min": 0.012169312169312168,
+        "max": 0.015878103378103376
+      },
+      "churn_rate": {
+        "mean": 0.03333333333333333,
+        "median": 0.03333333333333333,
+        "std": 0.0,
+        "min": 0.03333333333333333,
+        "max": 0.03333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": 0.0,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-steady-high|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.05333333333333333,
+        "median": 0.05,
+        "std": 0.004564354645876383,
+        "min": 0.05,
+        "max": 0.058333333333333334
+      },
+      "normalized_cost": {
+        "mean": 0.7090000000000001,
+        "median": 0.7100000000000001,
+        "std": 0.001369306393762947,
+        "min": 0.7075,
+        "max": 0.7100000000000001
+      },
+      "queue_pressure": {
+        "mean": 0.02275536488355085,
+        "median": 0.02268443830255941,
+        "std": 0.0016143379899036425,
+        "min": 0.02066797324693344,
+        "max": 0.025036288684899256
+      },
+      "churn_rate": {
+        "mean": 0.03333333333333333,
+        "median": 0.03333333333333333,
+        "std": 0.0,
+        "min": 0.03333333333333333,
+        "max": 0.03333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 12.0,
+        "median": 12.0,
+        "std": 0.0,
+        "min": 12.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|threshold-v1|syn-val-ramp-down|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.35,
+        "median": 0.35,
+        "std": null,
+        "min": 0.35,
+        "max": 0.35
+      },
+      "normalized_cost": {
+        "mean": 0.8391666666666666,
+        "median": 0.8391666666666666,
+        "std": null,
+        "min": 0.8391666666666666,
+        "max": 0.8391666666666666
+      },
+      "queue_pressure": {
+        "mean": 0.26915665777663095,
+        "median": 0.26915665777663095,
+        "std": null,
+        "min": 0.26915665777663095,
+        "max": 0.26915665777663095
+      },
+      "churn_rate": {
+        "mean": 0.10833333333333334,
+        "median": 0.10833333333333334,
+        "std": null,
+        "min": 0.10833333333333334,
+        "max": 0.10833333333333334
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 13.0,
+        "median": 13.0,
+        "std": null,
+        "min": 13.0,
+        "max": 13.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|threshold-v1|syn-val-ramp-down|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.35,
+        "median": 0.35,
+        "std": 0.0,
+        "min": 0.35,
+        "max": 0.35
+      },
+      "normalized_cost": {
+        "mean": 0.8391666666666666,
+        "median": 0.8391666666666666,
+        "std": 0.0,
+        "min": 0.8391666666666666,
+        "max": 0.8391666666666666
+      },
+      "queue_pressure": {
+        "mean": 0.26775688599269093,
+        "median": 0.26863741599358326,
+        "std": 0.0025101309587687113,
+        "min": 0.2642397708296706,
+        "max": 0.26993789513065775
+      },
+      "churn_rate": {
+        "mean": 0.10833333333333335,
+        "median": 0.10833333333333334,
+        "std": 0.0,
+        "min": 0.10833333333333334,
+        "max": 0.10833333333333334
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 13.0,
+        "median": 13.0,
+        "std": 0.0,
+        "min": 13.0,
+        "max": 13.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|threshold-v1|syn-val-ramp-down|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.35833333333333334,
+        "median": 0.35833333333333334,
+        "std": 0.0,
+        "min": 0.35833333333333334,
+        "max": 0.35833333333333334
+      },
+      "normalized_cost": {
+        "mean": 0.8366666666666667,
+        "median": 0.8366666666666667,
+        "std": 0.001020620726159681,
+        "min": 0.8358333333333333,
+        "max": 0.8383333333333334
+      },
+      "queue_pressure": {
+        "mean": 0.2794740253814817,
+        "median": 0.2796113396703282,
+        "std": 0.0010115245715408368,
+        "min": 0.2782304570040084,
+        "max": 0.28083955389730214
+      },
+      "churn_rate": {
+        "mean": 0.10833333333333335,
+        "median": 0.10833333333333334,
+        "std": 0.0,
+        "min": 0.10833333333333334,
+        "max": 0.10833333333333334
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 13.0,
+        "median": 13.0,
+        "std": 0.0,
+        "min": 13.0,
+        "max": 13.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-v1|syn-val-ramp-down|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.06666666666666667,
+        "median": 0.06666666666666667,
+        "std": null,
+        "min": 0.06666666666666667,
+        "max": 0.06666666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.55,
+        "median": 0.55,
+        "std": null,
+        "min": 0.55,
+        "max": 0.55
+      },
+      "queue_pressure": {
+        "mean": 0.03013586111585351,
+        "median": 0.03013586111585351,
+        "std": null,
+        "min": 0.03013586111585351,
+        "max": 0.03013586111585351
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": null,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": null,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-v1|syn-val-ramp-down|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.06333333333333332,
+        "median": 0.06666666666666667,
+        "std": 0.004564354645876383,
+        "min": 0.058333333333333334,
+        "max": 0.06666666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.5496666666666667,
+        "median": 0.55,
+        "std": 0.000456435464587649,
+        "min": 0.5491666666666667,
+        "max": 0.55
+      },
+      "queue_pressure": {
+        "mean": 0.02849364470285503,
+        "median": 0.029774731282174168,
+        "std": 0.0026503437824194156,
+        "min": 0.02507905742140017,
+        "max": 0.03135952797569259
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": 0.0,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": 0.0,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-v1|syn-val-ramp-down|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.08666666666666666,
+        "median": 0.08333333333333333,
+        "std": 0.004564354645876383,
+        "min": 0.08333333333333333,
+        "max": 0.09166666666666666
+      },
+      "normalized_cost": {
+        "mean": 0.5515000000000001,
+        "median": 0.5508333333333334,
+        "std": 0.0009128709291752372,
+        "min": 0.5508333333333334,
+        "max": 0.5525
+      },
+      "queue_pressure": {
+        "mean": 0.04360723294338435,
+        "median": 0.04376611151765207,
+        "std": 0.0032733055422332637,
+        "min": 0.039522393230903036,
+        "max": 0.048516805200011774
+      },
+      "churn_rate": {
+        "mean": 0.06666666666666667,
+        "median": 0.06666666666666667,
+        "std": 0.0,
+        "min": 0.06666666666666667,
+        "max": 0.06666666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": 0.0,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-ramp-down|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.06666666666666667,
+        "median": 0.06666666666666667,
+        "std": null,
+        "min": 0.06666666666666667,
+        "max": 0.06666666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.5675,
+        "median": 0.5675,
+        "std": null,
+        "min": 0.5675,
+        "max": 0.5675
+      },
+      "queue_pressure": {
+        "mean": 0.03013586111585351,
+        "median": 0.03013586111585351,
+        "std": null,
+        "min": 0.03013586111585351,
+        "max": 0.03013586111585351
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": null,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": null,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-ramp-down|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.06333333333333332,
+        "median": 0.06666666666666667,
+        "std": 0.004564354645876383,
+        "min": 0.058333333333333334,
+        "max": 0.06666666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.5671666666666667,
+        "median": 0.5675,
+        "std": 0.000456435464587649,
+        "min": 0.5666666666666667,
+        "max": 0.5675
+      },
+      "queue_pressure": {
+        "mean": 0.02849364470285503,
+        "median": 0.029774731282174168,
+        "std": 0.0026503437824194156,
+        "min": 0.02507905742140017,
+        "max": 0.03135952797569259
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": 0.0,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": 0.0,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-ramp-down|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.08666666666666666,
+        "median": 0.08333333333333333,
+        "std": 0.004564354645876383,
+        "min": 0.08333333333333333,
+        "max": 0.09166666666666666
+      },
+      "normalized_cost": {
+        "mean": 0.5686666666666668,
+        "median": 0.5683333333333334,
+        "std": 0.000456435464587649,
+        "min": 0.5683333333333334,
+        "max": 0.5691666666666667
+      },
+      "queue_pressure": {
+        "mean": 0.04360723294338435,
+        "median": 0.04376611151765207,
+        "std": 0.0032733055422332637,
+        "min": 0.039522393230903036,
+        "max": 0.048516805200011774
+      },
+      "churn_rate": {
+        "mean": 0.075,
+        "median": 0.075,
+        "std": 0.0,
+        "min": 0.075,
+        "max": 0.075
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 17.0,
+        "median": 17.0,
+        "std": 0.0,
+        "min": 17.0,
+        "max": 17.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 57.333333333333336,
+        "median": 60.0,
+        "std": 5.477225575051661,
+        "min": 50.0,
+        "max": 63.333333333333336
+      }
+    },
+    "variant|threshold-v1|syn-val-bursty|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.20833333333333334,
+        "median": 0.20833333333333334,
+        "std": null,
+        "min": 0.20833333333333334,
+        "max": 0.20833333333333334
+      },
+      "normalized_cost": {
+        "mean": 0.8225,
+        "median": 0.8225,
+        "std": null,
+        "min": 0.8225,
+        "max": 0.8225
+      },
+      "queue_pressure": {
+        "mean": 0.10634022391123521,
+        "median": 0.10634022391123521,
+        "std": null,
+        "min": 0.10634022391123521,
+        "max": 0.10634022391123521
+      },
+      "churn_rate": {
+        "mean": 0.11666666666666667,
+        "median": 0.11666666666666667,
+        "std": null,
+        "min": 0.11666666666666667,
+        "max": 0.11666666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 14.0,
+        "median": 14.0,
+        "std": null,
+        "min": 14.0,
+        "max": 14.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|threshold-v1|syn-val-bursty|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.21333333333333332,
+        "median": 0.21666666666666667,
+        "std": 0.004564354645876383,
+        "min": 0.20833333333333334,
+        "max": 0.21666666666666667
+      },
+      "normalized_cost": {
+        "mean": 0.8225,
+        "median": 0.8225,
+        "std": 0.0,
+        "min": 0.8225,
+        "max": 0.8225
+      },
+      "queue_pressure": {
+        "mean": 0.10638009623169742,
+        "median": 0.1058175758509285,
+        "std": 0.002408793595308861,
+        "min": 0.10408610429987131,
+        "max": 0.1104632625852108
+      },
+      "churn_rate": {
+        "mean": 0.11666666666666667,
+        "median": 0.11666666666666667,
+        "std": 0.0,
+        "min": 0.11666666666666667,
+        "max": 0.11666666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 14.0,
+        "median": 14.0,
+        "std": 0.0,
+        "min": 14.0,
+        "max": 14.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.54545454545455,
+        "median": 62.72727272727273,
+        "std": 5.912586378730582,
+        "min": 54.54545454545455,
+        "max": 68.18181818181819
+      }
+    },
+    "variant|threshold-v1|syn-val-bursty|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.24333333333333335,
+        "median": 0.25,
+        "std": 0.016029486718059458,
+        "min": 0.21666666666666667,
+        "max": 0.25833333333333336
+      },
+      "normalized_cost": {
+        "mean": 0.8109999999999999,
+        "median": 0.8108333333333334,
+        "std": 0.0033541019662497095,
+        "min": 0.8075,
+        "max": 0.8158333333333334
+      },
+      "queue_pressure": {
+        "mean": 0.1185087250959681,
+        "median": 0.11895450870005315,
+        "std": 0.001176804844200151,
+        "min": 0.11703822428775516,
+        "max": 0.11969884046436526
+      },
+      "churn_rate": {
+        "mean": 0.12166666666666667,
+        "median": 0.11666666666666667,
+        "std": 0.007453559924999297,
+        "min": 0.11666666666666667,
+        "max": 0.13333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 14.6,
+        "median": 14.0,
+        "std": 0.8944271909999159,
+        "min": 14.0,
+        "max": 16.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.590909090909086,
+        "median": 62.5,
+        "std": 5.780059766913395,
+        "min": 54.54545454545455,
+        "max": 68.18181818181819
+      }
+    },
+    "variant|predictive-v1|syn-val-bursty|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.6,
+        "median": 0.6,
+        "std": null,
+        "min": 0.6,
+        "max": 0.6
+      },
+      "normalized_cost": {
+        "mean": 0.6,
+        "median": 0.6,
+        "std": null,
+        "min": 0.6,
+        "max": 0.6
+      },
+      "queue_pressure": {
+        "mean": 0.1623274243842663,
+        "median": 0.1623274243842663,
+        "std": null,
+        "min": 0.1623274243842663,
+        "max": 0.1623274243842663
+      },
+      "churn_rate": {
+        "mean": 0.5916666666666667,
+        "median": 0.5916666666666667,
+        "std": null,
+        "min": 0.5916666666666667,
+        "max": 0.5916666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 249.0,
+        "median": 249.0,
+        "std": null,
+        "min": 249.0,
+        "max": 249.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-v1|syn-val-bursty|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.5733333333333334,
+        "median": 0.575,
+        "std": 0.010865337342004427,
+        "min": 0.5583333333333333,
+        "max": 0.5833333333333334
+      },
+      "normalized_cost": {
+        "mean": 0.5825,
+        "median": 0.58,
+        "std": 0.005682575707077428,
+        "min": 0.5775,
+        "max": 0.5908333333333333
+      },
+      "queue_pressure": {
+        "mean": 0.15031353671598477,
+        "median": 0.15038709053054156,
+        "std": 0.0036758370535451097,
+        "min": 0.14496742781077748,
+        "max": 0.15508104141446982
+      },
+      "churn_rate": {
+        "mean": 0.5916666666666666,
+        "median": 0.5916666666666667,
+        "std": 0.013176156917368235,
+        "min": 0.575,
+        "max": 0.6083333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 234.2,
+        "median": 235.0,
+        "std": 3.63318042491699,
+        "min": 229.0,
+        "max": 239.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.33180777544595,
+        "median": 58.52459016393443,
+        "std": 2.4450990592707247,
+        "min": 57.096774193548384,
+        "max": 63.02521008403362
+      }
+    },
+    "variant|predictive-v1|syn-val-bursty|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.5166666666666667,
+        "median": 0.5083333333333333,
+        "std": 0.02500000000000002,
+        "min": 0.49166666666666664,
+        "max": 0.5583333333333333
+      },
+      "normalized_cost": {
+        "mean": 0.5696666666666668,
+        "median": 0.5716666666666667,
+        "std": 0.004232808366400099,
+        "min": 0.5625,
+        "max": 0.5725
+      },
+      "queue_pressure": {
+        "mean": 0.15630279604102015,
+        "median": 0.15734793876983286,
+        "std": 0.005187289685669166,
+        "min": 0.14798326378176624,
+        "max": 0.16181862941167602
+      },
+      "churn_rate": {
+        "mean": 0.5133333333333333,
+        "median": 0.525,
+        "std": 0.020069324297987176,
+        "min": 0.49166666666666664,
+        "max": 0.5333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 178.6,
+        "median": 179.0,
+        "std": 5.727128425310541,
+        "min": 171.0,
+        "max": 185.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 58.7291756471512,
+        "median": 57.666666666666664,
+        "std": 2.1864859012510593,
+        "min": 57.12765957446808,
+        "max": 62.28260869565217
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-bursty|nominal": {
+      "n": 1,
+      "sla_violation_rate": {
+        "mean": 0.26666666666666666,
+        "median": 0.26666666666666666,
+        "std": null,
+        "min": 0.26666666666666666,
+        "max": 0.26666666666666666
+      },
+      "normalized_cost": {
+        "mean": 0.6091666666666666,
+        "median": 0.6091666666666666,
+        "std": null,
+        "min": 0.6091666666666666,
+        "max": 0.6091666666666666
+      },
+      "queue_pressure": {
+        "mean": 0.09657911750295571,
+        "median": 0.09657911750295571,
+        "std": null,
+        "min": 0.09657911750295571,
+        "max": 0.09657911750295571
+      },
+      "churn_rate": {
+        "mean": 0.6083333333333333,
+        "median": 0.6083333333333333,
+        "std": null,
+        "min": 0.6083333333333333,
+        "max": 0.6083333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 115.0,
+        "median": 115.0,
+        "std": null,
+        "min": 115.0,
+        "max": 115.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": null,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-bursty|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.27666666666666667,
+        "median": 0.275,
+        "std": 0.0037267799624996364,
+        "min": 0.275,
+        "max": 0.2833333333333333
+      },
+      "normalized_cost": {
+        "mean": 0.6100000000000001,
+        "median": 0.6091666666666666,
+        "std": 0.0027638539919628466,
+        "min": 0.6075,
+        "max": 0.6133333333333334
+      },
+      "queue_pressure": {
+        "mean": 0.09672341536121377,
+        "median": 0.09527362159914768,
+        "std": 0.0043207578836757556,
+        "min": 0.09296513437310812,
+        "max": 0.10288436874520131
+      },
+      "churn_rate": {
+        "mean": 0.62,
+        "median": 0.6166666666666667,
+        "std": 0.004564354645876368,
+        "min": 0.6166666666666667,
+        "max": 0.625
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 116.2,
+        "median": 117.0,
+        "std": 1.0954451150103321,
+        "min": 115.0,
+        "max": 117.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.701996927803386,
+        "median": 60.0,
+        "std": 3.3766152335252873,
+        "min": 56.12903225806452,
+        "max": 64.76190476190476
+      }
+    },
+    "variant|predictive-seasonal-v1|syn-val-bursty|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.31666666666666665,
+        "median": 0.31666666666666665,
+        "std": 0.005892556509887895,
+        "min": 0.30833333333333335,
+        "max": 0.325
+      },
+      "normalized_cost": {
+        "mean": 0.6258333333333334,
+        "median": 0.6258333333333334,
+        "std": 0.004039733214513609,
+        "min": 0.6216666666666667,
+        "max": 0.6316666666666667
+      },
+      "queue_pressure": {
+        "mean": 0.12037173132112847,
+        "median": 0.1193344875526254,
+        "std": 0.002806384379824915,
+        "min": 0.11803692791557444,
+        "max": 0.12490580759968808
+      },
+      "churn_rate": {
+        "mean": 0.5883333333333334,
+        "median": 0.5916666666666667,
+        "std": 0.004564354645876368,
+        "min": 0.5833333333333334,
+        "max": 0.5916666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 112.2,
+        "median": 113.0,
+        "std": 1.0954451150103321,
+        "min": 111.0,
+        "max": 113.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.68196721311475,
+        "median": 60.0,
+        "std": 3.4972558059905015,
+        "min": 56.0,
+        "max": 64.91803278688525
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-steady-high|nominal": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.05166666666666666,
+        "median": 0.03333333333333333,
+        "std": 0.046172983923983564,
+        "min": 0.025,
+        "max": 0.13333333333333333
+      },
+      "normalized_cost": {
+        "mean": 0.7955,
+        "median": 0.8,
+        "std": 0.10595399945259264,
+        "min": 0.6775,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.016530333772980833,
+        "median": 0.01025132275132275,
+        "std": 0.01462873168417293,
+        "min": 0.008465608465608464,
+        "max": 0.04248963182786712
+      },
+      "churn_rate": {
+        "mean": 0.011666666666666667,
+        "median": 0.008333333333333333,
+        "std": 0.0074535599249993,
+        "min": 0.008333333333333333,
+        "max": 0.025
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 7.8,
+        "median": 8.0,
+        "std": 1.4832396974191326,
+        "min": 6.0,
+        "max": 10.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": 0.0,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-steady-high|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.05366666666666666,
+        "median": 0.03333333333333333,
+        "std": 0.04587725168558185,
+        "min": 0.028333333333333332,
+        "max": 0.135
+      },
+      "normalized_cost": {
+        "mean": 0.7953666666666667,
+        "median": 0.8,
+        "std": 0.1061398710297983,
+        "min": 0.6768333333333334,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.016379016236601377,
+        "median": 0.009154403602933014,
+        "std": 0.015625840533940217,
+        "min": 0.00782004351857293,
+        "max": 0.04406932306313111
+      },
+      "churn_rate": {
+        "mean": 0.014333333333333332,
+        "median": 0.008333333333333333,
+        "std": 0.013416407864998738,
+        "min": 0.008333333333333333,
+        "max": 0.03833333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 8.120000000000001,
+        "median": 8.0,
+        "std": 2.1147103820618085,
+        "min": 6.0,
+        "max": 11.6
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 58.80714285714286,
+        "median": 58.5,
+        "std": 1.263599490926372,
+        "min": 57.75,
+        "max": 61.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-steady-high|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.05633333333333333,
+        "median": 0.03333333333333333,
+        "std": 0.048195204925155964,
+        "min": 0.03,
+        "max": 0.14166666666666666
+      },
+      "normalized_cost": {
+        "mean": 0.7953,
+        "median": 0.8,
+        "std": 0.10623299863978232,
+        "min": 0.6765000000000001,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.016977446877095032,
+        "median": 0.009316087271030997,
+        "std": 0.016455724728867686,
+        "min": 0.008014765001137696,
+        "max": 0.04614865236223826
+      },
+      "churn_rate": {
+        "mean": 0.012333333333333332,
+        "median": 0.008333333333333333,
+        "std": 0.008944271909999158,
+        "min": 0.008333333333333333,
+        "max": 0.028333333333333332
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 8.2,
+        "median": 8.0,
+        "std": 2.280350850198276,
+        "min": 6.0,
+        "max": 12.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 58.84285714285714,
+        "median": 58.5,
+        "std": 1.228280696497243,
+        "min": 57.92857142857143,
+        "max": 61.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-ramp-down|nominal": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.11499999999999999,
+        "median": 0.09166666666666666,
+        "std": 0.06384660436459318,
+        "min": 0.058333333333333334,
+        "max": 0.18333333333333332
+      },
+      "normalized_cost": {
+        "mean": 0.8066666666666666,
+        "median": 0.8083333333333333,
+        "std": 0.09526097195482407,
+        "min": 0.6766666666666667,
+        "max": 0.9025000000000001
+      },
+      "queue_pressure": {
+        "mean": 0.045326802457575935,
+        "median": 0.032775313512360196,
+        "std": 0.028171488236554,
+        "min": 0.021180951733010593,
+        "max": 0.07574839765474914
+      },
+      "churn_rate": {
+        "mean": 0.021666666666666667,
+        "median": 0.016666666666666666,
+        "std": 0.011180339887498947,
+        "min": 0.016666666666666666,
+        "max": 0.041666666666666664
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.6,
+        "median": 9.0,
+        "std": 2.073644135332772,
+        "min": 8.0,
+        "max": 13.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": 0.0,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-ramp-down|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.11266666666666666,
+        "median": 0.08666666666666666,
+        "std": 0.06741867528940167,
+        "min": 0.05333333333333333,
+        "max": 0.185
+      },
+      "normalized_cost": {
+        "mean": 0.8063666666666667,
+        "median": 0.8083333333333333,
+        "std": 0.09488534016262878,
+        "min": 0.6766666666666667,
+        "max": 0.901
+      },
+      "queue_pressure": {
+        "mean": 0.04484458980850635,
+        "median": 0.031095403205035177,
+        "std": 0.029448844199351922,
+        "min": 0.019853742247214097,
+        "max": 0.07671003067153419
+      },
+      "churn_rate": {
+        "mean": 0.022333333333333334,
+        "median": 0.016666666666666666,
+        "std": 0.012671051872498808,
+        "min": 0.016666666666666666,
+        "max": 0.045
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 10.16,
+        "median": 9.0,
+        "std": 3.260061349115995,
+        "min": 8.0,
+        "max": 15.8
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.5,
+        "median": 58.5,
+        "std": 1.3693063937629153,
+        "min": 58.5,
+        "max": 61.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-ramp-down|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.11766666666666667,
+        "median": 0.08833333333333333,
+        "std": 0.06874469676515661,
+        "min": 0.058333333333333334,
+        "max": 0.19666666666666668
+      },
+      "normalized_cost": {
+        "mean": 0.8019333333333334,
+        "median": 0.808,
+        "std": 0.09851103999044983,
+        "min": 0.68,
+        "max": 0.9018333333333335
+      },
+      "queue_pressure": {
+        "mean": 0.046904692581515146,
+        "median": 0.031814887849948535,
+        "std": 0.03162862604479122,
+        "min": 0.020350709653526665,
+        "max": 0.08536716354837459
+      },
+      "churn_rate": {
+        "mean": 0.023333333333333334,
+        "median": 0.02,
+        "std": 0.010474837574980444,
+        "min": 0.016666666666666666,
+        "max": 0.041666666666666664
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 10.52,
+        "median": 10.0,
+        "std": 2.282980508020162,
+        "min": 8.4,
+        "max": 14.2
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.21363636363636,
+        "median": 58.5,
+        "std": 1.5724250892036262,
+        "min": 57.75,
+        "max": 61.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-bursty|nominal": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.09166666666666666,
+        "median": 0.058333333333333334,
+        "std": 0.08559432743405891,
+        "min": 0.016666666666666666,
+        "max": 0.19166666666666668
+      },
+      "normalized_cost": {
+        "mean": 0.7916666666666667,
+        "median": 0.8,
+        "std": 0.11149240133549711,
+        "min": 0.6583333333333333,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.014766025824935239,
+        "median": 0.003794827802985743,
+        "std": 0.016639341718878143,
+        "min": 0.0024955978523847565,
+        "max": 0.03778626175070029
+      },
+      "churn_rate": {
+        "mean": 0.02,
+        "median": 0.008333333333333333,
+        "std": 0.026087459737497546,
+        "min": 0.008333333333333333,
+        "max": 0.06666666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.6,
+        "median": 8.0,
+        "std": 5.319774431308154,
+        "min": 6.0,
+        "max": 19.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 60.0,
+        "median": 60.0,
+        "std": 0.0,
+        "min": 60.0,
+        "max": 60.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-bursty|startup-delay-jitter": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.08966666666666667,
+        "median": 0.05500000000000001,
+        "std": 0.08900218474222354,
+        "min": 0.011666666666666667,
+        "max": 0.19333333333333336
+      },
+      "normalized_cost": {
+        "mean": 0.7916666666666667,
+        "median": 0.8,
+        "std": 0.11149240133549711,
+        "min": 0.6583333333333333,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.013655112631614636,
+        "median": 0.002518196469378089,
+        "std": 0.01692675609094282,
+        "min": 0.0011598222155075016,
+        "max": 0.037065205708861515
+      },
+      "churn_rate": {
+        "mean": 0.02,
+        "median": 0.008333333333333333,
+        "std": 0.026087459737497546,
+        "min": 0.008333333333333333,
+        "max": 0.06666666666666667
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 9.6,
+        "median": 8.0,
+        "std": 5.319774431308154,
+        "min": 6.0,
+        "max": 19.0
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.36623376623377,
+        "median": 58.5,
+        "std": 1.2969192318770195,
+        "min": 58.28571428571429,
+        "max": 61.0
+      }
+    },
+    "ppo-training-seeds|ppo-desired-replicas-v1|syn-val-bursty|combined-startup-robustness": {
+      "n": 5,
+      "sla_violation_rate": {
+        "mean": 0.09766666666666665,
+        "median": 0.10166666666666666,
+        "std": 0.08515998016804736,
+        "min": 0.011666666666666667,
+        "max": 0.18833333333333332
+      },
+      "normalized_cost": {
+        "mean": 0.7925333333333333,
+        "median": 0.8,
+        "std": 0.11020627124724898,
+        "min": 0.6626666666666667,
+        "max": 0.9
+      },
+      "queue_pressure": {
+        "mean": 0.014403819544671256,
+        "median": 0.005097770494678288,
+        "std": 0.01693132909924771,
+        "min": 0.0011748357973197028,
+        "max": 0.038224371816486816
+      },
+      "churn_rate": {
+        "mean": 0.021333333333333333,
+        "median": 0.008333333333333333,
+        "std": 0.029068883707497266,
+        "min": 0.008333333333333333,
+        "max": 0.07333333333333333
+      },
+      "action.total_absolute_replica_change": {
+        "mean": 10.32,
+        "median": 8.0,
+        "std": 6.914622187798839,
+        "min": 6.0,
+        "max": 22.6
+      },
+      "startup.mean_realized_delay_seconds": {
+        "mean": 59.19660339660341,
+        "median": 58.5,
+        "std": 1.1514307030297461,
+        "min": 58.28571428571429,
+        "max": 61.0
+      }
+    }
+  },
+  "declares_overall_winner": false,
+  "held_out_data_used": false,
+  "reward_changed": false
+}
