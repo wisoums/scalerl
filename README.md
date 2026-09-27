@@ -93,6 +93,15 @@ Kubernetes HPA itself calculates an integer **desired replica count**, which is 
 
 All four decisions use train/validation evidence only and must be frozen before #46.
 
+**#72 — sim-to-real protocol (frozen: [`sim-to-real-protocol-v1`](benchmarks/v1/sim-to-real-protocol-v1.json)).** The contract for the later local systems-in-the-loop / Knative sim-to-real validation is fixed before any live or held-out result. It covers:
+- the controllers to deploy: Threshold, both predictive baselines, the canonical DQN and PPO artifacts chosen by a validation-only seed rule, and Knative-native;
+- three fixed-offset 10-minute Azure replay windows, each with frozen arrival schedules for load seeds 0–2;
+- 30 s / 1–10 replica `desired-replicas-v1` control;
+- a shared observation builder used by simulation and live control;
+- descriptive transfer reporting with no pass/fail and no "RL must win".
+
+Local Knative is not claimed to reproduce any cloud provider. See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#sim-to-real-protocol-72).
+
 ## MLOps
 
 ScaleRL uses:
@@ -215,7 +224,7 @@ See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
-The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Its validation-only run exposed that the v1 SLA-first selector can choose near-full-fleet DQN/PPO policies, so the project now resolves #78 (cost-under-SLA selection), #79 (desired-replica action semantics), #80 (stronger proactive predictive baseline), #81 (startup-delay stochasticity), and #20 (reward ablation) **before** freezing #72 and opening #46. No final performance or robustness claim about any controller is made yet.
+The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Its validation-only run exposed that the v1 SLA-first selector can choose near-full-fleet DQN/PPO policies, so the project now resolves #78 (cost-under-SLA selection), #79 (desired-replica action semantics), #80 (stronger proactive predictive baseline), #81 (startup-delay stochasticity), and #20 (reward ablation), and freezes the #72 sim-to-real protocol, **before** opening #46. No final performance or robustness claim about any controller is made yet.
 
 ## License
 

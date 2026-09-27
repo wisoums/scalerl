@@ -783,6 +783,58 @@ The pre-held-out sequence is:
 
 No robustness evaluation was run in #20, including post-freeze checks: reward selection is nominal-only, and #65/#81 remain untouched. No held-out or test data was used, and the reward normalization is unchanged. The ablation compares rewards under fixed learners; it declares no algorithm winner.
 
+## Sim-to-real protocol (#72)
+
+#72 freezes the contract for the later **local systems-in-the-loop / Knative sim-to-real validation** before any live result exists and before #46 held-out results can influence it. It is protocol work only: no controller was run on the replay windows, no live run happened, and no model was trained.
+
+**Research question.** Do controller behavior and trade-offs observed in simulation transfer to a real serving system? It does not require RL to win: a negative transfer result, or a conventional baseline winning, is valid evidence. Local Knative provides real HTTP traffic, containers, scheduling, networking, cold starts and measurement noise. It is **not** a claim that it reproduces AWS/Azure/GCP internals; real-cloud validation is #32.
+
+**Artifacts** (each with a content-derived ID; regenerate or verify with `python -m scalerl.evaluation.sim_to_real freeze|check`):
+
+| Artifact | ID |
+|---|---|
+| [`sim-to-real-protocol-v1.json`](../benchmarks/v1/sim-to-real-protocol-v1.json) | `b7bf45c109f1` |
+| [`live-replay-manifest-v1.json`](../benchmarks/v1/live-replay-manifest-v1.json) + [`live-replay-schedules-v1/`](../benchmarks/v1/live-replay-schedules-v1/) | `7803b71fdfe8` |
+| [`controller-deployment-manifest-v1.json`](../benchmarks/v1/controller-deployment-manifest-v1.json) | `553ddf3e512b` |
+
+The protocol records `held_out_controller_outcomes_used: false` and `live_results_used: false`, and pins every upstream artifact ID (#65, #78, #79, #80, #81, #20); `check` refuses a tampered upstream.
+
+**Controllers.**
+- Tuned `threshold-v1` (0.6 / 0.2 / cooldown 3), `predictive-v1` and `predictive-seasonal-v1` as frozen by #80.
+- DQN `dqn-c14` and PPO `ppo-c08` under `desired-replicas-v1` and `full-cost-low-v1` (#20), one canonical artifact each.
+- `knative-native-v1`: the Knative Pod Autoscaler (concurrency metric, min 1, max 10, scale-to-zero disabled, other settings at the defaults of the version #73 pins). It is a real-system baseline with no simulated counterpart.
+- Excluded: tabular Q-learning (#47 is open), static/random, and the DQN fallback families.
+
+**Canonical seed rule (`canonical-seed-validation-v1`, validation only).** From the five #20 training seeds of the selected candidate, a seed is feasible if its SLA violation rate is ≤ the Threshold limit on every validation workload. Among feasible seeds, the lowest equal-workload mean normalized cost wins, then queue pressure, churn, SLA, and the lowest seed. If none is feasible, the smallest maximum SLA excess wins (then the same tie-breaks), with `canonical_seed_validation_feasible: false`. The full five-seed lineage is persisted, the evidence is checked against the #20 equal-seed means, and the tests recompute the choice.
+
+| Family | Feasible seeds | Canonical | MLflow run |
+|---|---|---|---|
+| DQN `dqn-c14` | 0, 1, 2, 4 (seed 3 fails bursty) | seed 0 | `920b0ddb58df4d2b9f550431d2f8ceeb` |
+| PPO `ppo-c08` | 0–4 | seed 4 | `9bac13a9447b4c64a44d9732568c949e` |
+
+**Replay windows (`fixed-fraction-windows-v1`).** The source is the lexicographically smallest Azure test workload, `azure-test-1166400` (3600 s, 30 s bins). Three 600 s windows start at 20%, 50% and 80% of `duration − 600`, aligned down to the control interval: offsets **600, 1500, 2400 s** (bins 20–40, 50–70, 80–100), non-overlapping. The trace was read only to fingerprint it and to extract these predeclared windows; no window was chosen by inspection.
+
+**Arrival schedules (`live-arrival-schedule-v1`, generator `binned-uniform-v1`).** Load seeds **0, 1, 2** per slice. Each bin's exact trace count is placed uniformly inside the bin, using `SeedSequence(load_seed, spawn_key=(0x61727276, slice_index))`, a stream domain-separated from every simulator RNG. Timestamps are frozen to the microsecond with a checksum. Every controller receives the identical schedule for a given slice and load seed.
+
+**Control contract.** 30 s interval, min 1, max 10, `desired-replicas-v1`: action code `c` sets the desired fleet to `1 + c` (not ±1). Deterministic inference only, with no exploration and no online training. Scale-to-zero is disabled during comparisons.
+
+**Observation contract (`scalerl-observation-v1`).** Simulation and live control must call the same builder, `scalerl.environment.observation.build_observation`, with the same constants. Simulation now calls it, bit-identical to the previous code. The protocol lists every feature's order, units, normalization (all in [0, 1], no clipping) and live equivalent. `utilization`, `queue_pressure` and `latency_pressure` are marked as **approximations** live. The cost feature is the **latest tick's** cost fraction, never accumulated cost. `episode_progress` is offset by the slice start bin so a 10-minute slice sees the progress it would inside the full trace.
+
+**Cost contract.** Replica-seconds, plus the normalized abstract ScaleRL cost. No provider dollar pricing (#32).
+
+**Transfer reporting (predeclared, descriptive only).**
+- Absolute: simulation and real values for every controller × slice × load seed (SLA violation, p95 latency, cost proxy/replica-seconds, queue/failures, churn).
+- Relative: controller − Threshold, per metric, in each domain.
+- Diagnostics: sign agreement and side-by-side magnitudes.
+- Secondary: Spearman rank correlation across domains.
+- Knative-native: a real-only row.
+- There is no binary pass/fail, no overall score and no "RL must win".
+
+**Caveats.**
+- The canonical DQN comes from a family whose bursty equal-seed mean sits exactly at the SLA limit (#20).
+- Azure traffic is a few requests per second, against 50 rps per replica, so the replay may not exercise scaling. Any load amplitude scaling or capacity calibration must be a versioned protocol revision committed before live runs (#73/#74), never tuned on results.
+- Live infrastructure (#73–#76) and the held-out suite (#46) are out of scope.
+
 ## Fair comparison
 
 For every final comparison:
