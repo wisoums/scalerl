@@ -154,7 +154,7 @@ History is rendered read-only and must never advance simulation state. During Li
 
 ## Live City viewport target
 
-Live City is intentionally denser than Inspect mode.
+Inspect and Live City intentionally share the same compact scenario-stage density.
 
 On a normal laptop viewport (roughly 1440×900 to 1512×982) with the sidebar open, the complete **Live City player** should fit on screen without scrolling:
 
@@ -167,8 +167,29 @@ On a normal laptop viewport (roughly 1440×900 to 1512×982) with the sidebar op
 
 History and long-form diagnostics are intentionally below the player and may require scrolling.
 
-The Live City stage therefore uses a compact horizontal snapshot rather than the full explanatory Inspect layout. Inspect remains the place for the larger City View cards and detailed controller reasoning.
+Both modes use the same compact horizontal scenario snapshot. Switching modes changes **how the user controls the same session**, not the visual density of the stage. Inspect uses deliberate step/manual controls; Live City uses Play/Pause, Step once, and speed.
 
-Long Threshold/Predictive diagnostics are available through the collapsed **Manager decision details** expander below the player. This keeps the moving simulation readable without deleting the underlying diagnostic information.
+Long Threshold/Predictive diagnostics are available through the collapsed **Manager decision details** expander below the player in both modes. This keeps the scenario player readable without deleting the underlying diagnostic information.
 
 The viewport goal is achieved by information hierarchy, not by putting the player inside a fixed-height scrolling box.
+
+
+### Shared Inspect / Live stage
+
+The compact player snapshot is deliberately identical in both modes:
+
+```text
+traffic → queue → fleet
+Traffic | Queue | Active | Pending | p95 | Cost
+SLA summary
+Manager | Decision | Target | Applied
+```
+
+Only the controls change:
+
+```text
+Inspect   → manual action or Next step / Run to end / Reset
+Live City → Play/Pause / Step once / Reset / Speed
+```
+
+This makes mode switching feel like changing playback/interaction style rather than changing to a different dashboard.
