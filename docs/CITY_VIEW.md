@@ -193,3 +193,10 @@ Live City → Play/Pause / Step once / Reset / Speed
 ```
 
 This makes mode switching feel like changing playback/interaction style rather than changing to a different dashboard.
+
+
+### Exact values over decorative icon counts
+
+The compact player uses icons only as semantic labels (`🚗 Traffic`, `👥 Queue`, `☕ Active`, `🏗️ Pending`).
+
+Repeated emoji quantities are intentionally not used as a second numeric scale. A row such as `🚗🚗🚗 +108 → 👥👥👥 +3390` is ambiguous because capped icon counts and overflow numbers can be mistaken for real magnitudes or deltas. The labeled metrics are the source of truth.
