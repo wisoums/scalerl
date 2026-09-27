@@ -517,7 +517,7 @@ def _render(session: ScenarioSession, playback: PlaybackState) -> None:
         st.divider()
         _render_transport_controls(session, playback)
 
-    if playback.mode == "live" and (session.threshold_decision or session.predictive_decision):
+    if session.threshold_decision or session.predictive_decision:
         with st.expander("🔎 Manager decision details"):
             _render_manager_diagnostics(session)
 
@@ -629,19 +629,11 @@ def _render_stage(session: ScenarioSession, playback: PlaybackState) -> None:
     progress = 0.0 if session.episode_ticks == 0 else session.tick / session.episode_ticks
     st.progress(min(max(progress, 0.0), 1.0))
 
-    if playback.mode == "live":
-        _render_live_snapshot(session)
-        return
-
-    city, panel = st.columns([3, 2])
-    with city:
-        _render_city(session)
-    with panel:
-        _render_manager(session)
+    _render_player_snapshot(session, playback)
 
 
-def _render_live_snapshot(session: ScenarioSession) -> None:
-    """Compact, glanceable Live City view sized for a laptop viewport."""
+def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -> None:
+    """Compact scenario snapshot shared by Inspect and Live City."""
     last = session.history[-1] if session.history else None
     fleet = session.fleet
 
@@ -653,7 +645,12 @@ def _render_live_snapshot(session: ScenarioSession) -> None:
         active.metric("☕ Active", fleet["active_replicas"])
         starting.metric("🏗️ Pending", fleet["pending_replicas"])
         manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
-        manager.caption("No decision yet. Press Play or Step once to complete the first tick.")
+        if session.controller is None:
+            manager.caption("No decision yet. Choose a manual action below to complete the first tick.")
+        elif playback.mode == "inspect":
+            manager.caption("No decision yet. Press Next step below to complete the first tick.")
+        else:
+            manager.caption("No decision yet. Press Play or Step once below to complete the first tick.")
         return
 
     cars = icon_row("🚗", last["request_rate"], cap=6)
