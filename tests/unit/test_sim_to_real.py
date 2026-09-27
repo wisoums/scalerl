@@ -264,3 +264,118 @@ def test_observation_contract_documents_every_feature() -> None:
     cost = next(f for f in contract["features"] if f["name"] == "tick_cost_fraction")
     assert "latest tick" in cost["live_equivalent"]
     assert contract["normalization"]["episode_ticks"] == 120
+
+
+# --- the frozen manifests ----------------------------------------------------------------------
+
+
+def manifest(name: str) -> Any:
+    return json.loads((BENCH / name).read_text())
+
+
+def test_committed_manifests_check_and_ids_are_pinned() -> None:
+    ids = s2r.check(BENCH)  # recomputes seeds, verifies schedules and protocol references
+    assert ids == {
+        "protocol": "b7bf45c109f1",
+        "replay": "7803b71fdfe8",
+        "controllers": "553ddf3e512b",
+    }
+
+
+def test_control_contract_is_frozen() -> None:
+    control = manifest("sim-to-real-protocol-v1.json")["control_contract"]
+    assert control["control_interval_seconds"] == 30.0
+    assert (control["min_replicas"], control["max_replicas"]) == (1, 10)
+    assert control["action_semantics"] == "desired-replicas-v1"
+    assert control["deterministic_policy_inference"] is True
+    assert control["online_training"] is False and control["exploration"] is False
+    assert control["scale_to_zero"].startswith("disabled")
+    assert "not +1/-1" in control["action_meaning"]
+
+
+def test_transfer_reporting_rule_is_descriptive_only() -> None:
+    protocol = manifest("sim-to-real-protocol-v1.json")
+    rule = protocol["transfer_reporting"]
+    assert rule["rl_must_win"] is False
+    assert rule["pass_fail"].startswith("none") and rule["overall_score"].startswith("none")
+    assert "Threshold" in rule["relative"] and "secondary" in rule["secondary"]
+    assert protocol["held_out_controller_outcomes_used"] is False
+    assert protocol["live_results_used"] is False
+    assert protocol["reward"]["contract_id"] == "37158c261364"
+    assert protocol["reward"]["variant"] == "full-cost-low-v1"
+    assert protocol["observation_contract"]["version"] == "scalerl-observation-v1"
+    assert "no AWS Lambda" in protocol["cost_contract"]["not_claimed"]
+    assert protocol["terminology"] == "local systems-in-the-loop / Knative sim-to-real validation"
+
+
+def test_replay_windows_and_schedules_are_frozen() -> None:
+    replay = manifest("live-replay-manifest-v1.json")
+    assert replay["source_workload"]["workload_id"] == "azure-test-1166400"
+    slices = replay["slices"]
+    assert [(s["start_offset_seconds"], s["duration_seconds"]) for s in slices] == [
+        (600.0, 600.0), (1500.0, 600.0), (2400.0, 600.0)
+    ]  # fmt: skip
+    assert [(s["start_bin"], s["end_bin_exclusive"]) for s in slices] == [
+        (20, 40),
+        (50, 70),
+        (80, 100),
+    ]
+    assert all(s["split"] == "test" and s["control_interval_seconds"] == 30.0 for s in slices)
+    assert len({s["source_trace_fingerprint"] for s in slices}) == 1
+    for entry in slices:
+        assert [x["load_seed"] for x in entry["schedules"]] == [0, 1, 2]
+        counts = {x["request_count"] for x in entry["schedules"]}
+        assert counts == {entry["request_count"]}  # every seed keeps the exact trace counts
+        files = [json.loads((BENCH / x["file"]).read_text()) for x in entry["schedules"]]
+        assert len({json.dumps(f["timestamps_seconds_from_slice_start"]) for f in files}) == 3
+        assert all(
+            f["rng"]["spawn_key"] == [s2r.SCHEDULE_RNG_DOMAIN, entry["slice_index"]] for f in files
+        )
+        assert all(0 <= t < 600 for f in files for t in f["timestamps_seconds_from_slice_start"])
+    assert replay["controller_outcomes_used"] is False and replay["live_results_used"] is False
+
+
+def test_canonical_learned_artifacts_recompute_from_committed_evidence() -> None:
+    controllers = manifest("controller-deployment-manifest-v1.json")
+    contract = s2r.verify_upstream(BENCH)["contract"]
+    expected = {"dqn": (0, "920b0ddb58df4d2b9f550431d2f8ceeb", [0, 1, 2, 4]),
+                "ppo": (4, "9bac13a9447b4c64a44d9732568c949e", [0, 1, 2, 3, 4])}  # fmt: skip
+    for family, (seed_id, run_id, feasible) in expected.items():
+        entry = controllers["controllers"][family]
+        seeds = [
+            s2r.SeedEvidence.model_validate(s, strict=False) for s in entry["five_seed_lineage"]
+        ]
+        assert [s.training_seed for s in seeds] == [0, 1, 2, 3, 4]
+        # only validation workloads participate; no held-out metric exists in the evidence
+        assert all(set(s.metrics) == set(THRESHOLDS) for s in seeds)
+        s2r.check_against_contract(
+            seeds, contract.per_reward["full-cost-low-v1"][f"{family}_equal_seed_means"]
+        )
+        result = s2r.select_canonical_seed(seeds, THRESHOLDS)
+        assert result == entry["canonical_selection"]
+        assert (result["canonical_training_seed"], result["canonical_training_run_id"]) == (
+            seed_id,
+            run_id,
+        )
+        assert result["canonical_seed_validation_feasible"] is True
+        assert result["individually_feasible_seeds"] == feasible
+        assert entry["action_semantics"] == "desired-replicas-v1"
+        assert entry["reward_contract_id"] == "37158c261364"
+    assert controllers["controllers"]["dqn"]["candidate_id"] == "dqn-c14"
+    assert controllers["controllers"]["ppo"]["candidate_id"] == "ppo-c08"
+
+
+def test_controller_set() -> None:
+    controllers = manifest("controller-deployment-manifest-v1.json")
+    assert sorted(controllers["controllers"]) == [
+        "dqn", "knative-native-v1", "ppo", "predictive-seasonal-v1", "predictive-v1", "threshold-v1"
+    ]  # fmt: skip
+    assert controllers["controllers"]["threshold-v1"]["params"] == {
+        "high_threshold": 0.6, "low_threshold": 0.2, "cooldown_ticks": 3
+    }  # fmt: skip
+    assert controllers["controllers"]["predictive-v1"]["forecast_method"] == "linear-trend"
+    seasonal = controllers["controllers"]["predictive-seasonal-v1"]
+    assert seasonal["historical_profile"]["profile_id"] == "d050d3b8ca0f"
+    native = controllers["controllers"]["knative-native-v1"]["settings"]
+    assert (native["min-scale"], native["max-scale"]) == (1, 10)
+    assert "q-learning" in controllers["excluded"]
