@@ -742,6 +742,19 @@ def test_live_city_uses_compact_snapshot(app: AppTest) -> None:
     assert any("Threshold" in markdown.value for markdown in app.markdown)
 
 
+def test_first_tick_placeholder_is_replaced_after_a_completed_tick(app: AppTest) -> None:
+    live_threshold(app)
+
+    before = " ".join(caption.value for caption in app.caption)
+    assert "Press Play or Step once below to complete the first tick." in before
+
+    app.button(key="live_step").click().run()
+
+    after = " ".join(caption.value for caption in app.caption)
+    assert "Press Play or Step once below to complete the first tick." not in after
+    assert "Waiting for the first completed tick" not in after
+
+
 def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
     app.selectbox(key="manager").set_value("threshold").run()
     app.button(key="build").click().run()
@@ -869,10 +882,7 @@ def test_inspect_uses_the_same_compact_snapshot_as_live_city(app: AppTest) -> No
     assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
     assert "🚗 Incoming traffic" not in labels
     assert "👥 Waiting queue" not in labels
-    assert any(
-        "Traffic" in markdown.value and "Queue" in markdown.value
-        for markdown in app.markdown
-    )
+    assert not any("Traffic" in markdown.value and "→" in markdown.value for markdown in app.markdown)
 
 
 def test_app_guidance_explains_live_city(app: AppTest) -> None:
