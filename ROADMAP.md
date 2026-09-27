@@ -85,7 +85,7 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 - #79 compare existing `Discrete(3)` codes 0/1/2 (effects -1/0/+1) with direct desired-replica actions and freeze the final action contract — done: `desired-replicas-v1` frozen in `benchmarks/v1/action-contract-v2.json` (predeclared principle, validation only). Open follow-up for #20: no DQN configuration was feasible under it with the v1 search space and budget
 - #80 preserve existing `predictive-v1` / `forecast-plus-backlog-v1` lineage and add a stronger cloud-style proactive predictive baseline — done: `predictive-seasonal-v1` frozen in `benchmarks/v1/predictive-baseline-v1.json` (validation only). Follow-ups: Azure capacity calibration; low-rate level adaptation
 - #81 add a separate seeded startup-delay robustness extension while preserving robustness-v1 — done: `startup-robustness-v1` frozen in `benchmarks/v1/startup-robustness-freeze-v1.json` (validation only)
-- #20 reward-function ablation on the final #79 action contract using the frozen #78 selection rule
+- #20 reward-function ablation on the final #79 action contract using the frozen #78 selection rule — done: `full-cost-low-v1` (cost weight 0.5) frozen in `benchmarks/v1/reward-contract-v1.json`; first desired-replicas-v1 DQN (`dqn-c14`), with a zero SLA margin on bursty
 - #72 freeze canonical controller artifacts and sim-to-real protocol before held-out outcomes can influence them
 - #65 robustness-v1 remains frozen and unchanged
 - #46 held-out Azure trace comparison under the finalized action/baseline/reward contract and predeclared robustness conditions

@@ -39,6 +39,20 @@ The project should include ablations for:
 
 The final weights should be justified empirically rather than selected only because they produce the highest training reward.
 
+## Reward ablation result (#20)
+
+The predeclared ablation (`reward-ablation-v1`, see [EXPERIMENTS.md](EXPERIMENTS.md#reward-ablation-20)) froze **`full-cost-low-v1`** in `benchmarks/v1/reward-contract-v1.json`:
+
+```text
+latency 1.0, cost 0.5, SLA 1.0, queue 1.0, churn 0.1
+```
+
+It was the only variant for which both learned families (the #78-selected DQN, retrained on 5 seeds, and the fixed `ppo-c08` on 5 seeds) met the Threshold SLA on every validation workload. Two caveats:
+- the DQN margin on `syn-val-bursty` is exactly zero;
+- PPO under this reward runs a near-full fleet.
+
+The component normalization is unchanged, and `RewardWeights()` keeps its historical defaults (cost 1.0) for reproducibility. Final experiments request the frozen weights explicitly.
+
 ## Churn counts scaling events, not replica magnitude (#79 note)
 
 The implemented churn term is `weights.churn * (applied_replica_change != 0)`: one penalty per tick whose applied replica change is non-zero, whatever its size. Under the historical `delta-v1` contract every scaling tick moves exactly one replica, so events and magnitude coincide. Under `desired-replicas-v1` one decision can move several replicas (`+6` in one tick costs the same churn penalty as `+1`).

@@ -436,3 +436,48 @@ def test_run_reward_trains_fresh_desired_models_and_resumes(
     stray.write_text((out / ppo_files[0]).read_text())
     with pytest.raises(ValueError, match="unexpected evidence"):
         ra.load_reward_models(spec, out, "full-cost-high-v1", ids)
+
+
+# --- the frozen reward contract -------------------------------------------------------------------
+
+
+def test_committed_reward_contract() -> None:
+    path = REPO / "benchmarks" / "v1" / "reward-contract-v1.json"
+    contract = ra.RewardContract.model_validate_json(path.read_text())
+    assert contract.contract_id == "37158c261364"
+    assert contract.experiment_spec_id == SPEC_ID
+    assert contract.selected_reward_variant == "full-cost-low-v1"
+    assert contract.selected_weights == ra.REWARD_VARIANTS["full-cost-low-v1"].model_dump()
+    assert contract.reward_changed_from_default is True
+    assert contract.default_weights == RewardWeights().model_dump()  # package default untouched
+    assert contract.action_semantics == DESIRED_REPLICAS_V1
+    assert contract.selection_spec_id == "418876d6c8e9"
+    assert contract.held_out_data_used is False and contract.declares_algorithm_winner is False
+    assert contract.run_provenance["runs_of_record"] == 860
+    assert contract.run_provenance["git_dirty"] == {"false": 860}
+    assert "-test-" not in path.read_text()
+
+    per_reward = contract.per_reward
+    for detail in per_reward.values():
+        assert isinstance(detail, dict)
+        selection = detail["dqn_selection"]
+        assert isinstance(selection, dict) and selection["candidate_count"] == 20
+        if selection["selected_candidate_id"] is None:
+            assert detail["dqn_models"] == []  # the diagnostic fallback is never promoted
+        else:
+            assert [m["training_seed"] for m in detail["dqn_models"]] == [0, 1, 2, 3, 4]  # type: ignore[index, union-attr]
+        assert [m["training_seed"] for m in detail["ppo_models"]] == [0, 1, 2, 3, 4]  # type: ignore[index, union-attr]
+    # The decision is recomputable from the recorded equal-seed means.
+    recomputed = ra.decide_reward(
+        {
+            r: {
+                "dqn_selected": d["dqn_selection"]["selected_candidate_id"] is not None,  # type: ignore[index, call-overload]
+                "dqn": d["dqn_equal_seed_means"],  # type: ignore[index, call-overload]
+                "ppo": d["ppo_equal_seed_means"],  # type: ignore[index, call-overload]
+            }
+            for r, d in per_reward.items()
+        },
+        THRESHOLDS,
+    )
+    assert recomputed == contract.decision
+    assert contract.decision["joint_feasible_rewards"] == ["full-cost-low-v1"]
