@@ -517,6 +517,10 @@ def _render(session: ScenarioSession, playback: PlaybackState) -> None:
         st.divider()
         _render_transport_controls(session, playback)
 
+    if playback.mode == "live" and (session.threshold_decision or session.predictive_decision):
+        with st.expander("🔎 Manager decision details"):
+            _render_manager_diagnostics(session)
+
     st.fragment(_history_region, run_every=run_every)()
     _render_guidance()
 
@@ -625,11 +629,92 @@ def _render_stage(session: ScenarioSession, playback: PlaybackState) -> None:
     progress = 0.0 if session.episode_ticks == 0 else session.tick / session.episode_ticks
     st.progress(min(max(progress, 0.0), 1.0))
 
+    if playback.mode == "live":
+        _render_live_snapshot(session)
+        return
+
     city, panel = st.columns([3, 2])
     with city:
         _render_city(session)
     with panel:
         _render_manager(session)
+
+
+def _render_live_snapshot(session: ScenarioSession) -> None:
+    """Compact, glanceable Live City view sized for a laptop viewport."""
+    last = session.history[-1] if session.history else None
+    fleet = session.fleet
+
+    if last is None:
+        shops = "☕" * min(fleet["active_replicas"], 8)
+        pending = "🏗️" * min(fleet["pending_replicas"], 8)
+        st.markdown(f"**Fleet now**  {shops or "—"} {pending}")
+        active, starting, manager = st.columns([1, 1, 2])
+        active.metric("☕ Active", fleet["active_replicas"])
+        starting.metric("🏗️ Pending", fleet["pending_replicas"])
+        manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
+        manager.caption("No decision yet. Press Play or Step once to complete the first tick.")
+        return
+
+    cars = icon_row("🚗", last["request_rate"], cap=6)
+    people = icon_row("👥", last["queued_requests"], cap=6) or "—"
+    shops = "☕" * min(fleet["active_replicas"], 8)
+    pending_icons = "🏗️" * min(fleet["pending_replicas"], 8)
+    st.markdown(
+        f"**Traffic** {cars}  →  **Queue** {people}  →  "
+        f"**Fleet** {shops or "—"} {pending_icons}"
+    )
+
+    traffic, queue, active, pending, latency, cost = st.columns(6)
+    traffic.metric("🚗 Traffic", f"{last['request_rate']:,.0f} RPS", help=TRAFFIC_HELP)
+    queue.metric("👥 Queue", f"{last['queued_requests']:,.0f}", help=QUEUE_HELP)
+    active.metric("☕ Active", fleet["active_replicas"])
+    pending.metric("🏗️ Pending", fleet["pending_replicas"])
+    latency.metric("⏱ p95", f"{last['p95_latency_seconds']:.3f} s")
+    cost.metric("💵 Cost", f"${session.cumulative_cost:.4f}")
+
+    target = session.config.sla.latency_target_seconds
+    sla = "✅ SLA met" if not last["sla_violated"] else "🚨 SLA violated"
+    st.caption(
+        f"{sla} · target {target:g} s · tick cost ${last['infrastructure_cost']:.4f} · "
+        f"reward {last['reward']:.3f}"
+    )
+
+    st.divider()
+    manager, decision_col, target_col, applied_col = st.columns([2, 1, 1, 1])
+    manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
+    decision_col.metric(
+        "Decision", ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
+    )
+    target_col.metric("Target", last["requested_replica_target"])
+    applied_col.metric("Applied", f"{last['applied_replica_change']:+d}")
+    _render_live_manager_reason(session)
+
+
+def _render_live_manager_reason(session: ScenarioSession) -> None:
+    decision = session.threshold_decision
+    if decision is not None:
+        utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
+        st.caption(
+            f"Utilization {utilization} · desired {decision.desired_replicas} · "
+            f"reason `{decision.reason}` · cooldown {decision.cooldown_remaining}"
+        )
+        return
+
+    prediction = session.predictive_decision
+    if prediction is not None:
+        if prediction.forecast_rps is None:
+            st.caption("No completed traffic was available for the forecast; holding.")
+            return
+        st.caption(
+            f"Observed {prediction.latest_request_rate:.0f} RPS · forecast "
+            f"{prediction.forecast_rps:.0f} RPS · desired {prediction.desired_replicas} · "
+            f"reason `{prediction.reason}`"
+        )
+        return
+
+    if session.manager.kind == "static":
+        st.caption(f"Fixed target: {session.manager.target_replicas} replicas.")
 
 
 def _status(session: ScenarioSession, playback: PlaybackState) -> str:
@@ -697,33 +782,40 @@ def _render_manager(session: ScenarioSession) -> None:
         if last is None:
             st.caption("No decision yet.")
         else:
-            requested, applied = st.columns(2)
-            requested.metric("Decision", ACTION_LABELS[last["requested_action"]])
+            requested, target, applied = st.columns(3)
+            requested.metric(
+                "Decision", ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
+            )
+            target.metric("Target", last["requested_replica_target"])
             applied.metric("Applied change", f"{last['applied_replica_change']:+d}")
             if last["requested_action"] != HOLD and last["applied_replica_change"] == 0:
                 st.caption("The request hit a replica bound, so nothing changed.")
-        if session.threshold_decision or session.predictive_decision:
-            st.caption(
-                "Diagnostics explain the decision that produced the last completed tick, so "
-                "they use what was known before it ran (the tick before)."
-            )
-        if session.manager.kind == "static":
-            st.markdown(f"target replicas **{session.manager.target_replicas}**")
+        _render_manager_diagnostics(session)
 
-        decision = session.threshold_decision
-        if decision is not None:
-            utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
-            st.markdown(
-                f"- utilization **{utilization}**\n"
-                f"- desired **{decision.desired_replicas}**\n"
-                f"- decision **{ACTION_LABELS[decision.action]}**\n"
-                f"- reason `{decision.reason}`\n"
-                f"- cooldown remaining **{decision.cooldown_remaining}**"
-            )
 
-        prediction = session.predictive_decision
-        if prediction is not None:
-            _render_prediction(session, prediction)
+def _render_manager_diagnostics(session: ScenarioSession) -> None:
+    if session.threshold_decision or session.predictive_decision:
+        st.caption(
+            "Diagnostics describe the decision that produced the last completed tick, using "
+            "only information available before that tick ran."
+        )
+    if session.manager.kind == "static":
+        st.markdown(f"target replicas **{session.manager.target_replicas}**")
+
+    decision = session.threshold_decision
+    if decision is not None:
+        utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
+        st.markdown(
+            f"- utilization **{utilization}**\n"
+            f"- desired **{decision.desired_replicas}**\n"
+            f"- decision **{ACTION_LABELS.get(decision.action, str(decision.action))}**\n"
+            f"- reason `{decision.reason}`\n"
+            f"- cooldown remaining **{decision.cooldown_remaining}**"
+        )
+
+    prediction = session.predictive_decision
+    if prediction is not None:
+        _render_prediction(session, prediction)
 
 
 def _history_region() -> None:
