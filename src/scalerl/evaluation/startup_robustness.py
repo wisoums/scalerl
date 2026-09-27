@@ -913,7 +913,12 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 class StartupRobustnessFreeze(_Strict):
-    """What #72/#46 consume: the frozen startup-robustness-v1 definition and its evidence."""
+    """What #72/#46 consume: the frozen startup-robustness-v1 definition and its evidence.
+
+    ``validation_evidence`` is compact: rule controllers per variant (over startup
+    seeds) and PPO at its training-seed level (each seed averaged over startup
+    seeds); per-seed PPO rows are in the local outputs and MLflow runs.
+    """
 
     freeze_version: Literal["startup-robustness-freeze-v1"] = FREEZE_VERSION
     startup_robustness_version: Literal["startup-robustness-v1"] = STARTUP_ROBUSTNESS_VERSION
@@ -956,6 +961,8 @@ def build_freeze(
     for item in summarize(rows):
         if item["metric"] not in EVIDENCE_METRICS:
             continue
+        if item["level"] == "variant" and str(item["controller_variant"]).startswith("ppo"):
+            continue  # PPO enters as its training-seed level; per-seed rows stay in outputs/
         key = (
             f"{item['level']}|{item['controller_variant']}|{item['workload_id']}|{item['scenario']}"
         )
