@@ -35,6 +35,7 @@ from scalerl.environment.reward import (
 from scalerl.environment.startup import (
     FIXED_V1,
     STARTUP_DELAY_MODELS,
+    STARTUP_RNG_DOMAIN,
     TRI_POINT_EXPECTED_MULTIPLIER,
     TRI_POINT_MULTIPLICATIVE_V1,
     TRI_POINT_MULTIPLIERS,
@@ -50,6 +51,7 @@ __all__ = [
     "DESIRED_REPLICAS_V1",
     "FIXED_V1",
     "STARTUP_DELAY_MODELS",
+    "STARTUP_RNG_DOMAIN",
     "TRI_POINT_EXPECTED_MULTIPLIER",
     "TRI_POINT_MULTIPLICATIVE_V1",
     "TRI_POINT_MULTIPLIERS",

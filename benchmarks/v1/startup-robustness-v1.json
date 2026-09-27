@@ -22,7 +22,7 @@
     "per_replica": "one independent draw per newly requested replica, in request order",
     "rounding": "no pre-rounding of realized seconds; activation only through the lifecycle's per-tick advance",
     "canonical_example": "60 s nominal -> 30 / 60 / 90 s: ready after 1 / 2 / 3 ticks of 30 s",
-    "rng": "dedicated per-environment RNG seeded by startup_delay_seed; reset restarts it",
+    "rng": "dedicated per-environment RNG: default_rng(SeedSequence(startup_delay_seed, spawn_key=(1937012080,))), domain-separated from the capacity RNG default_rng(dynamics_seed); reset restarts both",
     "calibration": "robustness stress model, not a provider-calibrated distribution"
   },
   "fixed_model": "fixed-v1: realized delay = nominal delay exactly, no RNG draw (default)",

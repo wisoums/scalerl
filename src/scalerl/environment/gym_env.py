@@ -113,7 +113,7 @@ from scalerl.environment.reward import (
     max_tick_capacity_of,
     max_tick_cost_of,
 )
-from scalerl.environment.startup import FIXED_V1, draw_tri_point_multiplier
+from scalerl.environment.startup import FIXED_V1, draw_tri_point_multiplier, startup_rng
 from scalerl.workloads.trace import WorkloadReplay, WorkloadTrace
 
 __all__ = [
@@ -204,7 +204,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._clock = SimulationClock(config.timing.control_interval_seconds)
         self._replay = WorkloadReplay(trace)
         self._startup_model = config.dynamics.startup_delay_model
-        self._startup_rng = np.random.default_rng(config.dynamics.startup_delay_seed)
+        self._startup_rng = startup_rng(config.dynamics.startup_delay_seed)
         self._pool = ReplicaPool(
             config.replicas,
             startup_multiplier=(
@@ -281,7 +281,7 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         self._telemetry.clear()
         # Restart the dynamics realization: same seed, same multiplier sequence.
         self._dynamics_rng = np.random.default_rng(self.config.dynamics.dynamics_seed)
-        self._startup_rng = np.random.default_rng(self.config.dynamics.startup_delay_seed)
+        self._startup_rng = startup_rng(self.config.dynamics.startup_delay_seed)
         self._needs_reset = False
         return self._observation(), self.replica_counts | {"tick": 0, "time_seconds": 0.0}
 

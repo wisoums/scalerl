@@ -17,9 +17,14 @@ the benchmark's 60 s nominal delay and 30 s ticks the three outcomes are 30 /
 mostly collapse into 2-vs-3 ticks at that cadence; three explicit points make
 early / nominal / late readiness visible without claiming sub-tick calibration.
 
-Draws come from a dedicated per-environment RNG seeded by
-``DynamicsConfig.startup_delay_seed`` (separate from the capacity-jitter RNG),
-consumed one draw per new replica in request order.
+Draws come from a dedicated per-environment RNG, consumed one draw per new
+replica in request order. It is **domain-separated** from the capacity-jitter
+RNG: capacity uses ``np.random.default_rng(dynamics_seed)`` (unchanged since
+#65), while startup uses :func:`startup_rng`, i.e. ``default_rng`` of
+``SeedSequence(startup_delay_seed, spawn_key=(STARTUP_RNG_DOMAIN,))``.
+The spawn key enters the SeedSequence entropy pool, so even when
+``dynamics_seed == startup_delay_seed`` (as in matched experiment replicates)
+the two sources never start from the same random stream.
 """
 
 from __future__ import annotations
@@ -33,11 +38,26 @@ TRI_POINT_MULTIPLICATIVE_V1: Final = "tri-point-multiplicative-v1"
 StartupDelayModel = Literal["fixed-v1", "tri-point-multiplicative-v1"]
 STARTUP_DELAY_MODELS: Final[tuple[StartupDelayModel, ...]] = (FIXED_V1, TRI_POINT_MULTIPLICATIVE_V1)
 
+# Fixed spawn key separating the startup stream from every other stream seeded
+# with the same integer (the ASCII bytes of "stup"). Changing it would change
+# every startup realization and therefore requires a new model version.
+STARTUP_RNG_DOMAIN: Final = 0x73747570
+
 TRI_POINT_MULTIPLIERS: Final = (0.5, 1.0, 1.5)
 TRI_POINT_PROBABILITIES: Final = (0.25, 0.50, 0.25)
 TRI_POINT_EXPECTED_MULTIPLIER: Final = sum(
     m * p for m, p in zip(TRI_POINT_MULTIPLIERS, TRI_POINT_PROBABILITIES, strict=True)
 )
+
+
+def startup_seed_sequence(startup_delay_seed: int) -> np.random.SeedSequence:
+    """The domain-separated seed of the startup-delay stream for ``startup_delay_seed``."""
+    return np.random.SeedSequence(startup_delay_seed, spawn_key=(STARTUP_RNG_DOMAIN,))
+
+
+def startup_rng(startup_delay_seed: int) -> np.random.Generator:
+    """The startup-delay RNG; never the same stream as ``default_rng(startup_delay_seed)``."""
+    return np.random.default_rng(startup_seed_sequence(startup_delay_seed))
 
 
 def draw_tri_point_multiplier(rng: np.random.Generator) -> float:

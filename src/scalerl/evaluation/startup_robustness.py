@@ -14,9 +14,12 @@ scenario                              jitter      telemetry delay   startup mode
 ====================================  ==========  ================  ==========================
 
 Seeds: ``startup-delay-jitter`` uses startup seeds 0-4 (dynamics seed 0, no
-jitter drawn); ``combined-startup-robustness`` uses matched indices
-``dynamics_seed = startup_delay_seed = s`` for ``s`` in 0-4. The capacity and
-startup RNGs are separate streams.
+jitter drawn); ``combined-startup-robustness`` uses matched replicate indices
+``dynamics_seed = startup_delay_seed = s`` for ``s`` in 0-4. The raw streams are
+domain-separated (capacity: ``default_rng(s)``; startup: a SeedSequence of ``s``
+with the fixed startup spawn key), so a replicate's two sources never share a
+random stream, and startup seed ``s`` gives the same startup realization in both
+scenarios for the same request sequence.
 
 **Fairness.** For the same workload, scenario, startup seed and request
 sequence, a controller gets exactly the same startup realization, whatever the
@@ -55,6 +58,7 @@ from scalerl.benchmarks import build_workloads, load_benchmark_manifest
 from scalerl.controllers import Controller
 from scalerl.environment import (
     DESIRED_REPLICAS_V1,
+    STARTUP_RNG_DOMAIN,
     TRI_POINT_EXPECTED_MULTIPLIER,
     TRI_POINT_MULTIPLICATIVE_V1,
     TRI_POINT_MULTIPLIERS,
@@ -129,7 +133,8 @@ class StartupScenario:
         """``(dynamics_seed, startup_delay_seed)`` pairs of the predeclared seed plan."""
         if self.capacity_jitter_fraction == 0:
             return tuple((0, seed) for seed in STARTUP_SEEDS)  # no jitter: dynamics seed unused
-        return tuple((seed, seed) for seed in STARTUP_SEEDS)  # matched indices, separate streams
+        # Matched replicate indices; the raw streams are domain-separated in the env.
+        return tuple((seed, seed) for seed in STARTUP_SEEDS)
 
 
 STARTUP_DELAY_JITTER = StartupScenario("startup-delay-jitter", 0.0, 0)
@@ -414,7 +419,11 @@ def _startup_model() -> dict[str, JsonValue]:
             "per-tick advance"
         ),
         "canonical_example": "60 s nominal -> 30 / 60 / 90 s: ready after 1 / 2 / 3 ticks of 30 s",
-        "rng": "dedicated per-environment RNG seeded by startup_delay_seed; reset restarts it",
+        "rng": (
+            "dedicated per-environment RNG: default_rng(SeedSequence(startup_delay_seed, "
+            f"spawn_key=({STARTUP_RNG_DOMAIN},))), domain-separated from the capacity RNG "
+            "default_rng(dynamics_seed); reset restarts both"
+        ),
         "calibration": "robustness stress model, not a provider-calibrated distribution",
     }
 

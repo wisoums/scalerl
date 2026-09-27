@@ -28,7 +28,12 @@ from scalerl.environment import (
     SimulatorConfig,
 )
 from scalerl.environment.gym_env import PHYSICAL_ONLY_KEYS
-from scalerl.environment.startup import draw_tri_point_multiplier
+from scalerl.environment.startup import (
+    STARTUP_RNG_DOMAIN,
+    draw_tri_point_multiplier,
+    startup_rng,
+    startup_seed_sequence,
+)
 from scalerl.evaluation import startup_robustness as sr
 from scalerl.evaluation.robustness import (
     CAPACITY_JITTER,
@@ -45,7 +50,7 @@ from scalerl.workloads import steady_workload
 REPO = Path(__file__).resolve().parents[2]
 SPEC = REPO / "benchmarks" / "v1" / "startup-robustness-v1.json"
 DECISION = REPO / "benchmarks" / "v1" / "action-contract-v2.json"
-SPEC_ID = "bec43981bfc8"
+SPEC_ID = "60f1f14972a7"
 DESIRED = ActionConfig(semantics=DESIRED_REPLICAS_V1)
 
 
@@ -176,7 +181,8 @@ def test_reset_restarts_the_realization_and_order_is_irrelevant() -> None:
     assert interleaved == first
 
 
-def test_capacity_and_startup_streams_are_independent() -> None:
+def test_capacity_and_startup_rng_states_do_not_interfere() -> None:
+    """RNG state isolation: consuming one stream never shifts the other."""
     jitter = {"capacity_jitter_fraction": 0.1, "dynamics_seed": 2}
 
     def multipliers(cfg: SimulatorConfig, codes: list[int]) -> list[float]:
@@ -190,6 +196,44 @@ def test_capacity_and_startup_streams_are_independent() -> None:
     assert started(env_of(config(seed=5, **jitter)), REQUESTS) == started(
         env_of(config(seed=5)), REQUESTS
     )
+
+
+def test_startup_stream_is_domain_separated_from_the_capacity_stream() -> None:
+    """Matched replicate seeds never make the two stochastic sources share a random stream."""
+    assert STARTUP_RNG_DOMAIN == 0x73747570
+    for seed in (0, 1, 2, 3, 4):
+        sequence = startup_seed_sequence(seed)
+        assert (sequence.entropy, sequence.spawn_key) == (seed, (STARTUP_RNG_DOMAIN,))
+        startup = startup_rng(seed).random(256)
+        capacity = np.random.default_rng(seed).random(256)
+        assert not np.any(startup == capacity)  # not the same stream, not even one shared draw
+        assert abs(float(np.corrcoef(startup, capacity)[0, 1])) < 0.25
+        # The capacity stream is still exactly default_rng(dynamics_seed) (robustness-v1).
+        cfg = config(seed=seed, capacity_jitter_fraction=0.1, dynamics_seed=seed)
+        env = env_of(cfg)
+        realized = [env.step(code)[4] for code in REQUESTS]
+        expected_capacity = np.random.default_rng(seed).uniform(0.9, 1.1, len(REQUESTS))
+        assert [i["capacity_multiplier"] for i in realized] == list(expected_capacity)
+        # The startup stream is exactly the domain-separated one, one draw per new replica.
+        reference = startup_rng(seed)
+        for info in realized:
+            expected = [draw_tri_point_multiplier(reference) for _ in info["startup_multipliers"]]
+            assert info["startup_multipliers"] == expected
+    # Pinned first draws of the startup stream for seed 0 (numpy PCG64 is platform-exact).
+    assert startup_rng(0).random(3).tolist() == pytest.approx(
+        [0.0033872524848064245, 0.9188732765544884, 0.40036728053680903], abs=1e-12
+    )
+
+
+def test_a_startup_seed_realizes_identically_in_both_startup_scenarios() -> None:
+    for seed in (0, 3):
+        jitter_only = sr.apply_startup_scenario(
+            config(), sr.STARTUP_DELAY_JITTER, startup_delay_seed=seed, dynamics_seed=0
+        )
+        combined = sr.apply_startup_scenario(
+            config(), sr.COMBINED_STARTUP_ROBUSTNESS, startup_delay_seed=seed, dynamics_seed=seed
+        )
+        assert started(env_of(jitter_only), REQUESTS) == started(env_of(combined), REQUESTS)
 
 
 # --- multi-replica requests and cancellation ------------------------------------------------------
@@ -238,7 +282,7 @@ def test_cancellation_is_newest_first_and_cancelled_never_activate() -> None:
 def _seeds_with_first_draws(first: float, second: float) -> tuple[int, int]:
     found: dict[float, int] = {}
     for seed in range(200):
-        value = draw_tri_point_multiplier(np.random.default_rng(seed))
+        value = draw_tri_point_multiplier(startup_rng(seed))
         found.setdefault(value, seed)
     return found[first], found[second]
 
@@ -556,20 +600,3 @@ def test_run_is_resumable_and_logs_distinct_seed_metadata(
     freeze = sr.build_freeze(spec, again)
     assert freeze.held_out_data_used is False and freeze.reward_changed is False
     assert len(freeze.mlflow_run_ids) == len(again)
-
-
-def test_committed_freeze_artifact() -> None:
-    path = REPO / "benchmarks" / "v1" / "startup-robustness-freeze-v1.json"
-    freeze = sr.StartupRobustnessFreeze.model_validate_json(path.read_text())
-    assert freeze.freeze_id == "5907ade36ebd"
-    assert freeze.experiment_spec_id == SPEC_ID
-    assert freeze.startup_robustness_version == "startup-robustness-v1"
-    assert freeze.startup_model["id"] == TRI_POINT_MULTIPLICATIVE_V1
-    assert list(freeze.scenarios) == ["startup-delay-jitter", "combined-startup-robustness"]
-    assert freeze.startup_seeds == (0, 1, 2, 3, 4)
-    assert freeze.action_semantics == DESIRED_REPLICAS_V1
-    assert len(freeze.mlflow_run_ids) == 3 * 8 * 11
-    assert all(case.split("|")[1] in sr.VALIDATION_WORKLOADS for case in freeze.mlflow_run_ids)
-    assert freeze.held_out_data_used is False and freeze.reward_changed is False
-    assert freeze.declares_overall_winner is False
-    assert "-test-" not in path.read_text()

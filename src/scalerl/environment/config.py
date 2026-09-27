@@ -120,8 +120,10 @@ class DynamicsConfig(_FrozenConfig):
     Startup delay (#81, see :mod:`scalerl.environment.startup`): ``fixed-v1``
     (default) keeps every replica's startup at exactly ``startup_delay_seconds``;
     ``tri-point-multiplicative-v1`` draws a per-replica multiplier from its own
-    RNG seeded by ``startup_delay_seed``. The two startup fields are serialized
-    only when not at their defaults, so pre-#81 configs keep their identity.
+    RNG, derived from ``startup_delay_seed`` with a fixed domain-separation
+    spawn key so it never shares a stream with the capacity RNG. The two startup
+    fields are serialized only when not at their defaults, so pre-#81 configs
+    keep their identity.
     """
 
     capacity_jitter_fraction: float = Field(
