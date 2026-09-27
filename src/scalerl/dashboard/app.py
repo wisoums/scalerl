@@ -646,11 +646,15 @@ def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -
         starting.metric("🏗️ Pending", fleet["pending_replicas"])
         manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
         if session.controller is None:
-            manager.caption("No decision yet. Choose a manual action below to complete the first tick.")
+            manager.caption(
+                "No decision yet. Choose a manual action below to complete the first tick."
+            )
         elif playback.mode == "inspect":
             manager.caption("No decision yet. Press Next step below to complete the first tick.")
         else:
-            manager.caption("No decision yet. Press Play or Step once below to complete the first tick.")
+            manager.caption(
+                "No decision yet. Press Play or Step once below to complete the first tick."
+            )
         return
 
     cars = icon_row("🚗", last["request_rate"], cap=6)
@@ -781,7 +785,8 @@ def _render_manager(session: ScenarioSession) -> None:
         else:
             requested, target, applied = st.columns(3)
             requested.metric(
-                "Decision", ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
+                "Decision",
+                ACTION_LABELS.get(last["requested_action"], str(last["requested_action"])),
             )
             target.metric("Target", last["requested_replica_target"])
             applied.metric("Applied change", f"{last['applied_replica_change']:+d}")
