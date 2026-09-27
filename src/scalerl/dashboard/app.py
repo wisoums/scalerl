@@ -18,7 +18,6 @@ import streamlit as st
 from scalerl.benchmarks import AzureWorkload, load_benchmark_manifest
 from scalerl.controllers import PredictiveDecision
 from scalerl.dashboard.playback import (
-    MANUAL_AUTOPLAY_MESSAGE,
     SPEEDS,
     PlaybackMode,
     PlaybackState,
@@ -506,57 +505,46 @@ def _render(session: ScenarioSession, playback: PlaybackState) -> None:
     if note:
         st.info(note)
 
-    _render_controls(session, playback)
-    # Full app runs (any click or widget change) never step; only the fragment's
-    # own timer runs, which do not set this flag, may advance a due tick.
+    _render_mode_toggle(playback)
+
+    # Full app runs never step. Only the scenario-stage fragment timer may
+    # advance a due tick. The history fragment below is read-only.
     st.session_state[FULL_RUN_KEY] = True
     run_every = playback.period_seconds if playback.playing else None
-    st.fragment(_live_region, run_every=run_every)()
+
+    with st.container(border=True):
+        st.fragment(_scenario_stage_region, run_every=run_every)()
+        st.divider()
+        _render_transport_controls(session, playback)
+
+    if session.threshold_decision or session.predictive_decision:
+        with st.expander("🔎 Manager decision details"):
+            _render_manager_diagnostics(session)
+
+    st.fragment(_history_region, run_every=run_every)()
     _render_guidance()
 
 
-def _render_controls(session: ScenarioSession, playback: PlaybackState) -> None:
+def _render_mode_toggle(playback: PlaybackState) -> None:
+    st.segmented_control(
+        "View",
+        list(MODES),
+        selection_mode="single",
+        default=playback.mode,
+        required=True,
+        format_func=MODES.__getitem__,
+        key=MODE_KEY,
+        on_change=_on_mode_change,
+        help=MODE_HELP,
+        width="content",
+    )
+
+
+def _render_transport_controls(session: ScenarioSession, playback: PlaybackState) -> None:
     if playback.mode == "inspect":
-        mode, actions = st.columns([2, 6])
-        with mode:
-            st.radio(
-                "Mode",
-                list(MODES),
-                format_func=MODES.__getitem__,
-                key=MODE_KEY,
-                horizontal=True,
-                on_change=_on_mode_change,
-                help=MODE_HELP,
-            )
-        with actions:
-            _inspect_controls(session)
+        _inspect_controls(session)
     else:
-        mode, actions, speed = st.columns([2, 5, 2])
-        with mode:
-            st.radio(
-                "Mode",
-                list(MODES),
-                format_func=MODES.__getitem__,
-                key=MODE_KEY,
-                horizontal=True,
-                on_change=_on_mode_change,
-                help=MODE_HELP,
-            )
-        with actions:
-            _live_controls(session, playback)
-        with speed:
-            st.radio(
-                "Speed",
-                list(SPEEDS),
-                index=SPEEDS.index(playback.speed),
-                format_func=speed_label,
-                key=SPEED_KEY,
-                horizontal=True,
-                on_change=_on_speed_change,
-                help=SPEED_HELP,
-            )
-        if session.controller is None:
-            st.info(MANUAL_AUTOPLAY_MESSAGE)
+        _live_controls(session, playback)
 
     if session.done:
         st.success("Episode complete. Reset the episode or apply settings to run again.")
@@ -574,23 +562,25 @@ def _inspect_controls(session: ScenarioSession) -> None:
                 label, key=key, disabled=session.done, on_click=_manual_step, args=(action,)
             )
     else:
-        step, run, reset, _ = st.columns(4)
-        step.button("▶ Step", key="step", disabled=session.done, on_click=_controller_step)
+        step, run, reset = st.columns(3)
+        step.button("▶ Next step", key="step", disabled=session.done, on_click=_controller_step)
         run.button("⏭ Run to end", key="run_to_end", disabled=session.done, on_click=_run_to_end)
     reset.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
 
 
 def _live_controls(session: ScenarioSession, playback: PlaybackState) -> None:
     blocker = autoplay_blocker(session)
-    play, pause, step, reset = st.columns(4)
-    play.button(
-        "▶ Play",
-        key="play",
-        type="primary",
-        disabled=playback.playing or blocker is not None,
-        on_click=_play,
-    )
-    pause.button("⏸ Pause", key="pause", disabled=not playback.playing, on_click=_pause)
+    transport, step, reset, speed = st.columns([2, 2, 2, 3])
+    if playback.playing:
+        transport.button("⏸ Pause", key="pause", type="primary", on_click=_pause)
+    else:
+        transport.button(
+            "▶ Play",
+            key="play",
+            type="primary",
+            disabled=blocker is not None,
+            on_click=_play,
+        )
     step.button(
         "⏯ Step once",
         key="live_step",
@@ -599,10 +589,24 @@ def _live_controls(session: ScenarioSession, playback: PlaybackState) -> None:
         help="Advance exactly one tick while paused.",
     )
     reset.button("↺ Reset episode", key="reset_episode", on_click=_reset_episode)
+    speed.segmented_control(
+        "Speed",
+        list(SPEEDS),
+        selection_mode="single",
+        default=playback.speed,
+        required=True,
+        format_func=speed_label,
+        key=SPEED_KEY,
+        on_change=_on_speed_change,
+        help=SPEED_HELP,
+        width="stretch",
+    )
+    if blocker is not None and not session.done:
+        st.info(blocker)
 
 
-def _live_region() -> None:
-    """Everything that changes each tick; re-run alone by the playback timer."""
+def _scenario_stage_region() -> None:
+    """Timer-driven scenario stage; this is the only fragment allowed to step."""
     session: ScenarioSession | None = st.session_state.get(SESSION_KEY)
     if session is None:
         return
@@ -611,26 +615,102 @@ def _live_region() -> None:
     if timer_run and playback.playing:
         advance_if_due(playback, session, time.monotonic())
         if not playback.playing:
-            st.rerun(scope="app")  # completed: refresh the controls and drop the timer
-    _render_live(session, playback)
+            st.rerun(scope="app")  # completed: refresh controls and drop the timer
+    _render_stage(session, playback)
 
 
-def _render_live(session: ScenarioSession, playback: PlaybackState) -> None:
-    st.markdown(f"#### {_status(session, playback)}")
-    tick, time_ = st.columns(2)
-    tick.metric("Tick", f"{session.tick} / {session.episode_ticks}")
+def _render_stage(session: ScenarioSession, playback: PlaybackState) -> None:
+    status, clock = st.columns([3, 2])
+    status.markdown(f"#### {_status(session, playback)}")
     minutes, seconds = divmod(int(session.simulated_seconds), 60)
-    time_.metric("Simulated time", f"{minutes:02d}:{seconds:02d}")
-    if playback.mode == "live":
-        interval = session.config.timing.control_interval_seconds
-        st.caption(f"1 frame = {interval:g} s simulated · speed changes display cadence only.")
+    clock.markdown(
+        f"**Tick {session.tick} / {session.episode_ticks}** · {minutes:02d}:{seconds:02d}"
+    )
+    progress = 0.0 if session.episode_ticks == 0 else session.tick / session.episode_ticks
+    st.progress(min(max(progress, 0.0), 1.0))
 
-    city, panel = st.columns([3, 2])
-    with city:
-        _render_city(session)
-    with panel:
-        _render_manager(session)
-    _render_history(session)
+    _render_player_snapshot(session, playback)
+
+
+def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -> None:
+    """Compact scenario snapshot shared by Inspect and Live City."""
+    last = session.history[-1] if session.history else None
+    fleet = session.fleet
+
+    traffic_value = "—" if last is None else f"{last['request_rate']:,.0f} RPS"
+    queue_value = "—" if last is None else f"{last['queued_requests']:,.0f}"
+    latency_value = "—" if last is None else f"{last['p95_latency_seconds']:.3f} s"
+    cost_value = f"${session.cumulative_cost:.4f}"
+
+    traffic, queue, active, pending, latency, cost = st.columns(6)
+    traffic.metric("🚗 Traffic", traffic_value, help=TRAFFIC_HELP)
+    queue.metric("👥 Queue", queue_value, help=QUEUE_HELP)
+    active.metric("☕ Active", fleet["active_replicas"])
+    pending.metric("🏗️ Pending", fleet["pending_replicas"])
+    latency.metric("⏱ p95", latency_value)
+    cost.metric("💵 Cost", cost_value)
+
+    target = session.config.sla.latency_target_seconds
+    if last is None:
+        st.caption(f"Waiting for the first completed tick · SLA target {target:g} s")
+    else:
+        sla = "✅ SLA met" if not last["sla_violated"] else "🚨 SLA violated"
+        st.caption(
+            f"{sla} · target {target:g} s · tick cost ${last['infrastructure_cost']:.4f} · "
+            f"reward {last['reward']:.3f}"
+        )
+
+    st.divider()
+    manager, decision_col, target_col, applied_col = st.columns([2, 1, 1, 1])
+    manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
+
+    decision_value = "—"
+    target_value: str | int = "—"
+    applied_value = "—"
+    if last is not None:
+        decision_value = ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
+        target_value = last["requested_replica_target"]
+        applied_value = f"{last['applied_replica_change']:+d}"
+
+    decision_col.metric("Decision", decision_value)
+    target_col.metric("Target", target_value)
+    applied_col.metric("Applied", applied_value)
+
+    if last is None:
+        if session.controller is None:
+            st.caption("Choose a manual action below to complete the first tick.")
+        elif playback.mode == "inspect":
+            st.caption("Press Next step below to complete the first tick.")
+        else:
+            st.caption("Press Play or Step once below to complete the first tick.")
+    else:
+        _render_live_manager_reason(session)
+
+
+def _render_live_manager_reason(session: ScenarioSession) -> None:
+    decision = session.threshold_decision
+    if decision is not None:
+        utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
+        st.caption(
+            f"Utilization {utilization} · desired {decision.desired_replicas} · "
+            f"reason `{decision.reason}` · cooldown {decision.cooldown_remaining}"
+        )
+        return
+
+    prediction = session.predictive_decision
+    if prediction is not None:
+        if prediction.forecast_rps is None:
+            st.caption("No completed traffic was available for the forecast; holding.")
+            return
+        st.caption(
+            f"Observed {prediction.latest_request_rate:.0f} RPS · forecast "
+            f"{prediction.forecast_rps:.0f} RPS · desired {prediction.desired_replicas} · "
+            f"reason `{prediction.reason}`"
+        )
+        return
+
+    if session.manager.kind == "static":
+        st.caption(f"Fixed target: {session.manager.target_replicas} replicas.")
 
 
 def _status(session: ScenarioSession, playback: PlaybackState) -> str:
@@ -698,33 +778,48 @@ def _render_manager(session: ScenarioSession) -> None:
         if last is None:
             st.caption("No decision yet.")
         else:
-            requested, applied = st.columns(2)
-            requested.metric("Decision", ACTION_LABELS[last["requested_action"]])
+            requested, target, applied = st.columns(3)
+            requested.metric(
+                "Decision",
+                ACTION_LABELS.get(last["requested_action"], str(last["requested_action"])),
+            )
+            target.metric("Target", last["requested_replica_target"])
             applied.metric("Applied change", f"{last['applied_replica_change']:+d}")
             if last["requested_action"] != HOLD and last["applied_replica_change"] == 0:
                 st.caption("The request hit a replica bound, so nothing changed.")
-        if session.threshold_decision or session.predictive_decision:
-            st.caption(
-                "Diagnostics explain the decision that produced the last completed tick, so "
-                "they use what was known before it ran (the tick before)."
-            )
-        if session.manager.kind == "static":
-            st.markdown(f"target replicas **{session.manager.target_replicas}**")
+        _render_manager_diagnostics(session)
 
-        decision = session.threshold_decision
-        if decision is not None:
-            utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
-            st.markdown(
-                f"- utilization **{utilization}**\n"
-                f"- desired **{decision.desired_replicas}**\n"
-                f"- decision **{ACTION_LABELS[decision.action]}**\n"
-                f"- reason `{decision.reason}`\n"
-                f"- cooldown remaining **{decision.cooldown_remaining}**"
-            )
 
-        prediction = session.predictive_decision
-        if prediction is not None:
-            _render_prediction(session, prediction)
+def _render_manager_diagnostics(session: ScenarioSession) -> None:
+    if session.threshold_decision or session.predictive_decision:
+        st.caption(
+            "Diagnostics describe the decision that produced the last completed tick, using "
+            "only information available before that tick ran."
+        )
+    if session.manager.kind == "static":
+        st.markdown(f"target replicas **{session.manager.target_replicas}**")
+
+    decision = session.threshold_decision
+    if decision is not None:
+        utilization = "n/a" if decision.utilization is None else f"{decision.utilization:.2f}"
+        st.markdown(
+            f"- utilization **{utilization}**\n"
+            f"- desired **{decision.desired_replicas}**\n"
+            f"- decision **{ACTION_LABELS.get(decision.action, str(decision.action))}**\n"
+            f"- reason `{decision.reason}`\n"
+            f"- cooldown remaining **{decision.cooldown_remaining}**"
+        )
+
+    prediction = session.predictive_decision
+    if prediction is not None:
+        _render_prediction(session, prediction)
+
+
+def _history_region() -> None:
+    """Read-only live history; never advances the simulation."""
+    session: ScenarioSession | None = st.session_state.get(SESSION_KEY)
+    if session is not None:
+        _render_history(session)
 
 
 def _render_history(session: ScenarioSession) -> None:

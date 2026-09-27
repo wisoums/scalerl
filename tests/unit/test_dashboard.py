@@ -516,7 +516,7 @@ def test_app_starts_with_a_default_synthetic_scenario(app: AppTest) -> None:
 def test_app_live_summary_does_not_repeat_manager_identity(app: AppTest) -> None:
     labels = [metric.label for metric in app.metric]
     assert "Manager" not in labels
-    assert any("Manual" in subheader.value for subheader in app.subheader)
+    assert any("Manual" in markdown.value for markdown in app.markdown)
 
 
 def test_app_manual_step_and_reset(app: AppTest) -> None:
@@ -524,7 +524,7 @@ def test_app_manual_step_and_reset(app: AppTest) -> None:
 
     assert not app.exception
     assert session_of(app).tick == 1
-    assert app.metric[0].value == "1 / 120"
+    assert any("Tick 1 / 120" in markdown.value for markdown in app.markdown)
 
     app.button(key="reset_episode").click().run()
 
@@ -707,7 +707,7 @@ def playback_of(app: AppTest) -> PlaybackState:
 def live_threshold(app: AppTest) -> AppTest:
     app.selectbox(key="manager").set_value("threshold").run()
     app.button(key="build").click().run()
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
     return app
 
 
@@ -715,9 +715,44 @@ def test_app_opens_paused_in_inspect_mode(app: AppTest) -> None:
     playback = playback_of(app)
 
     assert (playback.mode, playback.playing, playback.speed) == ("inspect", False, 1.0)
-    assert app.radio(key="playback_mode").value == "inspect"
+    assert app.segmented_control(key="playback_mode").value == "inspect"
     assert session_of(app).tick == 0
     assert any("INSPECT" in markdown.value for markdown in app.markdown)
+
+
+def test_app_uses_segmented_player_controls(app: AppTest) -> None:
+    assert app.segmented_control(key="playback_mode").value == "inspect"
+    assert all(radio.key != "playback_mode" for radio in app.radio)
+    live_threshold(app)
+    assert app.segmented_control(key="playback_mode").value == "live"
+    assert app.segmented_control(key="playback_speed").value == 1.0
+    assert app.button(key="play")
+    assert app.button(key="live_step")
+    assert app.button(key="reset_episode")
+
+
+def test_live_city_uses_compact_snapshot(app: AppTest) -> None:
+    live_threshold(app)
+    app.button(key="live_step").click().run()
+
+    labels = [metric.label for metric in app.metric]
+    assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
+    assert "🚗 Incoming traffic" not in labels
+    assert "👥 Waiting queue" not in labels
+    assert any("Threshold" in markdown.value for markdown in app.markdown)
+
+
+def test_first_tick_placeholder_is_replaced_after_a_completed_tick(app: AppTest) -> None:
+    live_threshold(app)
+
+    before = " ".join(caption.value for caption in app.caption)
+    assert "Press Play or Step once below to complete the first tick." in before
+
+    app.button(key="live_step").click().run()
+
+    after = " ".join(caption.value for caption in app.caption)
+    assert "Press Play or Step once below to complete the first tick." not in after
+    assert "Waiting for the first completed tick" not in after
 
 
 def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
@@ -726,12 +761,12 @@ def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
     app.button(key="step").click().run()
     running = session_of(app)
 
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
     assert session_of(app) is running and running.tick == 1
-    assert app.radio(key="playback_speed").value == 1.0
+    assert app.segmented_control(key="playback_speed").value == 1.0
     assert any("LIVE CITY • ⏸ PAUSED" in markdown.value for markdown in app.markdown)
 
-    app.radio(key="playback_mode").set_value("inspect").run()
+    app.segmented_control(key="playback_mode").set_value("inspect").run()
     assert session_of(app) is running and running.tick == 1
 
 
@@ -740,8 +775,7 @@ def test_app_play_and_pause_without_extra_steps(app: AppTest) -> None:
 
     assert not app.exception
     assert playback_of(app).playing
-    assert app.button(key="play").disabled
-    assert not app.button(key="pause").disabled
+    assert app.button(key="pause")
     assert app.button(key="live_step").disabled
     assert any("PLAYING • 1x" in markdown.value for markdown in app.markdown)
 
@@ -762,7 +796,7 @@ def test_app_speed_change_keeps_the_session_and_playback(app: AppTest) -> None:
     app.button(key="play").click().run()
     running, history = session_of(app), session_of(app).history
 
-    app.radio(key="playback_speed").set_value(5.0).run()
+    app.segmented_control(key="playback_speed").set_value(5.0).run()
 
     assert playback_of(app).playing and playback_of(app).speed == 5.0
     assert session_of(app) is running
@@ -814,14 +848,14 @@ def test_app_invalid_build_keeps_the_session_but_pauses(app: AppTest) -> None:
 def test_app_leaving_live_city_pauses(app: AppTest) -> None:
     live_threshold(app).button(key="play").click().run()
 
-    app.radio(key="playback_mode").set_value("inspect").run()
+    app.segmented_control(key="playback_mode").set_value("inspect").run()
 
     assert not playback_of(app).playing
     assert app.button(key="run_to_end")
 
 
 def test_app_manual_manager_cannot_autoplay(app: AppTest) -> None:
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
 
     assert app.button(key="play").disabled
     assert app.button(key="live_step").disabled
@@ -834,21 +868,24 @@ def test_app_completed_episode_cannot_play(app: AppTest) -> None:
     app.button(key="build").click().run()
     app.button(key="run_to_end").click().run()
 
-    app.radio(key="playback_mode").set_value("live").run()
+    app.segmented_control(key="playback_mode").set_value("live").run()
 
-    assert app.button(key="play").disabled and app.button(key="pause").disabled
+    assert app.button(key="play").disabled
     assert any("EPISODE COMPLETE" in markdown.value for markdown in app.markdown)
     assert session_of(app).tick == 120
 
 
-def test_app_city_separates_incoming_traffic_from_the_waiting_queue(app: AppTest) -> None:
+def test_inspect_uses_the_same_compact_snapshot_as_live_city(app: AppTest) -> None:
     app.button(key="step_hold").click().run()
 
     labels = [metric.label for metric in app.metric]
-    assert "🚗 Incoming traffic" in labels and "👥 Waiting queue" in labels
-    captions = " ".join(caption.value for caption in app.caption)
-    assert "NEW requests arriving" in captions
-    assert "ALREADY arrived but could not yet be processed" in captions
+    assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
+    assert "🚗 Incoming traffic" not in labels
+    assert "👥 Waiting queue" not in labels
+    # No stale one-line "Traffic … → …" snapshot; checked per line because the static
+    # glossary legitimately mentions "Traffic" and uses arrows on other lines.
+    lines = [line for markdown in app.markdown for line in markdown.value.splitlines()]
+    assert not any("Traffic" in line and "→" in line for line in lines)
 
 
 def test_app_guidance_explains_live_city(app: AppTest) -> None:

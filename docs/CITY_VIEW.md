@@ -88,15 +88,26 @@ Manager panels use only diagnostics the controller really provides. Random and S
 
 ## Inspect vs Live City
 
-A compact control toolbar offers two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+A native two-state segmented control switches between two ways to watch the **same** `ScenarioSession`: the same controller, environment, and history. Switching modes never rebuilds or resets the city. The page opens in Inspect mode, paused, at 1x, and never advances on its own.
+
+```text
+[ 🔎 Inspect | 🏙 Live City ]
+```
+
+The simulation itself is presented as one **scenario player**: the current city/manager state is the stage, episode progress sits with it, and the mode-specific transport controls are directly underneath. History charts remain below the player.
 
 Conceptually:
 
 ```text
-Mode [ Inspect | Live City ]   playback controls   Speed [0.5x 1x 2x 5x]
+┌─────────────────────────────────────────────────────────┐
+│ scenario stage · status · tick/time · progress          │
+│ City View                         Manager               │
+├─────────────────────────────────────────────────────────┤
+│ mode-specific controls underneath                       │
+└─────────────────────────────────────────────────────────┘
 ```
 
-The toolbar is intentionally compact so City View appears near the top of the page rather than below a large controls card.
+This keeps the causal simulation visually together instead of making playback controls feel like an unrelated form.
 
 | Mode | Controls |
 |---|---|
@@ -125,3 +136,67 @@ After each tick the page charts traffic, replicas serving each tick (active and 
 | Results Explorer (#39, planned) | browsing stored experiment runs |
 
 The City View, including Live City playback, does not log to MLflow and is not an experiment database; it is interactive Scenario Lab exploration. Numbers used in results must come from tracked MLflow runs.
+
+
+## Scenario player layout
+
+The player is intentionally designed to feel closer to a video/simulation stage than a dashboard form:
+
+- **mode toggle above**: Inspect vs Live City;
+- **stage inside one outer rectangle**: status, tick/time, progress, City View, manager;
+- **transport controls below the stage**;
+- **History below the player**.
+
+The progress bar is display-only. ScaleRL does not support arbitrary seeking/rewinding because controller state, queue state, and replica lifecycle are sequential. Use **Reset episode** and replay when you need to return to the start.
+
+History is rendered read-only and must never advance simulation state. During Live playback, only the scenario-stage fragment is allowed to call the environment/controller step path.
+
+
+## Live City viewport target
+
+Inspect and Live City intentionally share the same compact scenario-stage density.
+
+On a normal laptop viewport (roughly 1440×900 to 1512×982) with the sidebar open, the complete **Live City player** should fit on screen without scrolling:
+
+- status + tick/time;
+- episode progress;
+- traffic / queue / active / pending / p95 / cost snapshot;
+- SLA summary;
+- current manager + decision / target / applied change;
+- Play/Pause, Step once, Reset episode, and speed controls.
+
+History and long-form diagnostics are intentionally below the player and may require scrolling.
+
+Both modes use the same compact horizontal scenario snapshot. Switching modes changes **how the user controls the same session**, not the visual density of the stage. Inspect uses deliberate step/manual controls; Live City uses Play/Pause, Step once, and speed.
+
+Long Threshold/Predictive diagnostics are available through the collapsed **Manager decision details** expander below the player in both modes. This keeps the scenario player readable without deleting the underlying diagnostic information.
+
+The viewport goal is achieved by information hierarchy, not by putting the player inside a fixed-height scrolling box.
+
+
+### Shared Inspect / Live stage
+
+The compact player snapshot is deliberately identical in both modes:
+
+```text
+traffic → queue → fleet
+Traffic | Queue | Active | Pending | p95 | Cost
+SLA summary
+Manager | Decision | Target | Applied
+```
+
+Only the controls change:
+
+```text
+Inspect   → manual action or Next step / Run to end / Reset
+Live City → Play/Pause / Step once / Reset / Speed
+```
+
+This makes mode switching feel like changing playback/interaction style rather than changing to a different dashboard.
+
+
+### Exact values over decorative icon counts
+
+The compact player uses icons only as semantic labels (`🚗 Traffic`, `👥 Queue`, `☕ Active`, `🏗️ Pending`).
+
+Repeated emoji quantities are intentionally not used as a second numeric scale. A row such as `🚗🚗🚗 +108 → 👥👥👥 +3390` is ambiguous because capped icon counts and overflow numbers can be mistaken for real magnitudes or deltas. The labeled metrics are the source of truth.
