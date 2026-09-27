@@ -809,7 +809,7 @@ The protocol records `held_out_controller_outcomes_used: false` and `live_result
 
 | Family | Feasible seeds | Canonical | MLflow run |
 |---|---|---|---|
-| DQN `dqn-c14` | 0, 1, 2, 4 (seed 3 fails bursty) | seed 0 | `920b0ddb58df4d2b9f550431d2f8ceeb` |
+| DQN `dqn-c14` | 0, 1, 2, 4 (seed 3 exceeds the limit on bursty and ramp-down) | seed 0 | `920b0ddb58df4d2b9f550431d2f8ceeb` |
 | PPO `ppo-c08` | 0–4 | seed 4 | `9bac13a9447b4c64a44d9732568c949e` |
 
 **Replay windows (`fixed-fraction-windows-v1`).** The source is the lexicographically smallest Azure test workload, `azure-test-1166400` (3600 s, 30 s bins). Three 600 s windows start at 20%, 50% and 80% of `duration − 600`, aligned down to the control interval: offsets **600, 1500, 2400 s** (bins 20–40, 50–70, 80–100), non-overlapping. The trace was read only to fingerprint it and to extract these predeclared windows; no window was chosen by inspection.
