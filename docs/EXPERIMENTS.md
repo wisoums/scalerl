@@ -617,7 +617,7 @@ Forecast accuracy is reported separately from control quality: on bursty, identi
 
 **Configuration and RNGs.**
 - `DynamicsConfig.startup_delay_model` (`fixed-v1` | `tri-point-multiplicative-v1`) and `startup_delay_seed` are serialized only when not at their defaults. Pre-#81 config hashes, study identities and plan IDs therefore do not move.
-- The startup RNG is a dedicated per-environment stream seeded by `startup_delay_seed`. It is separate from the capacity-jitter stream (`dynamics_seed`), and both restart on reset. Each new replica takes one draw, in request order; no global random state is used.
+- The startup RNG is a dedicated per-environment stream, **domain-separated** from the capacity-jitter stream. Capacity uses `default_rng(dynamics_seed)`, unchanged since #65. Startup uses `default_rng(SeedSequence(startup_delay_seed, spawn_key=(STARTUP_RNG_DOMAIN,)))`, where the constant is `0x73747570`. Even matched replicates with `dynamics_seed == startup_delay_seed` therefore never share a random stream. Both streams restart on reset. Each new replica takes one draw, in request order; no global random state is used.
 - A `desired-replicas-v1` decision that adds five replicas draws five independent delays, and they can activate on different ticks.
 - Cancellation still removes the newest pending replicas first, and a cancelled replica never activates.
 
@@ -634,41 +634,42 @@ Forecast accuracy is reported separately from control quality: on bursty, identi
 - Same workload, scenario, startup seed and request sequence give an identical startup realization, whatever the evaluation order.
 - Controllers that request different replicas at different times consume the stream differently, so their realized delay lists legitimately differ. The guarantee is not "identical delay lists across controllers".
 
-**Experiment `startup-robustness-experiment-v1`** ([spec](../benchmarks/v1/startup-robustness-v1.json), ID `bec43981bfc8`, committed before any run):
+**Experiment `startup-robustness-experiment-v1`** ([spec](../benchmarks/v1/startup-robustness-v1.json), ID `60f1f14972a7`, committed before the run of record):
 - **Scenarios:**
   - `startup-delay-jitter`: no capacity jitter, no telemetry delay, tri-point startup; startup seeds 0–4.
-  - `combined-startup-robustness`: ±10% capacity jitter, 1-tick telemetry delay, tri-point startup; matched `dynamics_seed = startup_delay_seed = s` for s in 0–4, with separate streams.
+  - `combined-startup-robustness`: ±10% capacity jitter, 1-tick telemetry delay, tri-point startup; matched replicate indices `dynamics_seed = startup_delay_seed = s` for s in 0–4, with the two raw streams domain-separated. A startup seed gives the same startup realization in both scenarios for the same request sequence.
   - Reference: the frozen `robustness-v1` nominal scenario.
 - **Setup:** validation workloads only, all under an explicit `desired-replicas-v1` (`action-contract-v2`); evaluation seed 0; unchanged reward.
 - **Controllers:** Threshold, `predictive-v1`, `predictive-seasonal-v1`, and the frozen #79 PPO `ppo-c08`, training seeds 0–4. PPO was loaded from its MLflow run with **no retraining**: strictly for nominal, and through the robustness path under the startup scenarios.
 - **No DQN:** no canonical desired-replicas-v1 DQN exists, and the #79 diagnostic fallback is not used.
-- **Runs:** 264 runs in the MLflow experiment `scalerl-startup-robustness`, all at clean commit `eeb3ea3`. The 24 nominal rows reproduce the #79/#80 results exactly.
+- **Runs:** 264 runs of record in the MLflow experiment `scalerl-startup-robustness`, all at clean commit `547a6e2`. The 24 nominal rows reproduce the #79/#80 results exactly.
+- **Superseded run:** a first run (spec `bec43981bfc8`, commit `eeb3ea3`) seeded both streams with the same integer, so capacity and startup jitter started from the same random sequence. Its 264 runs are tagged `scalerl.superseded`, and everything below is from the corrected run.
 - **Command:** `python -m scalerl.evaluation.startup_robustness check | run | freeze`.
 
 **Results (validation only; mean over 5 startup seeds, with min–max; nominal is one run; PPO is the mean over its 5 training seeds, each averaged over startup seeds):**
 
 | Workload | Controller | SLA: nominal / startup-jitter / combined | Norm. cost: nominal / startup / combined | Replicas moved: nominal / startup / combined |
 |---|---|---|---|---|
-| steady-high | Threshold | 0.275 / 0.278 / 0.293 | 0.872 / 0.872 / 0.865 | 9 / 9 / 9 |
-| steady-high | predictive-v1 | 0.042 / 0.038 / 0.053 | 0.708 / 0.707 / 0.706 | 12 / 12 / 12 |
+| steady-high | Threshold | 0.275 / 0.278 / 0.292 | 0.872 / 0.872 / 0.865 | 9 / 9 / 9 |
+| steady-high | predictive-v1 | 0.042 / 0.038 / 0.053 | 0.708 / 0.707 / 0.707 | 12 / 12 / 12 |
 | steady-high | predictive-seasonal-v1 | 0.042 / 0.038 / 0.053 | 0.710 / 0.709 / 0.709 | 12 / 12 / 12 |
-| steady-high | PPO (5 seeds) | 0.052 / 0.054 / 0.055 | 0.795 / 0.795 / 0.795 | 7.8 / 7.9 / 7.8 |
-| ramp-down | Threshold | 0.350 / 0.350 / 0.362 | 0.839 / 0.839 / 0.837 | 13 / 13 / 13 |
-| ramp-down | predictive-v1 | 0.067 / 0.067 / 0.087 | 0.550 / 0.550 / 0.552 | 17 / 17 / 17 |
-| ramp-down | predictive-seasonal-v1 | 0.067 / 0.067 / 0.087 | 0.568 / 0.568 / 0.569 | 17 / 17 / 17 |
-| ramp-down | PPO (5 seeds) | 0.115 / 0.114 / 0.115 | 0.807 / 0.806 / 0.797 | 9.6 / 10.0 / 10.2 |
-| bursty | Threshold | 0.208 / 0.213 (0.20–0.23) / 0.245 (0.22–0.27) | 0.823 / 0.814 / 0.811 | 14 / 14 / 14.6 |
-| bursty | predictive-v1 | 0.600 / 0.585 (0.57–0.59) / 0.525 (0.51–0.54) | 0.600 / 0.582 / 0.577 | 249 / 233 / 178 |
-| bursty | predictive-seasonal-v1 | 0.267 / 0.275 (0.27–0.28) / 0.315 (0.31–0.33) | 0.609 / 0.609 / 0.626 | 115 / 115 / 111 |
-| bursty | PPO (5 seeds) | 0.092 / 0.089 / 0.097 | 0.792 / 0.792 / 0.793 | 9.6 / 9.6 / 9.9 |
+| steady-high | PPO (5 seeds) | 0.052 / 0.054 / 0.056 | 0.795 / 0.795 / 0.795 | 7.8 / 8.1 / 8.2 |
+| ramp-down | Threshold | 0.350 / 0.350 / 0.358 | 0.839 / 0.839 / 0.837 | 13 / 13 / 13 |
+| ramp-down | predictive-v1 | 0.067 / 0.063 / 0.087 | 0.550 / 0.550 / 0.552 | 17 / 17 / 17 |
+| ramp-down | predictive-seasonal-v1 | 0.067 / 0.063 / 0.087 | 0.568 / 0.567 / 0.569 | 17 / 17 / 17 |
+| ramp-down | PPO (5 seeds) | 0.115 / 0.113 / 0.118 | 0.807 / 0.806 / 0.802 | 9.6 / 10.2 / 10.5 |
+| bursty | Threshold | 0.208 / 0.213 (0.21–0.22) / 0.243 (0.22–0.26) | 0.823 / 0.823 / 0.811 | 14 / 14 / 14.6 |
+| bursty | predictive-v1 | 0.600 / 0.573 (0.56–0.58) / 0.517 (0.49–0.56) | 0.600 / 0.583 / 0.570 | 249 / 234 / 179 |
+| bursty | predictive-seasonal-v1 | 0.267 / 0.277 (0.28–0.28) / 0.317 (0.31–0.33) | 0.609 / 0.610 / 0.626 | 115 / 116 / 112 |
+| bursty | PPO (5 seeds) | 0.092 / 0.090 / 0.098 | 0.792 / 0.792 / 0.793 | 9.6 / 9.6 / 10.3 |
 
-- **The trade-offs are stable.** Startup-delay jitter alone moves SLA by at most about 0.015 per controller and workload, and no controller's relative position changes. The combined scenario (with jitter and stale telemetry) costs more, mostly through the #65 components.
-- **predictive-seasonal-v1** degrades modestly on bursty (0.267 → 0.275 → 0.315) and keeps its large advantage over `predictive-v1`.
-- **predictive-v1** is slightly *better* on bursty under the perturbations (0.600 → 0.525). Late replicas and stale telemetry damp its oscillation, and it moves fewer replicas (249 → 178). That is not a reason to prefer noise; its oscillation is the defect.
-- **PPO seeds** are almost unaffected: their fleets are mostly provisioned ahead of demand, so they request few replicas (6–12 per episode).
-- **Startup diagnostics:** realized delays span 30–90 s. Per-episode mean delays range from 49 to 68 s where few replicas are requested (9–12 per episode) and from 59 to 65 s on bursty for the predictive controllers (60–130 requests); PPO's range is 58.5–60.9 s. The maximum readiness spread within one multi-replica request is 60 s (a 30 s and a 90 s replica in the same request).
+- **The trade-offs are stable.** Startup-delay jitter alone moves SLA by at most 0.011 per controller and workload, except `predictive-v1` on bursty (−0.027, an improvement). No controller's relative position changes on any workload. The combined scenario (with jitter and stale telemetry) costs more, mostly through the #65 components.
+- **predictive-seasonal-v1** degrades modestly on bursty (0.267 → 0.277 → 0.317) and keeps its large advantage over `predictive-v1`.
+- **predictive-v1** is slightly *better* on bursty under the perturbations (0.600 → 0.573 → 0.517). Late replicas and stale telemetry damp its oscillation, and it moves fewer replicas (249 → 179). That is not a reason to prefer noise; its oscillation is the defect.
+- **PPO seeds** are almost unaffected: their fleets are mostly provisioned ahead of demand, so they request few replicas (about 7–9 per episode on average).
+- **Startup diagnostics:** realized delays take only the values 30, 60 and 90 s. Per-episode mean delays range from 50 to 68 s where few replicas are requested (9–11 per episode) and from 56 to 65 s on bursty for the predictive controllers (about 60–120 requests); PPO's range is 57.8–61.0 s. The maximum readiness spread within one multi-replica request is 60 s (a 30 s and a 90 s replica in the same request).
 
-The freeze artifact [`benchmarks/v1/startup-robustness-freeze-v1.json`](../benchmarks/v1/startup-robustness-freeze-v1.json) (ID `5907ade36ebd`) records the model, scenarios, seeds, controllers, compact evidence and all 264 run IDs for #72/#46. It declares no winner, uses no held-out data, and leaves the reward unchanged.
+The freeze artifact [`benchmarks/v1/startup-robustness-freeze-v1.json`](../benchmarks/v1/startup-robustness-freeze-v1.json) (ID `25d65bbba36f`) records the model, scenarios, seeds, controllers, compact evidence and all 264 run IDs for #72/#46. It declares no winner, uses no held-out data, and leaves the reward unchanged.
 
 ### Freeze order
 
