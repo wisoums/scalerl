@@ -648,7 +648,7 @@ def _render_live_snapshot(session: ScenarioSession) -> None:
     if last is None:
         shops = "☕" * min(fleet["active_replicas"], 8)
         pending = "🏗️" * min(fleet["pending_replicas"], 8)
-        st.markdown(f"**Fleet now**  {shops or "—"} {pending}")
+        st.markdown(f"**Fleet now**  {shops or '—'} {pending}")
         active, starting, manager = st.columns([1, 1, 2])
         active.metric("☕ Active", fleet["active_replicas"])
         starting.metric("🏗️ Pending", fleet["pending_replicas"])
@@ -662,7 +662,7 @@ def _render_live_snapshot(session: ScenarioSession) -> None:
     pending_icons = "🏗️" * min(fleet["pending_replicas"], 8)
     st.markdown(
         f"**Traffic** {cars}  →  **Queue** {people}  →  "
-        f"**Fleet** {shops or "—"} {pending_icons}"
+        f"**Fleet** {shops or '—'} {pending_icons}"
     )
 
     traffic, queue, active, pending, latency, cost = st.columns(6)
