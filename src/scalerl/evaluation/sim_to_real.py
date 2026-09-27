@@ -669,7 +669,7 @@ def build_protocol(
         "controller_manifest": {
             "version": CONTROLLER_MANIFEST_VERSION,
             "id": content_id(controllers),
-            "controllers": list(controllers["controllers"]),
+            "controllers": sorted(controllers["controllers"]),
             "canonical_dqn": {
                 k: dqn[k]
                 for k in (
@@ -832,7 +832,7 @@ def check(bench: Path = BENCH, azure_csv: Path | None = None) -> dict[str, str]:
         "replay_manifest"
     ]["id"] != content_id(replay):
         raise ValueError("protocol references stale controller/replay manifests")
-    if protocol != build_protocol(upstream, controllers, replay):
+    if protocol != json.loads(_dump(build_protocol(upstream, controllers, replay))):
         raise ValueError("the committed protocol differs from this code's frozen protocol")
     if azure_csv is not None and azure_csv.is_file():
         workload = canonical_test_workload()
