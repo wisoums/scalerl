@@ -1,0 +1,617 @@
+{
+  "action_semantics": "desired-replicas-v1",
+  "controllers": {
+    "dqn": {
+      "action_semantics": "desired-replicas-v1",
+      "algorithm": "dqn",
+      "candidate_id": "dqn-c14",
+      "candidate_set_id": "cbe3c1c0719b",
+      "canonical_selection": {
+        "canonical_model_artifact_uri": "runs:/920b0ddb58df4d2b9f550431d2f8ceeb/model",
+        "canonical_seed_validation_feasible": true,
+        "canonical_training_run_id": "920b0ddb58df4d2b9f550431d2f8ceeb",
+        "canonical_training_seed": 0,
+        "equal_workload_means": {
+          "0": {
+            "churn_rate": 0.13055555555555556,
+            "normalized_cost": 0.5877777777777777,
+            "queue_pressure": 0.030043701133047326,
+            "sla_violation_rate": 0.1277777777777778
+          },
+          "1": {
+            "churn_rate": 0.16111111111111112,
+            "normalized_cost": 0.685,
+            "queue_pressure": 0.03682268878842646,
+            "sla_violation_rate": 0.14722222222222223
+          },
+          "2": {
+            "churn_rate": 0.1361111111111111,
+            "normalized_cost": 0.7086111111111112,
+            "queue_pressure": 0.022872544273839692,
+            "sla_violation_rate": 0.07222222222222223
+          },
+          "3": {
+            "churn_rate": 0.47500000000000003,
+            "normalized_cost": 0.6541666666666667,
+            "queue_pressure": 0.0719725198668066,
+            "sla_violation_rate": 0.2916666666666667
+          },
+          "4": {
+            "churn_rate": 0.15,
+            "normalized_cost": 0.6819444444444445,
+            "queue_pressure": 0.02970842878723674,
+            "sla_violation_rate": 0.10555555555555556
+          }
+        },
+        "individually_feasible_seeds": [
+          0,
+          1,
+          2,
+          4
+        ],
+        "max_positive_sla_excess": {
+          "0": 0.0,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 0.10833333333333331,
+          "4": 0.0
+        },
+        "rule": "canonical-seed-validation-v1"
+      },
+      "controller": "dqn-desired-replicas-full-cost-low-v1",
+      "five_seed_lineage": [
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.21666666666666667,
+              "normalized_cost": 0.6058333333333333,
+              "queue_pressure": 0.05538929574275983,
+              "sla_violation_rate": 0.19166666666666668
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.15,
+              "normalized_cost": 0.5808333333333333,
+              "queue_pressure": 0.026734074648649134,
+              "sla_violation_rate": 0.16666666666666666
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.025,
+              "normalized_cost": 0.5766666666666667,
+              "queue_pressure": 0.008007733007733006,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/920b0ddb58df4d2b9f550431d2f8ceeb/model",
+          "training_run_id": "920b0ddb58df4d2b9f550431d2f8ceeb",
+          "training_seed": 0,
+          "validation_run_ids": {
+            "syn-val-bursty": "7987d1eea5bb416c8a8024f9375d522a",
+            "syn-val-ramp-down": "1c3dbf331f1d4dcb8dfc6f1a050d62ea",
+            "syn-val-steady-high": "befee783137c4c0f92ff4ddd774fecb6"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.20833333333333334,
+              "normalized_cost": 0.5608333333333334,
+              "queue_pressure": 0.06311247508452407,
+              "sla_violation_rate": 0.19166666666666668
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.15833333333333333,
+              "normalized_cost": 0.6825,
+              "queue_pressure": 0.02261181653698057,
+              "sla_violation_rate": 0.125
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.11666666666666667,
+              "normalized_cost": 0.8116666666666668,
+              "queue_pressure": 0.024743774743774746,
+              "sla_violation_rate": 0.125
+            }
+          },
+          "model_artifact_uri": "runs:/11f87fe2ff8e43f78b95d134773ea393/model",
+          "training_run_id": "11f87fe2ff8e43f78b95d134773ea393",
+          "training_seed": 1,
+          "validation_run_ids": {
+            "syn-val-bursty": "ae89cdbfbedd464d88da1e8777c62726",
+            "syn-val-ramp-down": "9647f9bfba25499d9b161c3baf946bd9",
+            "syn-val-steady-high": "33e6ae2985404b2bb6e9c8ee36a25575"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.20833333333333334,
+              "normalized_cost": 0.7100000000000001,
+              "queue_pressure": 0.04119720075583252,
+              "sla_violation_rate": 0.14166666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.05,
+              "normalized_cost": 0.6658333333333334,
+              "queue_pressure": 0.018954823600078094,
+              "sla_violation_rate": 0.05
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.15,
+              "normalized_cost": 0.75,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/e885c51f8da1412e9d123f29ffe5e034/model",
+          "training_run_id": "e885c51f8da1412e9d123f29ffe5e034",
+          "training_seed": 2,
+          "validation_run_ids": {
+            "syn-val-bursty": "4cf2d5da3cab4dfaafa5befe4e159a99",
+            "syn-val-ramp-down": "27117b871eda466a9d16017eb74914ac",
+            "syn-val-steady-high": "5e0f8b16fdfb4d82ac3d95208e4ae12e"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.48333333333333334,
+              "normalized_cost": 0.5291666666666667,
+              "queue_pressure": 0.11414305134500477,
+              "sla_violation_rate": 0.31666666666666665
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.43333333333333335,
+              "normalized_cost": 0.6333333333333334,
+              "queue_pressure": 0.05963979112069791,
+              "sla_violation_rate": 0.4
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.5083333333333333,
+              "normalized_cost": 0.8,
+              "queue_pressure": 0.042134717134717135,
+              "sla_violation_rate": 0.15833333333333333
+            }
+          },
+          "model_artifact_uri": "runs:/f32073879d094da4a09fb36cace477e5/model",
+          "training_run_id": "f32073879d094da4a09fb36cace477e5",
+          "training_seed": 3,
+          "validation_run_ids": {
+            "syn-val-bursty": "4f218ec87be149279076ea554fd43753",
+            "syn-val-ramp-down": "54817024883545f3bb4f8793d78c8dd4",
+            "syn-val-steady-high": "f4e09177d6b546e8b0bedd3960e4f86c"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.2833333333333333,
+              "normalized_cost": 0.5608333333333333,
+              "queue_pressure": 0.061911369608419836,
+              "sla_violation_rate": 0.2
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.125,
+              "normalized_cost": 0.6675,
+              "queue_pressure": 0.018748308287681918,
+              "sla_violation_rate": 0.09166666666666666
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.041666666666666664,
+              "normalized_cost": 0.8175,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/8701a2211c7c4c9b9af7bae845eaa4c4/model",
+          "training_run_id": "8701a2211c7c4c9b9af7bae845eaa4c4",
+          "training_seed": 4,
+          "validation_run_ids": {
+            "syn-val-bursty": "9f432f5a0bc24e29a92f3f7a786ff85c",
+            "syn-val-ramp-down": "a615833661fd434e80b9beb807157eef",
+            "syn-val-steady-high": "e1079eca31c74da285bac04be9493032"
+          }
+        }
+      ],
+      "five_seed_result_note": "the #20 five-seed equal-seed means remain the algorithm evidence; the canonical seed is only the single artifact deployment requires",
+      "hyperparameters": {
+        "batch_size": 32,
+        "buffer_size": 100000,
+        "exploration_final_eps": 0.025939961146634407,
+        "exploration_fraction": 0.3404625331582255,
+        "exploration_initial_eps": 1.0,
+        "gamma": 0.95,
+        "gradient_steps": 1,
+        "learning_rate": 6.112170343513626e-05,
+        "learning_starts": 1000,
+        "net_arch": [
+          256,
+          256
+        ],
+        "target_update_interval": 250,
+        "train_freq": 4
+      },
+      "inference": "deterministic (greedy/mode action), no exploration, no online training",
+      "reward_contract": "reward-contract-v1",
+      "reward_contract_id": "37158c261364",
+      "reward_variant": "full-cost-low-v1",
+      "source_issue": "#20",
+      "weights": {
+        "churn": 0.1,
+        "cost": 0.5,
+        "latency": 1.0,
+        "queue": 1.0,
+        "sla": 1.0
+      }
+    },
+    "knative-native-v1": {
+      "action_semantics": "native (not desired-replicas-v1)",
+      "autoscaler_class": "kpa.autoscaling.knative.dev",
+      "kind": "real-system baseline (not a simulated or MLflow-trained artifact)",
+      "metric": "concurrency",
+      "settings": {
+        "all other autoscaler settings": "Knative Serving defaults of the version pinned by #73, recorded verbatim there; not tuned against any result",
+        "max-scale": 10,
+        "min-scale": 1,
+        "scale-to-zero": "disabled for the controller comparison"
+      },
+      "source_issue": "#72 (deployed in #73/#75)"
+    },
+    "ppo": {
+      "action_semantics": "desired-replicas-v1",
+      "algorithm": "ppo",
+      "candidate_id": "ppo-c08",
+      "candidate_set_id": "cbe3c1c0719b",
+      "canonical_selection": {
+        "canonical_model_artifact_uri": "runs:/9bac13a9447b4c64a44d9732568c949e/model",
+        "canonical_seed_validation_feasible": true,
+        "canonical_training_run_id": "9bac13a9447b4c64a44d9732568c949e",
+        "canonical_training_seed": 4,
+        "equal_workload_means": {
+          "0": {
+            "churn_rate": 0.022222222222222223,
+            "normalized_cost": 0.903888888888889,
+            "queue_pressure": 0.010714052683667938,
+            "sla_violation_rate": 0.03333333333333333
+          },
+          "1": {
+            "churn_rate": 0.011111111111111112,
+            "normalized_cost": 0.9033333333333333,
+            "queue_pressure": 0.010714052683667938,
+            "sla_violation_rate": 0.03333333333333333
+          },
+          "2": {
+            "churn_rate": 0.011111111111111112,
+            "normalized_cost": 0.9033333333333333,
+            "queue_pressure": 0.010714052683667938,
+            "sla_violation_rate": 0.03333333333333333
+          },
+          "3": {
+            "churn_rate": 0.011111111111111112,
+            "normalized_cost": 0.9036111111111111,
+            "queue_pressure": 0.010714052683667938,
+            "sla_violation_rate": 0.03333333333333333
+          },
+          "4": {
+            "churn_rate": 0.016666666666666666,
+            "normalized_cost": 0.9022222222222224,
+            "queue_pressure": 0.010714052683667938,
+            "sla_violation_rate": 0.03333333333333333
+          }
+        },
+        "individually_feasible_seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "max_positive_sla_excess": {
+          "0": 0.0,
+          "1": 0.0,
+          "2": 0.0,
+          "3": 0.0,
+          "4": 0.0
+        },
+        "rule": "canonical-seed-validation-v1"
+      },
+      "controller": "ppo-desired-replicas-full-cost-low-v1",
+      "five_seed_lineage": [
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.025,
+              "normalized_cost": 0.9008333333333334,
+              "queue_pressure": 0.0024955978523847565,
+              "sla_violation_rate": 0.016666666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.03333333333333333,
+              "normalized_cost": 0.9108333333333334,
+              "queue_pressure": 0.021180951733010593,
+              "sla_violation_rate": 0.058333333333333334
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/806203295b9545d8b0472ada6f0583b7/model",
+          "training_run_id": "806203295b9545d8b0472ada6f0583b7",
+          "training_seed": 0,
+          "validation_run_ids": {
+            "syn-val-bursty": "cfce715147fe40a5bb36e4ba8542fa77",
+            "syn-val-ramp-down": "19cbea2fec2c4a909d129587a857dc36",
+            "syn-val-steady-high": "54fce5eeeeae4a4cacfeddde9d5c1551"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.0024955978523847565,
+              "sla_violation_rate": 0.016666666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.016666666666666666,
+              "normalized_cost": 0.91,
+              "queue_pressure": 0.021180951733010593,
+              "sla_violation_rate": 0.058333333333333334
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/a0f58a0c2c494147951c0c932113159c/model",
+          "training_run_id": "a0f58a0c2c494147951c0c932113159c",
+          "training_seed": 1,
+          "validation_run_ids": {
+            "syn-val-bursty": "022c499f60d446b4ab69a264bc609f30",
+            "syn-val-ramp-down": "4fd7c489669241a88722dd83ffee6aaa",
+            "syn-val-steady-high": "15c867f61e9048d792c8ba7b12a227c3"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.0024955978523847565,
+              "sla_violation_rate": 0.016666666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.016666666666666666,
+              "normalized_cost": 0.91,
+              "queue_pressure": 0.021180951733010593,
+              "sla_violation_rate": 0.058333333333333334
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/5a1009af319d40ff8060f1d4f7612dc4/model",
+          "training_run_id": "5a1009af319d40ff8060f1d4f7612dc4",
+          "training_seed": 2,
+          "validation_run_ids": {
+            "syn-val-bursty": "19643b6ed4d04cdab1b5714e80d05486",
+            "syn-val-ramp-down": "24c47d8cbb88419999c5f4ccb2a67e12",
+            "syn-val-steady-high": "d40617ee067a4bf3a081e41b22b94956"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.0024955978523847565,
+              "sla_violation_rate": 0.016666666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.016666666666666666,
+              "normalized_cost": 0.9108333333333334,
+              "queue_pressure": 0.021180951733010593,
+              "sla_violation_rate": 0.058333333333333334
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/43d63391579047f1ac20b6aafb549568/model",
+          "training_run_id": "43d63391579047f1ac20b6aafb549568",
+          "training_seed": 3,
+          "validation_run_ids": {
+            "syn-val-bursty": "947bb573bcc8497c9199f2746148820d",
+            "syn-val-ramp-down": "1929f26f59bf45749c8df664e1e90ed8",
+            "syn-val-steady-high": "77f163d988b44e95a4fa3a82e7c5f6de"
+          }
+        },
+        {
+          "metrics": {
+            "syn-val-bursty": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.0024955978523847565,
+              "sla_violation_rate": 0.016666666666666666
+            },
+            "syn-val-ramp-down": {
+              "churn_rate": 0.03333333333333333,
+              "normalized_cost": 0.9066666666666667,
+              "queue_pressure": 0.021180951733010593,
+              "sla_violation_rate": 0.058333333333333334
+            },
+            "syn-val-steady-high": {
+              "churn_rate": 0.008333333333333333,
+              "normalized_cost": 0.9,
+              "queue_pressure": 0.008465608465608464,
+              "sla_violation_rate": 0.025
+            }
+          },
+          "model_artifact_uri": "runs:/9bac13a9447b4c64a44d9732568c949e/model",
+          "training_run_id": "9bac13a9447b4c64a44d9732568c949e",
+          "training_seed": 4,
+          "validation_run_ids": {
+            "syn-val-bursty": "307656db82644e36a981f1ff946d2e8b",
+            "syn-val-ramp-down": "5042489001c34275badca50a66344632",
+            "syn-val-steady-high": "0ad3396dd3f34b0ab2ca0795e3c99bb1"
+          }
+        }
+      ],
+      "five_seed_result_note": "the #20 five-seed equal-seed means remain the algorithm evidence; the canonical seed is only the single artifact deployment requires",
+      "hyperparameters": {
+        "batch_size": 64,
+        "clip_range": 0.1,
+        "ent_coef": 0.001,
+        "gae_lambda": 0.95,
+        "gamma": 0.99,
+        "learning_rate": 0.00024198608614538694,
+        "max_grad_norm": 0.5,
+        "n_epochs": 10,
+        "n_steps": 1024,
+        "net_arch": [
+          256,
+          256
+        ],
+        "normalize_advantage": true,
+        "vf_coef": 0.5
+      },
+      "inference": "deterministic (greedy/mode action), no exploration, no online training",
+      "reward_contract": "reward-contract-v1",
+      "reward_contract_id": "37158c261364",
+      "reward_variant": "full-cost-low-v1",
+      "source_issue": "#20",
+      "weights": {
+        "churn": 0.1,
+        "cost": 0.5,
+        "latency": 1.0,
+        "queue": 1.0,
+        "sla": 1.0
+      }
+    },
+    "predictive-seasonal-v1": {
+      "action_semantics": "desired-replicas-v1",
+      "capacity_policy": "proactive-scaleout-conservative-scalein-v1",
+      "forecast_method": "historical-profile-plus-linear-v1",
+      "frozen_in": "predictive-baseline-v1 (0d315559c680)",
+      "historical_profile": {
+        "aggregation": "median",
+        "formula": "profile[tick] = median(train_1[tick], train_2[tick], train_3[tick])",
+        "name": "azure-historical-profile-v1",
+        "profile_id": "d050d3b8ca0f",
+        "synthetic_validation_profile": null,
+        "ticks": 120,
+        "train_workload_ids": [
+          "azure-train-129600",
+          "azure-train-302400",
+          "azure-train-475200"
+        ],
+        "version": "historical-demand-profile-v1"
+      },
+      "live_profile_alignment": "the Azure TRAIN profile is indexed by tick position within the 12:00-13:00 window; a replay slice starting at bin b reads profile ticks b, b+1, ...",
+      "params": {
+        "backlog_recovery": "queued_requests / control_interval_seconds (#63)",
+        "blend_weight": null,
+        "level_adaptation": "median of observed/profile over the latest <=4 completed samples whose profile value >= min_profile_rps_for_ratio; 1.0 when none",
+        "min_profile_rps_for_ratio": 0.001,
+        "proactive_forecast": "max(linear, profile * level_factor); linear when no profile",
+        "profile_aggregation": "median",
+        "profile_alignment": "tick position within equally aligned windows",
+        "profile_beyond_its_ticks": "no profile value: linear only for that decision",
+        "recent_history_window_ticks": 4,
+        "scale_in": "never with queued requests; else target max(max(observed_desired, desired), committed - 1) when that is below committed: at most one replica per decision",
+        "scale_out": "direct desired target when desired > active + pending",
+        "sizing": "ceil((proactive + backlog_recovery) / (service_capacity_rps * 0.8))",
+        "target_utilization": 0.8,
+        "tunable_scale_in_step": null
+      },
+      "source_issue": "#80"
+    },
+    "predictive-v1": {
+      "action_semantics": "desired-replicas-v1",
+      "capacity_policy": "forecast-plus-backlog-v1",
+      "encoding": "its computed desired replicas as the target",
+      "forecast_method": "linear-trend",
+      "frozen_in": "predictive-baseline-v1 (0d315559c680)",
+      "params": {
+        "history_window_ticks": 4,
+        "target_utilization": 0.8
+      },
+      "source_issue": "#14/#63"
+    },
+    "threshold-v1": {
+      "action_semantics": "desired-replicas-v1",
+      "controller_version": "threshold-sla-first-v1",
+      "encoding": "same \u00b11/hold law encoded as a desired-replicas-v1 target",
+      "params": {
+        "cooldown_ticks": 3,
+        "high_threshold": 0.6,
+        "low_threshold": 0.2
+      },
+      "reward": "not applicable (rule-based)",
+      "source_issue": "#13/#19 (tuned; #78 reference)",
+      "tuning_lineage": {
+        "objective": "threshold-sla-first-v1",
+        "search_space_version": "threshold-grid-v1",
+        "selected_trial_number": 14,
+        "selected_tuning_mlflow_run_ids": [
+          "afab2960d5304574b2edec8c12130826",
+          "3d1dc04881f74289bdcae219b08e2c26",
+          "b641b19c898846d1a3a7a3ce82d9144e",
+          "9486c27f164b4db5bd5a4dddef93a42d",
+          "73485dba9ba84268975d9b7627731023",
+          "841237b99180407b9542fc0523e90769",
+          "2584b90ff7784374a10934d8dc39d4ac",
+          "86bdacd9c1b747bcac82b1f1ed9c4807"
+        ],
+        "study_name": "threshold-v1",
+        "tuning_workload_ids": [
+          "syn-train-steady-moderate",
+          "syn-train-seasonal",
+          "syn-train-ramp-up",
+          "syn-train-spike",
+          "syn-train-bursty",
+          "syn-val-steady-high",
+          "syn-val-ramp-down",
+          "syn-val-bursty"
+        ],
+        "validation_workload_ids": [
+          "syn-val-steady-high",
+          "syn-val-ramp-down",
+          "syn-val-bursty"
+        ]
+      }
+    }
+  },
+  "excluded": {
+    "dqn diagnostic fallbacks": "never deployable (#79/#20)",
+    "q-learning": "#47 is not complete; optional and not a prerequisite",
+    "static/random": "simulator reference rows only; not part of the live matrix"
+  },
+  "manifest_version": "controller-deployment-manifest-v1",
+  "sla_thresholds": {
+    "syn-val-bursty": 0.20833333333333334,
+    "syn-val-ramp-down": 0.35,
+    "syn-val-steady-high": 0.275
+  },
+  "source_issue": "#72",
+  "upstream": {
+    "action_decision_id": "0eb5562b01e6",
+    "action_experiment_spec_id": "899dfbb64217",
+    "predictive_baseline_artifact_id": "0d315559c680",
+    "predictive_baseline_experiment_id": "096b04ef953a",
+    "reward_ablation_spec_id": "f5aff8f1e8c2",
+    "reward_contract_id": "37158c261364",
+    "selection_spec_id": "418876d6c8e9",
+    "startup_robustness_freeze_id": "25d65bbba36f",
+    "startup_robustness_spec_id": "60f1f14972a7"
+  }
+}
