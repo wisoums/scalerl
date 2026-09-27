@@ -731,6 +731,17 @@ def test_app_uses_segmented_player_controls(app: AppTest) -> None:
     assert app.button(key="reset_episode")
 
 
+def test_live_city_uses_compact_snapshot(app: AppTest) -> None:
+    live_threshold(app)
+    app.button(key="live_step").click().run()
+
+    labels = [metric.label for metric in app.metric]
+    assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
+    assert "🚗 Incoming traffic" not in labels
+    assert "👥 Waiting queue" not in labels
+    assert any("Threshold" in markdown.value for markdown in app.markdown)
+
+
 def test_app_switching_modes_keeps_the_same_session(app: AppTest) -> None:
     app.selectbox(key="manager").set_value("threshold").run()
     app.button(key="build").click().run()
