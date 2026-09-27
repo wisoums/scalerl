@@ -862,14 +862,14 @@ def test_app_completed_episode_cannot_play(app: AppTest) -> None:
     assert session_of(app).tick == 120
 
 
-def test_app_city_separates_incoming_traffic_from_the_waiting_queue(app: AppTest) -> None:
+def test_inspect_uses_the_same_compact_snapshot_as_live_city(app: AppTest) -> None:
     app.button(key="step_hold").click().run()
 
     labels = [metric.label for metric in app.metric]
-    assert "🚗 Incoming traffic" in labels and "👥 Waiting queue" in labels
-    captions = " ".join(caption.value for caption in app.caption)
-    assert "NEW requests arriving" in captions
-    assert "ALREADY arrived but could not yet be processed" in captions
+    assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
+    assert "🚗 Incoming traffic" not in labels
+    assert "👥 Waiting queue" not in labels
+    assert any("Traffic" in markdown.value and "Queue" in markdown.value for markdown in app.markdown)
 
 
 def test_app_guidance_explains_live_city(app: AppTest) -> None:
