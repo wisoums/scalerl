@@ -978,29 +978,47 @@ def build_contract(
 def run_provenance(
     tracking_uri: str | None, experiment_name: str, spec: ExperimentSpec
 ) -> dict[str, JsonValue]:
-    """Status / git state of every run of record of this spec (from MLflow)."""
+    """Status / git state of the runs of record of this spec (superseded runs counted apart)."""
     from mlflow import MlflowClient
 
     client = MlflowClient(tracking_uri)
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
         return {"runs": 0}
-    runs = client.search_runs(
+    found = client.search_runs(
         [experiment.experiment_id],
         filter_string=f"tags.`scalerl.experiment_id` = '{spec.experiment_id}'",
         max_results=50_000,
     )
+    superseded = [r for r in found if "scalerl.superseded" in r.data.tags]
+    runs = [r for r in found if "scalerl.superseded" not in r.data.tags]
     statuses: dict[str, JsonValue] = {}
     shas: dict[str, JsonValue] = {}
     dirty: dict[str, JsonValue] = {}
+    phases: dict[str, JsonValue] = {}
     for run in runs:
         for counts, key in (
             (statuses, run.info.status),
             (shas, run.data.tags.get("scalerl.git_sha", "unknown")),
             (dirty, run.data.tags.get("scalerl.git_dirty", "unknown")),
+            (
+                phases,
+                f"{run.data.tags.get('scalerl.experiment_phase')}/{run.data.tags.get('scalerl.run_kind')}",
+            ),
         ):
             counts[key] = int(str(counts.get(key, 0))) + 1
-    return {"runs": len(runs), "status": statuses, "git_sha": shas, "git_dirty": dirty}
+    return {
+        "runs_of_record": len(runs),
+        "status": statuses,
+        "git_sha": shas,
+        "git_dirty": dirty,
+        "phase_run_kind": phases,
+        "superseded_runs": len(superseded),
+        "superseded_reason": [
+            str(reason)
+            for reason in sorted({r.data.tags["scalerl.superseded"] for r in superseded})
+        ],
+    }
 
 
 def _json(value: Any) -> Any:
