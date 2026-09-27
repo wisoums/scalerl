@@ -30,14 +30,20 @@ Reward optimization is not allowed to bypass hard safety constraints. The enviro
 
 ## Reward-engineering experiments
 
-The project should include ablations for:
+#20 ran these experiments as the predeclared `reward-ablation-v1` study (spec `benchmarks/v1/reward-ablation-v1.json`), frozen before any run of record. It tested eight variants: four component variants and four cost/SLA sensitivity variants.
 
-1. latency + cost only;
-2. latency + cost + SLA penalty;
-3. latency + cost + SLA + scaling-churn penalty;
-4. sensitivity to each reward weight.
+| Variant | latency | cost | SLA | queue | churn |
+|---|---|---|---|---|---|
+| `latency-cost-v1` | 1.0 | 1.0 | 0 | 0 | 0 |
+| `latency-cost-sla-v1` | 1.0 | 1.0 | 1.0 | 0 | 0 |
+| `latency-cost-sla-queue-v1` | 1.0 | 1.0 | 1.0 | 1.0 | 0 |
+| `full-default-v1` (the previous default) | 1.0 | 1.0 | 1.0 | 1.0 | 0.1 |
+| `full-cost-low-v1` | 1.0 | 0.5 | 1.0 | 1.0 | 0.1 |
+| `full-cost-high-v1` | 1.0 | 2.0 | 1.0 | 1.0 | 0.1 |
+| `full-sla-low-v1` | 1.0 | 1.0 | 0.5 | 1.0 | 0.1 |
+| `full-sla-high-v1` | 1.0 | 1.0 | 2.0 | 1.0 | 0.1 |
 
-The final weights should be justified empirically rather than selected only because they produce the highest training reward.
+Only component inclusion and weights varied; the normalized penalty terms were unchanged. The final weights were chosen by the predeclared reward-level rule on validation system metrics (SLA feasibility, then cost, queue, churn and SLA), never by training or episodic reward. The design and full results are in [EXPERIMENTS.md](EXPERIMENTS.md#reward-ablation-20).
 
 ## Reward ablation result (#20)
 
@@ -57,4 +63,6 @@ The component normalization is unchanged, and `RewardWeights()` keeps its histor
 
 The implemented churn term is `weights.churn * (applied_replica_change != 0)`: one penalty per tick whose applied replica change is non-zero, whatever its size. Under the historical `delta-v1` contract every scaling tick moves exactly one replica, so events and magnitude coincide. Under `desired-replicas-v1` one decision can move several replicas (`+6` in one tick costs the same churn penalty as `+1`).
 
-#79 deliberately does **not** change the reward: the action-contract comparison must not be confounded with a reward change. Instead it reports magnitude separately as `action.*` diagnostics (`total_absolute_replica_change`, `mean_absolute_replica_change_when_scaling`, `max_absolute_replica_change_in_one_tick`, `max_pending_replicas`) next to the event-based `scaling_actions`/`churn_rate`. Fewer scaling ticks therefore do not imply less total scaling. Whether churn should become magnitude-sensitive is a reward-design question for #20.
+#79 deliberately does **not** change the reward: the action-contract comparison must not be confounded with a reward change. Instead it reports magnitude separately as `action.*` diagnostics (`total_absolute_replica_change`, `mean_absolute_replica_change_when_scaling`, `max_absolute_replica_change_in_one_tick`, `max_pending_replicas`) next to the event-based `scaling_actions`/`churn_rate`. Fewer scaling ticks therefore do not imply less total scaling.
+
+#20 kept these semantics. `reward-ablation-v1` left every component's normalization, including the event-based churn term, unchanged and varied only component inclusion and weights. Magnitude-sensitive churn was not part of `reward-ablation-v1`; investigating it would require a separately versioned future study.
