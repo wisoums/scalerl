@@ -150,3 +150,25 @@ The player is intentionally designed to feel closer to a video/simulation stage 
 The progress bar is display-only. ScaleRL does not support arbitrary seeking/rewinding because controller state, queue state, and replica lifecycle are sequential. Use **Reset episode** and replay when you need to return to the start.
 
 History is rendered read-only and must never advance simulation state. During Live playback, only the scenario-stage fragment is allowed to call the environment/controller step path.
+
+
+## Live City viewport target
+
+Live City is intentionally denser than Inspect mode.
+
+On a normal laptop viewport (roughly 1440×900 to 1512×982) with the sidebar open, the complete **Live City player** should fit on screen without scrolling:
+
+- status + tick/time;
+- episode progress;
+- traffic / queue / active / pending / p95 / cost snapshot;
+- SLA summary;
+- current manager + decision / target / applied change;
+- Play/Pause, Step once, Reset episode, and speed controls.
+
+History and long-form diagnostics are intentionally below the player and may require scrolling.
+
+The Live City stage therefore uses a compact horizontal snapshot rather than the full explanatory Inspect layout. Inspect remains the place for the larger City View cards and detailed controller reasoning.
+
+Long Threshold/Predictive diagnostics are available through the collapsed **Manager decision details** expander below the player. This keeps the moving simulation readable without deleting the underlying diagnostic information.
+
+The viewport goal is achieved by information hierarchy, not by putting the player inside a fixed-height scrolling box.
