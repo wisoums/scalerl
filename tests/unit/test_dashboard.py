@@ -516,7 +516,7 @@ def test_app_starts_with_a_default_synthetic_scenario(app: AppTest) -> None:
 def test_app_live_summary_does_not_repeat_manager_identity(app: AppTest) -> None:
     labels = [metric.label for metric in app.metric]
     assert "Manager" not in labels
-    assert any("Manual" in subheader.value for subheader in app.subheader)
+    assert any("Manual" in markdown.value for markdown in app.markdown)
 
 
 def test_app_manual_step_and_reset(app: AppTest) -> None:
@@ -869,7 +869,10 @@ def test_inspect_uses_the_same_compact_snapshot_as_live_city(app: AppTest) -> No
     assert {"🚗 Traffic", "👥 Queue", "☕ Active", "🏗️ Pending", "⏱ p95", "💵 Cost"} <= set(labels)
     assert "🚗 Incoming traffic" not in labels
     assert "👥 Waiting queue" not in labels
-    assert any("Traffic" in markdown.value and "Queue" in markdown.value for markdown in app.markdown)
+    assert any(
+        "Traffic" in markdown.value and "Queue" in markdown.value
+        for markdown in app.markdown
+    )
 
 
 def test_app_guidance_explains_live_city(app: AppTest) -> None:
