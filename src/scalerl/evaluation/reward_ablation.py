@@ -1012,8 +1012,11 @@ def _nan_safe(value: Any) -> Any:
 
 
 def _write_text(path: Path, content: str) -> Path:
+    """Atomic write; the temporary name is per process, so parallel reward runs never race."""
+    import os
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
     temporary.write_text(content)
     temporary.replace(path)
     return path
