@@ -1,0 +1,238 @@
+{
+  "experiment_version": "reward-ablation-v1",
+  "benchmark_version": "v1",
+  "reward_variants": {
+    "latency-cost-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 0.0,
+      "queue": 0.0,
+      "churn": 0.0
+    },
+    "latency-cost-sla-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 1.0,
+      "queue": 0.0,
+      "churn": 0.0
+    },
+    "latency-cost-sla-queue-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 1.0,
+      "queue": 1.0,
+      "churn": 0.0
+    },
+    "full-default-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 1.0,
+      "queue": 1.0,
+      "churn": 0.1
+    },
+    "full-cost-low-v1": {
+      "latency": 1.0,
+      "cost": 0.5,
+      "sla": 1.0,
+      "queue": 1.0,
+      "churn": 0.1
+    },
+    "full-cost-high-v1": {
+      "latency": 1.0,
+      "cost": 2.0,
+      "sla": 1.0,
+      "queue": 1.0,
+      "churn": 0.1
+    },
+    "full-sla-low-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 0.5,
+      "queue": 1.0,
+      "churn": 0.1
+    },
+    "full-sla-high-v1": {
+      "latency": 1.0,
+      "cost": 1.0,
+      "sla": 2.0,
+      "queue": 1.0,
+      "churn": 0.1
+    }
+  },
+  "reference_reward_variant": "full-default-v1",
+  "reward_semantics": "reward = -(w_latency*p95/(p95+target) + w_cost*tick_cost/max_tick_cost + w_sla*violated + w_queue*queued/(queued+max_tick_capacity) + w_churn*(applied_replica_change != 0)); component normalization unchanged (scalerl.environment.reward); only component inclusion/weights vary; RewardWeights() defaults stay full-default-v1",
+  "action_semantics": "desired-replicas-v1",
+  "action_decision_version": "action-contract-v2",
+  "action_experiment_spec_id": "899dfbb64217",
+  "simulator_config": {
+    "timing": {
+      "control_interval_seconds": 30.0,
+      "episode_duration_seconds": 3600.0
+    },
+    "replicas": {
+      "min_replicas": 1,
+      "max_replicas": 10,
+      "initial_replicas": 1,
+      "startup_delay_seconds": 60.0,
+      "service_capacity_rps": 50.0,
+      "cost_per_hour": 0.1
+    },
+    "sla": {
+      "latency_target_seconds": 0.5
+    },
+    "observation": {
+      "traffic_history_ticks": 4
+    },
+    "dynamics": {
+      "capacity_jitter_fraction": 0.0,
+      "dynamics_seed": 0,
+      "telemetry_delay_ticks": 0
+    },
+    "action": {
+      "semantics": "desired-replicas-v1"
+    }
+  },
+  "training_workload_ids": [
+    "syn-train-bursty"
+  ],
+  "validation_workload_ids": [
+    "syn-val-steady-high",
+    "syn-val-ramp-down",
+    "syn-val-bursty"
+  ],
+  "test_workload_ids": [],
+  "selection_version": "selection-v2-cost-under-sla",
+  "selection_spec_id": "418876d6c8e9",
+  "sla_thresholds": {
+    "syn-val-steady-high": 0.275,
+    "syn-val-ramp-down": 0.35,
+    "syn-val-bursty": 0.20833333333333334
+  },
+  "candidate_set_id": "cbe3c1c0719b",
+  "ppo": {
+    "source": "#79 ppo-desired-replicas-v1 selected candidate ppo-c08",
+    "candidate_id": "ppo-c08",
+    "config_version": "ppo-v1",
+    "hyperparameters": {
+      "learning_rate": 0.00024198608614538694,
+      "n_steps": 1024,
+      "batch_size": 64,
+      "n_epochs": 10,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip_range": 0.1,
+      "normalize_advantage": true,
+      "ent_coef": 0.001,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5,
+      "net_arch": [
+        256,
+        256
+      ]
+    },
+    "timesteps": 204800,
+    "training_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "search": "none: the same configuration is retrained fresh under every reward"
+  },
+  "dqn": {
+    "source": "#79 dqn-desired-replicas-v1 matched candidates (0/20 feasible under #79)",
+    "candidate_ids": [
+      "dqn-c00",
+      "dqn-c01",
+      "dqn-c02",
+      "dqn-c03",
+      "dqn-c04",
+      "dqn-c05",
+      "dqn-c06",
+      "dqn-c07",
+      "dqn-c08",
+      "dqn-c09",
+      "dqn-c10",
+      "dqn-c11",
+      "dqn-c12",
+      "dqn-c13",
+      "dqn-c14",
+      "dqn-c15",
+      "dqn-c16",
+      "dqn-c17",
+      "dqn-c18",
+      "dqn-c19"
+    ],
+    "search_space_version": "dqn-search-v1",
+    "config_version": "dqn-v1",
+    "timesteps": 200000,
+    "screening_seed": 0,
+    "retraining_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "selection": "frozen #78 rule within each reward condition",
+    "no_feasible": "select nothing; the diagnostic fallback is never retrained or promoted"
+  },
+  "training_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "evaluation_seed": 0,
+  "evaluation_condition": "nominal validation (robustness-v1 nominal, fixed startup, dynamics seed 0), evaluation seed 0, deterministic policies, one tracked run per model x workload",
+  "reward_level_rule": {
+    "per_family": "equal-seed mean per validation workload over seeds 0-4 (no seed pick)",
+    "joint_feasible": "PPO (ppo-c08) and the retrained #78-selected DQN both meet mean SLA <= Threshold SLA + 1e-12 on every validation workload",
+    "objective": "among joint-feasible rewards minimize mean over {DQN, PPO} (50/50) of the equal-workload mean of equal-seed means",
+    "order": [
+      "normalized_cost",
+      "queue_pressure",
+      "churn_rate",
+      "sla_violation_rate"
+    ],
+    "final_tie_break": "reward variant ID",
+    "episode_reward_used": false
+  },
+  "no_joint_feasible_fallback": "full-default-v1",
+  "pathology_rules": {
+    "full_fleet": "equal-seed mean normalized cost >= 0.9 on a workload",
+    "underprovisioning": "mean SLA above the Threshold limit and mean normalized cost < 0.6",
+    "thrashing": "mean churn rate >= 0.3 on a workload",
+    "churn_aversion": "SLA above the limit with <= 2 mean scaling actions per episode",
+    "persistent_backlog": "mean queue pressure >= 0.2 on a workload",
+    "reward_mismatch": "DQN screening: the candidate with the highest mean episode reward is not #78-feasible, or episode reward rank-correlates positively with mean SLA violation"
+  },
+  "metrics": {
+    "system": [
+      "infrastructure_cost",
+      "normalized_cost",
+      "sla_violation_rate",
+      "mean_p95_latency_seconds",
+      "max_p95_latency_seconds",
+      "mean_queue_depth",
+      "max_queue_depth",
+      "queue_pressure",
+      "scaling_actions",
+      "churn_rate",
+      "episode_reward"
+    ],
+    "action": [
+      "scaling_events",
+      "total_absolute_replica_change",
+      "mean_absolute_replica_change_when_scaling",
+      "max_absolute_replica_change_in_one_tick",
+      "max_pending_replicas"
+    ],
+    "statistics": "n, mean, median, sample SD, min, max per algorithm x reward x workload",
+    "episode_reward": "secondary; never a selection criterion"
+  },
+  "robustness": "none in #20: reward selection is nominal-only; no robustness run",
+  "held_out_data_used": false
+}

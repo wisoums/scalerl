@@ -693,6 +693,96 @@ The pre-held-out sequence is:
 #46 held-out evaluation
 ```
 
+## Reward ablation (#20)
+
+**Question.** How sensitive are learned-controller behavior and system trade-offs to the reward specification under the final #79 contract `desired-replicas-v1`? Raw system metrics are primary; episode return is secondary and never selects anything.
+
+**Frozen design** (`reward-ablation-v1`, [spec](../benchmarks/v1/reward-ablation-v1.json), ID `f5aff8f1e8c2`, committed before any run of record):
+
+- **Eight predeclared variants** of the *unchanged* penalty terms. Normalization is not touched; only component inclusion and weights vary.
+
+  | Variant | latency | cost | SLA | queue | churn |
+  |---|---|---|---|---|---|
+  | `latency-cost-v1` | 1.0 | 1.0 | 0 | 0 | 0 |
+  | `latency-cost-sla-v1` | 1.0 | 1.0 | 1.0 | 0 | 0 |
+  | `latency-cost-sla-queue-v1` | 1.0 | 1.0 | 1.0 | 1.0 | 0 |
+  | `full-default-v1` (current reward) | 1.0 | 1.0 | 1.0 | 1.0 | 0.1 |
+  | `full-cost-low-v1` | 1.0 | 0.5 | 1.0 | 1.0 | 0.1 |
+  | `full-cost-high-v1` | 1.0 | 2.0 | 1.0 | 1.0 | 0.1 |
+  | `full-sla-low-v1` | 1.0 | 1.0 | 0.5 | 1.0 | 0.1 |
+  | `full-sla-high-v1` | 1.0 | 1.0 | 2.0 | 1.0 | 0.1 |
+
+- **Setup:** train on `syn-train-bursty`; validate (nominal, evaluation seed 0) on the three synthetic validation workloads; **no test workload**; every run explicitly requests `desired-replicas-v1`.
+- **DQN (per reward):** the exact 20 #79 candidates (`matched-action-candidates-v1`, `cbe3c1c0719b`), trained with seed 0 for 200,000 timesteps.
+  - The frozen #78 rule (`418876d6c8e9`) selects within the reward condition.
+  - A selected candidate is retrained on seeds 0–4.
+  - If nothing is selected, nothing is retrained: the diagnostic fallback is recorded only.
+- **PPO (per reward):** the fixed #79 configuration `ppo-c08` (same hyperparameters for every reward, no search), trained fresh on seeds 0–4 for 204,800 timesteps.
+- **Reward decision (predeclared):**
+  - Compute equal-seed means per algorithm × reward × workload.
+  - A reward is *joint-feasible* when PPO and the retrained #78-selected DQN both meet the Threshold SLA limit on every workload.
+  - Among joint-feasible rewards, minimize the 50/50 equal-algorithm mean of equal-workload normalized cost; then queue pressure, churn, SLA, reward ID.
+  - If none is joint-feasible, `full-default-v1` is frozen with the negative DQN result.
+- **Command:** `python -m scalerl.evaluation.reward_ablation check | run --reward <id> | decide [--freeze]`.
+- **Runs:** results in the MLflow experiment `scalerl-reward-ablation`; outputs in `outputs/reward-ablation-v1/`.
+
+**Runs of record.**
+- 860 runs, all `FINISHED`, all at clean commit `5d6651b` with `git_dirty=false`: 215 trainings (160 DQN screening, 15 DQN retraining, 40 PPO) plus 645 validation runs.
+- A first launch at `ff50311` was aborted by a temp-file race between parallel processes (a code fix). Its 100 runs are tagged `scalerl.superseded`; every reward was rerun from `5d6651b`.
+- Consistency check: `full-default-v1` reproduces #79's DQN screening and PPO models exactly (75/75 per-workload values identical).
+
+**DQN feasibility per reward (#78, 20 candidates each):**
+
+| Reward | Feasible | Selected | Retrained seeds 0–4: SLA (steady-high / ramp-down / bursty) | Reward-level pass |
+|---|---|---|---|---|
+| `latency-cost-v1` | 0/20 | none (diagnostic `dqn-c11`) | — | no |
+| `latency-cost-sla-v1` | 0/20 | none (diagnostic `dqn-c08`) | — | no |
+| `latency-cost-sla-queue-v1` | 1/20 | `dqn-c18` | 0.690 / 0.523 / 0.428 | **no** |
+| `full-default-v1` | 0/20 | none (diagnostic `dqn-c01`) | — | no |
+| `full-cost-low-v1` | 7/20 | `dqn-c14` | 0.072 / 0.167 / **0.2083** (= limit) | **yes** |
+| `full-cost-high-v1` | 0/20 | none (diagnostic `dqn-c11`) | — | no |
+| `full-sla-low-v1` | 0/20 | none (diagnostic `dqn-c19`) | — | no |
+| `full-sla-high-v1` | 2/20 | `dqn-c16` | 0.418 / 0.457 / 0.255 | **no** |
+
+**PPO `ppo-c08` per reward** (equal-seed means, averaged over the three workloads; pass = SLA within the limit on every workload):
+
+| Reward | Norm. cost | SLA | Queue pressure | Churn | Pass |
+|---|---|---|---|---|---|
+| `latency-cost-v1` | 0.553 | 0.368 | 0.205 | 0.076 | **no** |
+| `latency-cost-sla-v1` | 0.796 | 0.062 | 0.016 | 0.022 | yes |
+| `latency-cost-sla-queue-v1` | 0.776 | 0.175 | 0.131 | 0.014 | yes |
+| `full-default-v1` | 0.798 | 0.086 | 0.026 | 0.018 | yes |
+| `full-cost-low-v1` | 0.903 | 0.033 | 0.011 | 0.014 | yes |
+| `full-cost-high-v1` | 0.611 | 0.288 | 0.204 | 0.038 | **no** |
+| `full-sla-low-v1` | 0.789 | 0.067 | 0.018 | 0.024 | yes |
+| `full-sla-high-v1` | 0.844 | 0.050 | 0.014 | 0.017 | yes |
+
+**Decision: `full-cost-low-v1`** (latency 1.0, cost 0.5, SLA 1.0, queue 1.0, churn 0.1), frozen in [`benchmarks/v1/reward-contract-v1.json`](../benchmarks/v1/reward-contract-v1.json) (ID `37158c261364`).
+- It is the **only joint-feasible reward**. Its equal-algorithm values are: normalized cost (0.663 DQN + 0.903 PPO) / 2 = **0.783**, queue pressure 0.025, churn 0.113, SLA 0.091.
+- The final reward therefore **differs from the previous default** (cost weight 1.0 → 0.5).
+- `RewardWeights()` keeps its historical defaults, so every earlier run stays reproducible. Downstream work (#72/#46) must request the contract's weights explicitly.
+- The decision is recomputable from the equal-seed means recorded in the artifact (tested).
+
+**Findings.**
+- **The DQN pass is knife-edge.** The retrained `dqn-c14` has an equal-seed mean SLA on `syn-val-bursty` of exactly the Threshold limit (0.2083 = 125/600). Seed 3 reaches 0.317, and SLA on ramp-down ranges 0.05–0.40 across seeds. The predeclared `≤` rule passes it; it is not a robust margin.
+- **Screening on seed 0 does not transfer reliably.** For `full-sla-high-v1` and `latency-cost-sla-queue-v1`, the selected DQN candidates collapse on some retraining seeds to SLA 1.0 on at least one workload, whose seed means are far outside the limit (e.g. `dqn-c16`: SLA median 0.04 but maximum 1.0 on steady-high).
+- **Cost weight is the dominant lever.**
+  - Halving it (`full-cost-low-v1`) makes DQN feasible (7/20 candidates) but drives PPO toward a near-full fleet: normalized cost about 0.90 on every workload, flagged `full_fleet`.
+  - Doubling it (`full-cost-high-v1`) makes PPO underprovision: SLA 0.23–0.32, queue pressure about 0.2, and it fails.
+- **The SLA and queue terms are necessary.**
+  - Without them (`latency-cost-v1`), PPO underprovisions on every workload (flagged `underprovisioning`; SLA 0.33–0.42 at cost about 0.55).
+  - Adding only the SLA term restores feasibility.
+  - With queue but no churn term (`latency-cost-sla-queue-v1`), PPO still passes but keeps a persistent backlog on ramp-down (queue pressure 0.20), and its selected DQN thrashes and underprovisions.
+- **The churn term (0.1) has little PPO effect:** PPO churn is 0.01–0.04 under every reward.
+- **Episode return disagrees with the #78 objective.**
+  - For 7 of 8 rewards, the DQN screening candidate with the highest mean episode return is not SLA-feasible; the exception is `full-cost-low-v1`, whose top-return candidate `dqn-c01` is feasible.
+  - Where the reward contains the SLA term, return and mean SLA are strongly rank-anti-correlated (Spearman −0.92 to −0.99).
+  - Under `latency-cost-v1`, which has no SLA or queue term, the correlation is +0.21: higher return goes with *more* SLA violation, a textbook reward mismatch.
+- Selecting on return would have picked infeasible policies, which is why reward is never a selection criterion.
+- **Negative results kept:** `full-default-v1` still has no feasible DQN (0/20, reproducing #79), and 5 of 8 rewards have none.
+
+No robustness evaluation was run in #20, including post-freeze checks: reward selection is nominal-only, and #65/#81 remain untouched. No held-out or test data was used, and the reward normalization is unchanged. The ablation compares rewards under fixed learners; it declares no algorithm winner.
+
 ## Fair comparison
 
 For every final comparison:
