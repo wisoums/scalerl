@@ -637,61 +637,56 @@ def _render_player_snapshot(session: ScenarioSession, playback: PlaybackState) -
     last = session.history[-1] if session.history else None
     fleet = session.fleet
 
-    if last is None:
-        shops = "☕" * min(fleet["active_replicas"], 8)
-        pending = "🏗️" * min(fleet["pending_replicas"], 8)
-        st.markdown(f"**Fleet now**  {shops or '—'} {pending}")
-        active, starting, manager = st.columns([1, 1, 2])
-        active.metric("☕ Active", fleet["active_replicas"])
-        starting.metric("🏗️ Pending", fleet["pending_replicas"])
-        manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
-        if session.controller is None:
-            manager.caption(
-                "No decision yet. Choose a manual action below to complete the first tick."
-            )
-        elif playback.mode == "inspect":
-            manager.caption("No decision yet. Press Next step below to complete the first tick.")
-        else:
-            manager.caption(
-                "No decision yet. Press Play or Step once below to complete the first tick."
-            )
-        return
-
-    cars = icon_row("🚗", last["request_rate"], cap=6)
-    people = icon_row("👥", last["queued_requests"], cap=6) or "—"
-    shops = "☕" * min(fleet["active_replicas"], 8)
-    pending_icons = "🏗️" * min(fleet["pending_replicas"], 8)
-    st.markdown(
-        f"**Traffic** {cars}  →  **Queue** {people}  →  "
-        f"**Fleet** {shops or '—'} {pending_icons}"
-    )
+    traffic_value = "—" if last is None else f"{last['request_rate']:,.0f} RPS"
+    queue_value = "—" if last is None else f"{last['queued_requests']:,.0f}"
+    latency_value = "—" if last is None else f"{last['p95_latency_seconds']:.3f} s"
+    cost_value = f"${session.cumulative_cost:.4f}"
 
     traffic, queue, active, pending, latency, cost = st.columns(6)
-    traffic.metric("🚗 Traffic", f"{last['request_rate']:,.0f} RPS", help=TRAFFIC_HELP)
-    queue.metric("👥 Queue", f"{last['queued_requests']:,.0f}", help=QUEUE_HELP)
+    traffic.metric("🚗 Traffic", traffic_value, help=TRAFFIC_HELP)
+    queue.metric("👥 Queue", queue_value, help=QUEUE_HELP)
     active.metric("☕ Active", fleet["active_replicas"])
     pending.metric("🏗️ Pending", fleet["pending_replicas"])
-    latency.metric("⏱ p95", f"{last['p95_latency_seconds']:.3f} s")
-    cost.metric("💵 Cost", f"${session.cumulative_cost:.4f}")
+    latency.metric("⏱ p95", latency_value)
+    cost.metric("💵 Cost", cost_value)
 
     target = session.config.sla.latency_target_seconds
-    sla = "✅ SLA met" if not last["sla_violated"] else "🚨 SLA violated"
-    st.caption(
-        f"{sla} · target {target:g} s · tick cost ${last['infrastructure_cost']:.4f} · "
-        f"reward {last['reward']:.3f}"
-    )
+    if last is None:
+        st.caption(f"Waiting for the first completed tick · SLA target {target:g} s")
+    else:
+        sla = "✅ SLA met" if not last["sla_violated"] else "🚨 SLA violated"
+        st.caption(
+            f"{sla} · target {target:g} s · tick cost ${last['infrastructure_cost']:.4f} · "
+            f"reward {last['reward']:.3f}"
+        )
 
     st.divider()
     manager, decision_col, target_col, applied_col = st.columns([2, 1, 1, 1])
     manager.markdown(f"#### {MANAGERS[session.manager.kind]}")
-    decision_col.metric(
-        "Decision", ACTION_LABELS.get(last["requested_action"], str(last["requested_action"]))
-    )
-    target_col.metric("Target", last["requested_replica_target"])
-    applied_col.metric("Applied", f"{last['applied_replica_change']:+d}")
-    _render_live_manager_reason(session)
 
+    decision_value = "—"
+    target_value: str | int = "—"
+    applied_value = "—"
+    if last is not None:
+        decision_value = ACTION_LABELS.get(
+            last["requested_action"], str(last["requested_action"])
+        )
+        target_value = last["requested_replica_target"]
+        applied_value = f"{last['applied_replica_change']:+d}"
 
+    decision_col.metric("Decision", decision_value)
+    target_col.metric("Target", target_value)
+    applied_col.metric("Applied", applied_value)
+
+    if last is None:
+        if session.controller is None:
+            st.caption("Choose a manual action below to complete the first tick.")
+        elif playback.mode == "inspect":
+            st.caption("Press Next step below to complete the first tick.")
+        else:
+            st.caption("Press Play or Step once below to complete the first tick.")
+    else:
+        _render_live_manager_reason(session)
 def _render_live_manager_reason(session: ScenarioSession) -> None:
     decision = session.threshold_decision
     if decision is not None:
