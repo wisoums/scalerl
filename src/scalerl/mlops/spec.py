@@ -18,6 +18,7 @@ from scalerl.benchmarks.manifest import Split
 from scalerl.environment.config import CAPACITY_JITTER_MODEL, DELTA_V1, SimulatorConfig
 from scalerl.environment.gym_env import AutoscalingEnv
 from scalerl.environment.reward import RewardWeights
+from scalerl.environment.startup import FIXED_V1
 from scalerl.workloads import steady_workload
 
 RunKind = Literal["train", "tune", "evaluate"]
@@ -126,7 +127,10 @@ class RunSpec(_Strict):
 # Compatibility fields a robustness evaluation may deliberately perturb for a
 # fixed, already-trained policy (#65): stale telemetry changes what the
 # observation's measurements refer to, but not its shape or normalization.
-ROBUSTNESS_PERTURBABLE_FIELDS = frozenset({"telemetry_delay_ticks"})
+# #81 adds the startup-delay model: pending readiness then means nominal (not
+# realized) timing, with the same observation shape. Action semantics are never
+# perturbable.
+ROBUSTNESS_PERTURBABLE_FIELDS = frozenset({"telemetry_delay_ticks", "startup_delay_model"})
 
 
 class EnvironmentCompatibility(_Strict):
@@ -153,6 +157,11 @@ class EnvironmentCompatibility(_Strict):
     robustness perturbation. Under ``desired-replicas-v1`` the replica range
     is ``[max_replicas - action_count + 1, max_replicas]``, fixed by the two
     recorded fields.
+
+    Startup-delay model (#81): ``startup_delay_model`` (default ``fixed-v1``, so
+    older contracts load as fixed startup) is compatibility-defining; the
+    ``startup_delay_seed`` is an evaluation realization and is excluded. Only
+    the robustness path may perturb the model.
     """
 
     observation_shape: tuple[int, ...]
@@ -168,6 +177,7 @@ class EnvironmentCompatibility(_Strict):
     telemetry_delay_ticks: int = 0
     capacity_jitter_model: str = CAPACITY_JITTER_MODEL
     action_semantics_version: str = DELTA_V1
+    startup_delay_model: str = FIXED_V1
     benchmark_version: str | None = None
 
     @classmethod
@@ -192,6 +202,7 @@ class EnvironmentCompatibility(_Strict):
             telemetry_delay_ticks=env.config.dynamics.telemetry_delay_ticks,
             capacity_jitter_model=CAPACITY_JITTER_MODEL,
             action_semantics_version=env.action_semantics,
+            startup_delay_model=env.config.dynamics.startup_delay_model,
             benchmark_version=benchmark_version,
         )
 

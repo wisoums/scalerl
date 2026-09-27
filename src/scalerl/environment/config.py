@@ -116,6 +116,12 @@ class DynamicsConfig(_FrozenConfig):
     Telemetry delay: controllers (learned observation and rule-based decision
     info) see load/queue/latency measurements from ``telemetry_delay_ticks``
     completed ticks ago, while replica counts and the clock stay current.
+
+    Startup delay (#81, see :mod:`scalerl.environment.startup`): ``fixed-v1``
+    (default) keeps every replica's startup at exactly ``startup_delay_seconds``;
+    ``tri-point-multiplicative-v1`` draws a per-replica multiplier from its own
+    RNG seeded by ``startup_delay_seed``. The two startup fields are serialized
+    only when not at their defaults, so pre-#81 configs keep their identity.
     """
 
     capacity_jitter_fraction: float = Field(
@@ -134,6 +140,28 @@ class DynamicsConfig(_FrozenConfig):
         ge=0,
         description="Completed ticks by which controller-visible measurements lag.",
     )
+    startup_delay_model: Literal["fixed-v1", "tri-point-multiplicative-v1"] = Field(
+        default="fixed-v1",
+        description=(
+            "Versioned per-replica startup-delay model (#81); fixed-v1 = exactly "
+            "startup_delay_seconds, no random draw."
+        ),
+    )
+    startup_delay_seed: int = Field(
+        default=0,
+        ge=0,
+        description="Seed of the startup-delay realization (its own RNG, restarted on reset).",
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_default_startup(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Configs from before #81 (fixed startup, seed 0) serialize exactly as before,
+        # so no historical config hash, study identity, or plan ID moves.
+        data: dict[str, Any] = handler(self)
+        if self.startup_delay_model == "fixed-v1" and self.startup_delay_seed == 0:
+            data.pop("startup_delay_model", None)
+            data.pop("startup_delay_seed", None)
+        return data
 
 
 DELTA_V1: Final = "delta-v1"
