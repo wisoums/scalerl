@@ -22,7 +22,7 @@ from scalerl.environment.config import (
     SlaConfig,
     TimingConfig,
 )
-from scalerl.environment.gym_env import AutoscalingEnv
+from scalerl.environment.gym_env import AutoscalingEnv, SourceWindow
 from scalerl.environment.metrics import TickMetrics, compute_tick_metrics
 from scalerl.environment.queue import QueueStepResult, RequestQueue
 from scalerl.environment.replicas import ReplicaPool, startup_ticks
@@ -58,6 +58,7 @@ __all__ = [
     "TRI_POINT_PROBABILITIES",
     "HOLD",
     "SCALE_DOWN",
+    "SourceWindow",
     "SCALE_UP",
     "ActionConfig",
     "ActionContract",
