@@ -379,3 +379,187 @@ def test_controller_set() -> None:
     native = controllers["controllers"]["knative-native-v1"]["settings"]
     assert (native["min-scale"], native["max-scale"]) == (1, 10)
     assert "q-learning" in controllers["excluded"]
+
+
+# --- the requested bench directory is the only source ------------------------------------------
+
+
+def outputs_from_lineage(root: Path) -> Path:
+    """Minimal #20 per-seed evidence files rebuilt from the committed lineage."""
+    controllers = manifest("controller-deployment-manifest-v1.json")["controllers"]
+    for family, phase in (("dqn", "dqn-retraining"), ("ppo", "ppo-training")):
+        entry = controllers[family]
+        directory = root / s2r.SELECTED_REWARD / phase
+        directory.mkdir(parents=True)
+        for seed in entry["five_seed_lineage"]:
+            payload = {
+                "candidate_id": entry["candidate_id"],
+                "training_run_id": seed["training_run_id"],
+                "model_artifact_uri": seed["model_artifact_uri"],
+                "workloads": [
+                    {"workload_id": w, "validation_run_id": run, "metrics": seed["metrics"][w]}
+                    for w, run in seed["validation_run_ids"].items()
+                ],
+            }
+            name = f"{entry['candidate_id']}-seed{seed['training_seed']}.json"
+            (directory / name).write_text(json.dumps(payload))
+    return root
+
+
+def test_controller_manifest_uses_only_the_requested_bench(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    custom = tmp_path / "staging" / "bench"
+    shutil.copytree(BENCH, custom)
+    outputs = outputs_from_lineage(tmp_path / "outputs")
+    elsewhere = tmp_path / "elsewhere"  # no benchmarks/v1 below the working directory
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    upstream = s2r.verify_upstream(custom)
+    built = json.loads(s2r._dump(s2r.build_controller_manifest(upstream, outputs)))
+    assert built == manifest("controller-deployment-manifest-v1.json")
+    assert s2r.content_id(built) == "553ddf3e512b"
+    assert s2r.check(custom)["controllers"] == "553ddf3e512b"
+
+    # the candidate set is read from the custom bench, and a changed one is refused
+    candidates = json.loads((custom / "action-semantics-candidates-v1.json").read_text())
+    candidates["dqn"]["candidates"][14]["hyperparameters"]["gamma"] = 0.5
+    (custom / "action-semantics-candidates-v1.json").write_text(json.dumps(candidates))
+    with pytest.raises(ValueError, match="candidate set changed"):
+        s2r.verify_upstream(custom)
+
+
+# --- frozen schedule validation ----------------------------------------------------------------
+
+SCHEDULE_FILE = "live-replay-schedules-v1/azure-test-1166400-w1-s1500-d600-seed1.json"
+
+
+def slice_and_ref(replay: Any, file: str = SCHEDULE_FILE) -> tuple[Any, Any]:
+    for entry in replay["slices"]:
+        for ref in entry["schedules"]:
+            if ref["file"] == file:
+                return entry, ref
+    raise AssertionError(file)
+
+
+def test_every_committed_schedule_validates() -> None:
+    replay = manifest("live-replay-manifest-v1.json")
+    for entry in replay["slices"]:
+        for ref in entry["schedules"]:
+            assert s2r.schedule_errors(manifest(ref["file"]), ref, entry) == []
+
+
+def bench_copy(tmp_path: Path) -> Path:
+    copy = tmp_path / "v1"
+    shutil.copytree(BENCH, copy)
+    return copy
+
+
+def edit_json(path: Path, change: Any) -> None:
+    payload = json.loads(path.read_text())
+    change(payload)
+    path.write_text(json.dumps(payload))
+
+
+def set_rng(key: str, value: Any) -> Any:
+    return lambda p: p["rng"].__setitem__(key, value)
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (
+            lambda p: p.__setitem__("schedule_version", "live-arrival-schedule-v2"),
+            "schedule_version",
+        ),
+        (lambda p: p.__setitem__("generator", "poisson-v1"), "generator"),
+        (lambda p: p.__setitem__("schedule_id", "other"), "schedule_id"),
+        (lambda p: p.__setitem__("slice_id", "azure-test-1166400-w0-s600-d600"), "slice_id"),
+        (lambda p: p.__setitem__("load_seed", 2), "load_seed"),
+        (lambda p: p.__setitem__("source_trace_fingerprint", "0" * 64), "fingerprint"),
+        (set_rng("seed_sequence_entropy", 7), "rng"),
+        (set_rng("spawn_key", [s2r.SCHEDULE_RNG_DOMAIN, 0]), "rng"),
+        (lambda p: p.__setitem__("timestamps_checksum", "0" * 64), "embedded timestamps_checksum"),
+        (lambda p: p.__setitem__("note", "extra"), "schedule keys"),
+        (lambda p: p["timestamps_seconds_from_slice_start"].pop(), "timestamps_checksum"),
+    ],
+)
+def test_check_refuses_tampered_schedule_file(tmp_path: Path, change: Any, reason: str) -> None:
+    copy = bench_copy(tmp_path)
+    edit_json(copy / SCHEDULE_FILE, change)
+    with pytest.raises(ValueError, match=reason):
+        s2r.check(copy)
+
+
+def manifest_ref(key: str, value: Any) -> Any:
+    def change(replay: Any) -> None:
+        slice_and_ref(replay)[1][key] = value
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (manifest_ref("timestamps_checksum", "0" * 64), "manifest timestamps_checksum"),
+        (manifest_ref("request_count", 1), "request count"),
+        (manifest_ref("schedule_id", "other"), "manifest schedule_id"),
+        (manifest_ref("load_seed", 5), "load seeds"),
+        (manifest_ref("extra", 1), "manifest reference keys"),
+        (
+            manifest_ref(
+                "file", "live-replay-schedules-v1/azure-test-1166400-w1-s1500-d600-seed2.json"
+            ),
+            "manifest file",
+        ),
+        (lambda r: r["slices"][1].__setitem__("source_trace_fingerprint", "0" * 64), "fingerprint"),
+        (lambda r: r["schedule_rule"].__setitem__("generator", "poisson-v1"), "schedule rule"),
+    ],
+)
+def test_check_refuses_tampered_manifest_reference(
+    tmp_path: Path, change: Any, reason: str
+) -> None:
+    copy = bench_copy(tmp_path)
+    edit_json(copy / "live-replay-manifest-v1.json", change)
+    with pytest.raises(ValueError, match=reason):
+        s2r.check(copy)
+
+
+def test_check_refuses_missing_and_unreferenced_schedule_files(tmp_path: Path) -> None:
+    copy = bench_copy(tmp_path)
+    (copy / "live-replay-schedules-v1" / "stray.json").write_text("{}")
+    with pytest.raises(ValueError, match="unreferenced schedule files"):
+        s2r.check(copy)
+    (copy / "live-replay-schedules-v1" / "stray.json").unlink()
+    (copy / SCHEDULE_FILE).unlink()
+    with pytest.raises(ValueError, match="missing schedule file"):
+        s2r.check(copy)
+
+
+def resealed(times: list[float]) -> tuple[Any, Any, Any]:
+    """A schedule whose checksums and counts are consistent with ``times``."""
+    replay = manifest("live-replay-manifest-v1.json")
+    entry, ref = slice_and_ref(replay)
+    payload = manifest(SCHEDULE_FILE)
+    checksum = s2r._sha256(times)
+    payload["timestamps_seconds_from_slice_start"] = times
+    payload["timestamps_checksum"] = ref["timestamps_checksum"] = checksum
+    ref["request_count"] = entry["request_count"] = len(times)
+    return payload, ref, entry
+
+
+def test_schedule_errors_require_sorted_in_range_timestamps() -> None:
+    times = manifest(SCHEDULE_FILE)["timestamps_seconds_from_slice_start"]
+    assert s2r.schedule_errors(*resealed(times)) == []
+    unsorted = [times[1], times[0], *times[2:]]
+    assert s2r.schedule_errors(*resealed(unsorted)) == ["timestamps are not sorted"]
+    assert s2r.schedule_errors(*resealed([*times[:-1], 600.0])) == [
+        "timestamps outside [0, slice duration)"
+    ]
+    assert s2r.schedule_errors(*resealed([-0.5, *times[1:]])) == [
+        "timestamps outside [0, slice duration)"
+    ]
+    payload, ref, entry = resealed(times)
+    payload["timestamps_seconds_from_slice_start"] = ["1.0"]
+    assert s2r.schedule_errors(payload, ref, entry)[-1] == "timestamps are not a list of numbers"

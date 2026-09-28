@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import math
 import statistics
@@ -80,13 +81,17 @@ SELECTED_REWARD: Final = "full-cost-low-v1"
 DQN_CANDIDATE: Final = "dqn-c14"
 PPO_CANDIDATE: Final = "ppo-c08"
 PREDICTIVE_FROZEN_IN: Final = "predictive-baseline-v1 (0d315559c680)"
+# The #79 matched candidate set the DQN/PPO hyperparameters come from. Checked
+# on load but kept out of ``UPSTREAM``, whose content is part of the protocol.
+CANDIDATE_SET_ID: Final = "cbe3c1c0719b"
 RULE_METRICS: Final = ("normalized_cost", "queue_pressure", "churn_rate", "sla_violation_rate")
 
 BENCH = Path("benchmarks/v1")
 DEFAULT_PROTOCOL = BENCH / "sim-to-real-protocol-v1.json"
 DEFAULT_REPLAY = BENCH / "live-replay-manifest-v1.json"
 DEFAULT_CONTROLLERS = BENCH / "controller-deployment-manifest-v1.json"
-DEFAULT_SCHEDULES = BENCH / "live-replay-schedules-v1"
+SCHEDULE_DIR: Final = "live-replay-schedules-v1"
+DEFAULT_SCHEDULES = BENCH / SCHEDULE_DIR
 DEFAULT_REWARD_OUTPUTS = Path("outputs/reward-ablation-v1")
 DEFAULT_AZURE_CSV = Path("data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt")
 
@@ -119,6 +124,7 @@ def verify_upstream(bench: Path = BENCH) -> dict[str, Any]:
     from scalerl.evaluation.robustness import ROBUSTNESS_SCENARIO_VERSION, ROBUSTNESS_SCENARIOS
     from scalerl.evaluation.startup_robustness import ExperimentSpec as StartupSpec
     from scalerl.evaluation.startup_robustness import StartupRobustnessFreeze
+    from scalerl.tuning.candidates import CandidateSet
 
     selection = SelectionSpec.load(bench / "selection-v2-cost-under-sla.json")
     decision = ActionContractDecision.model_validate_json(
@@ -133,6 +139,7 @@ def verify_upstream(bench: Path = BENCH) -> dict[str, Any]:
     )
     reward_spec = RewardSpec.load(bench / "reward-ablation-v1.json")
     contract = RewardContract.model_validate_json((bench / "reward-contract-v1.json").read_text())
+    candidates = CandidateSet.load(bench / "action-semantics-candidates-v1.json")
     found = {
         "selection_spec_id": selection.spec_id,
         "action_decision_id": decision.decision_id,
@@ -147,6 +154,10 @@ def verify_upstream(bench: Path = BENCH) -> dict[str, Any]:
     if found != UPSTREAM:
         drift = {k: (found[k], UPSTREAM[k]) for k in UPSTREAM if found[k] != UPSTREAM[k]}
         raise ValueError(f"frozen upstream artifacts changed: {drift}")
+    if candidates.candidate_set_id != CANDIDATE_SET_ID:
+        raise ValueError(
+            f"frozen #79 candidate set changed: {candidates.candidate_set_id} != {CANDIDATE_SET_ID}"
+        )
     if (
         decision.final_action_semantics != DESIRED_REPLICAS_V1
         or contract.selected_reward_variant != SELECTED_REWARD
@@ -166,6 +177,7 @@ def verify_upstream(bench: Path = BENCH) -> dict[str, Any]:
         "predictive": predictive,
         "reward_spec": reward_spec,
         "contract": contract,
+        "candidates": candidates,
     }
 
 
@@ -290,6 +302,7 @@ def check_against_contract(
 
 
 def build_controller_manifest(upstream: Mapping[str, Any], outputs: Path) -> dict[str, Any]:
+    """Every frozen input comes from ``upstream`` (:func:`verify_upstream` of one bench)."""
     from scalerl.controllers import predictive as predictive_v1
     from scalerl.controllers import proactive_predictive as seasonal
     from scalerl.tuning.candidates import CandidateSet
@@ -298,7 +311,7 @@ def build_controller_manifest(upstream: Mapping[str, Any], outputs: Path) -> dic
     contract = upstream["contract"]
     predictive = upstream["predictive"]
     thresholds = {t.workload_id: t.sla_violation_rate for t in selection.sla_thresholds}
-    candidates = CandidateSet.load(BENCH / "action-semantics-candidates-v1.json")
+    candidates: CandidateSet = upstream["candidates"]
     reward = {
         "reward_contract": "reward-contract-v1",
         "reward_contract_id": UPSTREAM["reward_contract_id"],
@@ -789,7 +802,7 @@ def freeze(azure_csv: Path, outputs: Path, bench: Path = BENCH) -> dict[str, str
     trace = build_workload(workload, azure_csv_path=azure_csv)
     replay, schedules = build_replay(trace, workload, csv_identity(azure_csv))
     protocol = build_protocol(upstream, controllers, replay)
-    schedule_dir = bench / "live-replay-schedules-v1"
+    schedule_dir = bench / SCHEDULE_DIR
     schedule_dir.mkdir(parents=True, exist_ok=True)
     for schedule_id, payload in schedules.items():
         (schedule_dir / f"{schedule_id}.json").write_text(_dump(payload))
@@ -807,6 +820,107 @@ def load(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
+SCHEDULE_KEYS: Final = frozenset(
+    {
+        "schedule_version",
+        "generator",
+        "schedule_id",
+        "slice_id",
+        "load_seed",
+        "rng",
+        "source_trace_fingerprint",
+        "timestamps_seconds_from_slice_start",
+        "timestamps_checksum",
+    }
+)
+SCHEDULE_REF_KEYS: Final = frozenset(
+    {"schedule_id", "load_seed", "file", "request_count", "timestamps_checksum"}
+)
+
+
+def schedule_errors(
+    payload: Mapping[str, Any], ref: Mapping[str, Any], slice_entry: Mapping[str, Any]
+) -> list[str]:
+    """Every way a persisted schedule departs from its frozen manifest reference.
+
+    ``ref`` is the schedule's entry in ``slice_entry["schedules"]``; an empty list
+    means the file's full identity, provenance and timestamps are the frozen ones.
+    """
+    errors = []
+    slice_id = slice_entry["slice_id"]
+    seed = ref.get("load_seed")
+    expected_id = f"{slice_id}-seed{seed}"
+    if set(ref) != SCHEDULE_REF_KEYS:
+        errors.append(f"manifest reference keys {sorted(ref)}")
+    if ref.get("schedule_id") != expected_id:
+        errors.append(f"manifest schedule_id {ref.get('schedule_id')!r} != {expected_id!r}")
+    if ref.get("file") != f"{SCHEDULE_DIR}/{expected_id}.json":
+        errors.append(f"manifest file {ref.get('file')!r} is not {SCHEDULE_DIR}/{expected_id}.json")
+    if set(payload) != SCHEDULE_KEYS:
+        errors.append(f"schedule keys {sorted(payload)}")
+    expected = {
+        "schedule_version": SCHEDULE_VERSION,
+        "generator": SCHEDULE_GENERATOR,
+        "schedule_id": expected_id,
+        "slice_id": slice_id,
+        "load_seed": seed,
+        "source_trace_fingerprint": slice_entry["source_trace_fingerprint"],
+        "rng": {
+            "seed_sequence_entropy": seed,
+            "spawn_key": [SCHEDULE_RNG_DOMAIN, slice_entry["slice_index"]],
+        },
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            errors.append(f"{key} {payload.get(key)!r} != {value!r}")
+    times = payload.get("timestamps_seconds_from_slice_start")
+    if not isinstance(times, list) or not all(
+        isinstance(t, float | int) and not isinstance(t, bool) for t in times
+    ):
+        return [*errors, "timestamps are not a list of numbers"]
+    checksum = _sha256(times)
+    if payload.get("timestamps_checksum") != checksum:
+        errors.append("embedded timestamps_checksum does not match the timestamps")
+    if ref.get("timestamps_checksum") != checksum:
+        errors.append("manifest timestamps_checksum does not match the timestamps")
+    if not len(times) == ref.get("request_count") == slice_entry["request_count"]:
+        errors.append(
+            f"request count {len(times)} != manifest {ref.get('request_count')} / "
+            f"slice {slice_entry['request_count']}"
+        )
+    if any(later < earlier for earlier, later in itertools.pairwise(times)):
+        errors.append("timestamps are not sorted")
+    if times and not (0 <= times[0] and times[-1] < slice_entry["duration_seconds"]):
+        errors.append("timestamps outside [0, slice duration)")
+    return errors
+
+
+def check_schedules(bench: Path, replay: Mapping[str, Any]) -> None:
+    """Validate every persisted schedule, and that files and references correspond exactly."""
+    if replay["schedule_rule"]["version"] != SCHEDULE_VERSION or (
+        replay["schedule_rule"]["generator"] != SCHEDULE_GENERATOR
+        or replay["schedule_rule"]["load_seeds"] != list(LOAD_SEEDS)
+    ):
+        raise ValueError("replay manifest schedule rule is not the frozen one")
+    referenced = set()
+    for entry in replay["slices"]:
+        if entry["source_trace_fingerprint"] != replay["source_workload"]["trace_fingerprint"]:
+            raise ValueError(f"{entry['slice_id']}: slice fingerprint is not the source trace's")
+        if [ref.get("load_seed") for ref in entry["schedules"]] != list(LOAD_SEEDS):
+            raise ValueError(f"{entry['slice_id']}: schedules are not load seeds {LOAD_SEEDS}")
+        for ref in entry["schedules"]:
+            path = bench / str(ref.get("file"))
+            if not path.is_file():
+                raise ValueError(f"{entry['slice_id']}: missing schedule file {ref.get('file')}")
+            errors = schedule_errors(load(path), ref, entry)
+            if errors:
+                raise ValueError(f"{ref.get('schedule_id')}: " + "; ".join(errors))
+            referenced.add(str(ref["file"]))
+    on_disk = {f"{SCHEDULE_DIR}/{p.name}" for p in (bench / SCHEDULE_DIR).iterdir()}
+    if on_disk != referenced:
+        raise ValueError(f"unreferenced schedule files: {sorted(on_disk - referenced)}")
+
+
 def check(bench: Path = BENCH, azure_csv: Path | None = None) -> dict[str, str]:
     """Validate the committed manifests; re-extract slices and schedules if the CSV exists."""
     upstream = verify_upstream(bench)
@@ -822,12 +936,7 @@ def check(bench: Path = BENCH, azure_csv: Path | None = None) -> dict[str, str]:
         )
         if select_canonical_seed(seeds, thresholds) != entry["canonical_selection"]:
             raise ValueError(f"{family}: canonical selection does not recompute")
-    for entry in replay["slices"]:
-        for ref in entry["schedules"]:
-            payload = load(bench / ref["file"])
-            times = payload["timestamps_seconds_from_slice_start"]
-            if _sha256(times) != ref["timestamps_checksum"] or len(times) != ref["request_count"]:
-                raise ValueError(f"{ref['schedule_id']}: schedule file does not match the manifest")
+    check_schedules(bench, replay)
     if protocol["controller_manifest"]["id"] != content_id(controllers) or protocol[
         "replay_manifest"
     ]["id"] != content_id(replay):
@@ -857,14 +966,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     freeze_cmd = commands.add_parser("freeze")
     freeze_cmd.add_argument("--azure-csv", type=Path, default=DEFAULT_AZURE_CSV)
     freeze_cmd.add_argument("--reward-outputs", type=Path, default=DEFAULT_REWARD_OUTPUTS)
+    freeze_cmd.add_argument("--bench", type=Path, default=BENCH)
     check_cmd = commands.add_parser("check")
     check_cmd.add_argument("--azure-csv", type=Path, default=None)
+    check_cmd.add_argument("--bench", type=Path, default=BENCH)
     args = parser.parse_args(argv)
     try:
         if args.command == "freeze":
-            ids = freeze(args.azure_csv, args.reward_outputs)
+            ids = freeze(args.azure_csv, args.reward_outputs, args.bench)
         else:
-            ids = check(azure_csv=args.azure_csv)
+            ids = check(args.bench, azure_csv=args.azure_csv)
     except ValueError as error:
         parser.error(str(error))
     for name, value in ids.items():
