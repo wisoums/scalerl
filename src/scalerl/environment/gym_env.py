@@ -105,13 +105,17 @@ from scalerl.environment.actions import HOLD, SCALE_DOWN, SCALE_UP, ActionContra
 from scalerl.environment.clock import SimulationClock
 from scalerl.environment.config import SimulatorConfig
 from scalerl.environment.metrics import compute_tick_metrics
+from scalerl.environment.observation import (
+    Measurement,
+    ObservationConstants,
+    build_observation,
+    feature_names,
+)
 from scalerl.environment.queue import QueueStepResult, RequestQueue
 from scalerl.environment.replicas import ReplicaPool
 from scalerl.environment.reward import (
     RewardWeights,
     compute_reward,
-    max_tick_capacity_of,
-    max_tick_cost_of,
 )
 from scalerl.environment.startup import FIXED_V1, draw_tri_point_multiplier, startup_rng
 from scalerl.workloads.trace import WorkloadReplay, WorkloadTrace
@@ -223,23 +227,14 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             maxlen=self._delay_ticks + self._history_ticks
         )
         self._dynamics_rng = np.random.default_rng(config.dynamics.dynamics_seed)
-        self._observation_features = (
-            *(f"demand_pressure_t-{age}" for age in range(self._history_ticks)),
-            "utilization",
-            "queue_pressure",
-            "latency_pressure",
-            "active_replicas_fraction",
-            "tick_cost_fraction",
-            "episode_progress",
-            *(f"pending_ready_in_{ticks}" for ticks in range(1, pending_buckets + 1)),
-        )
+        self._observation_constants = ObservationConstants.from_config(config)
+        if self._observation_constants.pending_buckets != pending_buckets:
+            raise AssertionError("observation constants disagree with the replica lifecycle")
+        self._observation_features = feature_names(self._observation_constants)
         self.observation_space = spaces.Box(
             low=0.0, high=1.0, shape=(len(self._observation_features),), dtype=np.float32
         )
         self._queue = RequestQueue(config.replicas, config.timing)
-        self._max_service_rate = config.replicas.max_replicas * config.replicas.service_capacity_rps
-        self._max_tick_capacity = max_tick_capacity_of(config)
-        self._max_tick_cost = max_tick_cost_of(config)
         self._needs_reset = True
 
     @property
@@ -417,40 +412,26 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             view["telemetry_tick"] = visible[0].tick
         return view | self.replica_counts
 
-    def _demand_pressure(self, rate: float) -> float:
-        return rate / (rate + self._max_service_rate)
-
     def _observation(self) -> Observation:
         visible = self.visible_telemetry()
-        history = [self._demand_pressure(snapshot.request_rate) for snapshot in visible]
-        history += [0.0] * (self._history_ticks - len(history))
-        max_replicas = self.config.replicas.max_replicas
-
-        if not visible:
-            queued = utilization = latency_pressure = cost_fraction = 0.0
-        else:
-            latest = visible[0]
-            queued = latest.queued_requests
-            latency = latest.p95_latency_seconds
-            target = self.config.sla.latency_target_seconds
-            utilization = latest.utilization
-            latency_pressure = latency / (latency + target)
-            cost_fraction = (
-                latest.infrastructure_cost / self._max_tick_cost if self._max_tick_cost > 0 else 0.0
+        latest = (
+            Measurement(
+                utilization=visible[0].utilization,
+                queued_requests=visible[0].queued_requests,
+                p95_latency_seconds=visible[0].p95_latency_seconds,
+                infrastructure_cost=visible[0].infrastructure_cost,
             )
-
-        return np.array(
-            [
-                *history,
-                utilization,
-                queued / (queued + self._max_tick_capacity),
-                latency_pressure,
-                self._pool.active_count / max_replicas,
-                cost_fraction,
-                self._clock.step_count / self._episode_ticks,
-                *(count / max_replicas for count in self._pending_buckets()),
-            ],
-            dtype=np.float32,
+            if visible
+            else None
+        )
+        return build_observation(
+            self._observation_constants,
+            request_rates_newest_first=[snapshot.request_rate for snapshot in visible],
+            latest=latest,
+            active_replicas=self._pool.active_count,
+            pending_by_ticks=self._pending_buckets(),
+            completed_ticks=self._clock.step_count,
+            episode_ticks=self._episode_ticks,
         )
 
     def _pending_buckets(self) -> tuple[int, ...]:

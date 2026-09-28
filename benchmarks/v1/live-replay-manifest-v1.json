@@ -1,0 +1,160 @@
+{
+  "controller_outcomes_used": false,
+  "live_results_used": false,
+  "manifest_version": "live-replay-manifest-v1",
+  "schedule_rule": {
+    "definition": "each 30 s bin's exact trace request count, placed uniformly at random within the bin; RNG SeedSequence(load_seed, spawn_key=(0x61727276, slice_index)); timestamps rounded to 1e-6 s, sorted",
+    "generator": "binned-uniform-v1",
+    "load_seeds": [
+      0,
+      1,
+      2
+    ],
+    "same_schedule_for_every_controller": true,
+    "version": "live-arrival-schedule-v1"
+  },
+  "slices": [
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 600.0,
+      "end_bin_exclusive": 40,
+      "request_count": 911,
+      "schedules": [
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w0-s600-d600-seed0.json",
+          "load_seed": 0,
+          "request_count": 911,
+          "schedule_id": "azure-test-1166400-w0-s600-d600-seed0",
+          "timestamps_checksum": "6b83f419c38af5d18cf48fde217797b6416262fbce150aac28a936bec9f9e249"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w0-s600-d600-seed1.json",
+          "load_seed": 1,
+          "request_count": 911,
+          "schedule_id": "azure-test-1166400-w0-s600-d600-seed1",
+          "timestamps_checksum": "b8dd0b8702e30285b985d6c3d60bd4c91482a0bd5fe5c1e3195da3563223ef87"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w0-s600-d600-seed2.json",
+          "load_seed": 2,
+          "request_count": 911,
+          "schedule_id": "azure-test-1166400-w0-s600-d600-seed2",
+          "timestamps_checksum": "a4699cb1c29ce57a9eb617e8a68be914876096afa67fed8f864ddd6633565bb6"
+        }
+      ],
+      "slice_checksum": "9a8812113a0e8542421cb6413bc997f3fb66099d131749ffc294fb2e948c977e",
+      "slice_id": "azure-test-1166400-w0-s600-d600",
+      "slice_index": 0,
+      "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+      "source_workload_id": "azure-test-1166400",
+      "split": "test",
+      "start_bin": 20,
+      "start_offset_seconds": 600.0,
+      "window_rule": "fixed-fraction-windows-v1"
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 600.0,
+      "end_bin_exclusive": 70,
+      "request_count": 879,
+      "schedules": [
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w1-s1500-d600-seed0.json",
+          "load_seed": 0,
+          "request_count": 879,
+          "schedule_id": "azure-test-1166400-w1-s1500-d600-seed0",
+          "timestamps_checksum": "bb535edc62abea69803fa5307acb8c5601100715bc6fbc8bc417c8b100191184"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w1-s1500-d600-seed1.json",
+          "load_seed": 1,
+          "request_count": 879,
+          "schedule_id": "azure-test-1166400-w1-s1500-d600-seed1",
+          "timestamps_checksum": "91e693fd0e0fd2ed496093e0b26a37480e5b3a383a020c46d07c00a03af79e00"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w1-s1500-d600-seed2.json",
+          "load_seed": 2,
+          "request_count": 879,
+          "schedule_id": "azure-test-1166400-w1-s1500-d600-seed2",
+          "timestamps_checksum": "6535f8ff00294f8a7c397adc158d7adbec08b54e05d8adf67c44dfec7e585847"
+        }
+      ],
+      "slice_checksum": "0781d4ba3c2445bf02c4cc99d64e6d2e240e9af40031be7bc1b3c46fe9e33ce5",
+      "slice_id": "azure-test-1166400-w1-s1500-d600",
+      "slice_index": 1,
+      "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+      "source_workload_id": "azure-test-1166400",
+      "split": "test",
+      "start_bin": 50,
+      "start_offset_seconds": 1500.0,
+      "window_rule": "fixed-fraction-windows-v1"
+    },
+    {
+      "control_interval_seconds": 30.0,
+      "duration_seconds": 600.0,
+      "end_bin_exclusive": 100,
+      "request_count": 782,
+      "schedules": [
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w2-s2400-d600-seed0.json",
+          "load_seed": 0,
+          "request_count": 782,
+          "schedule_id": "azure-test-1166400-w2-s2400-d600-seed0",
+          "timestamps_checksum": "b9122a6ac02c2bd89236715a40d9f783e05ab7c38491c88b858e347eff3ea96d"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w2-s2400-d600-seed1.json",
+          "load_seed": 1,
+          "request_count": 782,
+          "schedule_id": "azure-test-1166400-w2-s2400-d600-seed1",
+          "timestamps_checksum": "63b69588c7bc30fc85de2ba81f712d6d285d41aaf30830914d793135d4414eb0"
+        },
+        {
+          "file": "live-replay-schedules-v1/azure-test-1166400-w2-s2400-d600-seed2.json",
+          "load_seed": 2,
+          "request_count": 782,
+          "schedule_id": "azure-test-1166400-w2-s2400-d600-seed2",
+          "timestamps_checksum": "2c33abafc403c2f677757a4b58f68defa8a227e6c4a8843957e73ed8523acd6b"
+        }
+      ],
+      "slice_checksum": "427a6f4f790cf13d54fb1644412be2c669663ea257ccd2ddd399654271d38ceb",
+      "slice_id": "azure-test-1166400-w2-s2400-d600",
+      "slice_index": 2,
+      "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+      "source_workload_id": "azure-test-1166400",
+      "split": "test",
+      "start_bin": 80,
+      "start_offset_seconds": 2400.0,
+      "window_rule": "fixed-fraction-windows-v1"
+    }
+  ],
+  "source_issue": "#72",
+  "source_workload": {
+    "control_interval_seconds": 30.0,
+    "duration_seconds": 3600.0,
+    "selection_rule": "lexicographically smallest Azure test workload ID in benchmark v1 (deterministic, not performance-based)",
+    "source_file": {
+      "bytes": 305388316,
+      "file_name": "AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt",
+      "sha256": "d56368ef194baa8d418304bd2f87cca67668ced0d117bd89ad4ef3cf836457d2"
+    },
+    "split": "test",
+    "start_seconds": 1166400.0,
+    "trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+    "workload_id": "azure-test-1166400"
+  },
+  "window_rule": {
+    "alignment": "start offsets aligned down to the 30 s control interval",
+    "controller_independent": true,
+    "fractions_of_usable_start_range": [
+      0.2,
+      0.5,
+      0.8
+    ],
+    "non_overlapping": true,
+    "usable_start_range": "duration - window_seconds",
+    "version": "fixed-fraction-windows-v1",
+    "window_seconds": 600.0
+  }
+}

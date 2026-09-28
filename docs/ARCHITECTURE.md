@@ -33,7 +33,7 @@ The v1 observation (`AutoscalingEnv`) is a `Box` in `[0, 1]` describing the stat
 | h+5 | episode progress |
 | h+6 … h+6+k−1 | pending replicas that activate after 1 … k more ticks, each / `max_replicas` |
 
-`AutoscalingEnv.observation_features` names every position. The observation size is config-dependent:
+The vector is built by the pure function `scalerl.environment.observation.build_observation` (`scalerl-observation-v1`). `AutoscalingEnv` calls it, and a live adapter must call the same function, so the two cannot drift (#72). `AutoscalingEnv.observation_features` names every position. The observation size is config-dependent:
 
 ```text
 observation_size = h + 6 + k

@@ -1,0 +1,219 @@
+{
+  "caveats": [
+    "the canonical DQN comes from a five-seed result whose syn-val-bursty mean sits exactly at the SLA limit (#20); the deployed seed is one artifact, not the family",
+    "Azure benchmark windows peak at a few requests per second (train/validation characterization); at the nominal 50 rps/replica the replay may not exercise scaling. Any load amplitude scaling or capacity calibration must be a versioned protocol revision committed before live runs (#73/#74), never tuned on results",
+    "simulation replay of a 10-minute slice needs episode_progress offset by the slice start bin, as frozen in the observation contract"
+  ],
+  "control_contract": {
+    "action_meaning": "set the desired fleet size to integer N in [1, 10]; not +1/-1",
+    "action_semantics": "desired-replicas-v1",
+    "control_interval_seconds": 30.0,
+    "deterministic_policy_inference": true,
+    "exploration": false,
+    "initial_replicas": 1,
+    "max_replicas": 10,
+    "min_replicas": 1,
+    "nominal_startup_delay_seconds": 60.0,
+    "online_training": false,
+    "scale_to_zero": "disabled for the controller comparison (training min_replicas = 1)",
+    "step_size": "not applicable (desired-replicas-v1)"
+  },
+  "controller_manifest": {
+    "canonical_dqn": {
+      "canonical_model_artifact_uri": "runs:/920b0ddb58df4d2b9f550431d2f8ceeb/model",
+      "canonical_seed_validation_feasible": true,
+      "canonical_training_run_id": "920b0ddb58df4d2b9f550431d2f8ceeb",
+      "canonical_training_seed": 0
+    },
+    "canonical_ppo": {
+      "canonical_model_artifact_uri": "runs:/9bac13a9447b4c64a44d9732568c949e/model",
+      "canonical_seed_validation_feasible": true,
+      "canonical_training_run_id": "9bac13a9447b4c64a44d9732568c949e",
+      "canonical_training_seed": 4
+    },
+    "canonical_seed_rule": "canonical-seed-validation-v1",
+    "controllers": [
+      "dqn",
+      "knative-native-v1",
+      "ppo",
+      "predictive-seasonal-v1",
+      "predictive-v1",
+      "threshold-v1"
+    ],
+    "id": "553ddf3e512b",
+    "version": "controller-deployment-manifest-v1"
+  },
+  "cost_contract": {
+    "normalized": "the ScaleRL abstract cost contract: replica-seconds / (max_replicas x duration), comparable to the simulator's normalized cost",
+    "not_claimed": "no AWS Lambda / Azure Functions / GCP pricing; real dollars are #32",
+    "primary": "replica-seconds (ready + pending pods x seconds)"
+  },
+  "held_out_controller_outcomes_used": false,
+  "live_results_used": false,
+  "metrics": {
+    "per_run": [
+      "sla_violation_rate",
+      "p95_latency_seconds (simulation proxy / real client-side)",
+      "replica_seconds",
+      "normalized_cost",
+      "queue / in-flight backlog",
+      "failed_or_dropped_requests",
+      "scaling_actions",
+      "churn_rate",
+      "replicas_moved (total absolute change)"
+    ],
+    "unit_of_analysis": "controller x slice x load seed (3 x 3 per controller)"
+  },
+  "not_in_scope": {
+    "#46": "held-out evaluation",
+    "#73": "Knative testbed",
+    "#74": "HTTP replay engine",
+    "#75": "live controller loop",
+    "#76": "sim-vs-Knative conclusions"
+  },
+  "observation_contract": {
+    "clipping": "none: every feature is in [0, 1] by construction",
+    "dimension": 12,
+    "features": [
+      {
+        "index": 0,
+        "live_approximation": false,
+        "live_equivalent": "request arrivals per second in the completed tick, counted at the ingress/load generator",
+        "name": "demand_pressure_t-0"
+      },
+      {
+        "index": 1,
+        "live_approximation": false,
+        "live_equivalent": "request arrivals per second in the completed tick, counted at the ingress/load generator",
+        "name": "demand_pressure_t-1"
+      },
+      {
+        "index": 2,
+        "live_approximation": false,
+        "live_equivalent": "request arrivals per second in the completed tick, counted at the ingress/load generator",
+        "name": "demand_pressure_t-2"
+      },
+      {
+        "index": 3,
+        "live_approximation": false,
+        "live_equivalent": "request arrivals per second in the completed tick, counted at the ingress/load generator",
+        "name": "demand_pressure_t-3"
+      },
+      {
+        "index": 4,
+        "live_approximation": true,
+        "live_equivalent": "offered work / (ready replicas x calibrated per-replica capacity x 30 s), capped at 1; needs the #73 per-replica capacity calibration",
+        "name": "utilization"
+      },
+      {
+        "index": 5,
+        "live_approximation": true,
+        "live_equivalent": "requests waiting/in flight beyond service at the tick boundary (Knative activator/queue-proxy)",
+        "name": "queue_pressure"
+      },
+      {
+        "index": 6,
+        "live_approximation": true,
+        "live_equivalent": "p95 latency of requests completed in the tick; a real distribution rather than the simulator's p95 proxy",
+        "name": "latency_pressure"
+      },
+      {
+        "index": 7,
+        "live_approximation": false,
+        "live_equivalent": "ready pods / 10",
+        "name": "active_replicas_fraction"
+      },
+      {
+        "index": 8,
+        "live_approximation": false,
+        "live_equivalent": "(ready + pending pods) x 30 s replica-seconds of the latest tick / (10 x 30 s); latest tick only",
+        "name": "tick_cost_fraction"
+      },
+      {
+        "index": 9,
+        "live_approximation": false,
+        "live_equivalent": "(slice start bin + completed ticks) / 120: progress through the source hour, the same in simulation replay",
+        "name": "episode_progress"
+      },
+      {
+        "index": 10,
+        "live_approximation": false,
+        "live_equivalent": "pods requested but not ready, bucketed by nominal age against the configured 60 s startup; never by an observed/predicted readiness",
+        "name": "pending_ready_in_1"
+      },
+      {
+        "index": 11,
+        "live_approximation": false,
+        "live_equivalent": "pods requested but not ready, bucketed by nominal age against the configured 60 s startup; never by an observed/predicted readiness",
+        "name": "pending_ready_in_2"
+      }
+    ],
+    "history_at_slice_start": "empty (zeros), as at an episode reset, in both domains",
+    "normalization": {
+      "episode_ticks": 120,
+      "history_ticks": 4,
+      "latency_target_seconds": 0.5,
+      "max_replicas": 10,
+      "max_service_rate_rps": 500.0,
+      "max_tick_capacity_requests": 15000.0,
+      "max_tick_cost": 0.008333333333333333,
+      "pending_buckets": 2
+    },
+    "rule": "simulation and the live adapter call the same builder with the same constants; a feature flagged live_approximation must be measured as documented and its approximation reported with the results; no ad-hoc substitute (in particular no accumulated-cost substitute for the latest-tick cost)",
+    "shared_builder": "scalerl.environment.observation.build_observation",
+    "version": "scalerl-observation-v1"
+  },
+  "protocol_version": "sim-to-real-protocol-v1",
+  "replay_manifest": {
+    "id": "7803b71fdfe8",
+    "load_seeds": [
+      0,
+      1,
+      2
+    ],
+    "slices": [
+      "azure-test-1166400-w0-s600-d600",
+      "azure-test-1166400-w1-s1500-d600",
+      "azure-test-1166400-w2-s2400-d600"
+    ],
+    "version": "live-replay-manifest-v1"
+  },
+  "research_question": "do controller behavior and system trade-offs observed in simulation transfer to a real serving system? No requirement that RL wins; negative transfer is valid",
+  "reward": {
+    "contract_id": "37158c261364",
+    "variant": "full-cost-low-v1",
+    "weights": {
+      "churn": 0.1,
+      "cost": 0.5,
+      "latency": 1.0,
+      "queue": 1.0,
+      "sla": 1.0
+    }
+  },
+  "source_issue": "#72",
+  "terminology": "local systems-in-the-loop / Knative sim-to-real validation",
+  "transfer_reporting": {
+    "absolute": "for every controller x slice x load seed: simulation and real SLA violation, simulation p95 and real client p95, simulation cost proxy and real replica-seconds/normalized cost, queue/failure metrics, scaling churn",
+    "diagnostics": [
+      "sign agreement of the relative effect (direction preserved or not)",
+      "magnitude of the simulation and real relative effects, side by side"
+    ],
+    "knative_native": "an additional real-only comparison row",
+    "overall_score": "none: no aggregate transfer score",
+    "pass_fail": "none: v1 has no binary global transfer criterion",
+    "relative": "per metric: (controller - Threshold) in simulation and (controller - Threshold) on Knative, same slice and load seed",
+    "rl_must_win": false,
+    "secondary": "Spearman rank correlation of controllers across domains, secondary only"
+  },
+  "upstream": {
+    "action_decision_id": "0eb5562b01e6",
+    "action_experiment_spec_id": "899dfbb64217",
+    "predictive_baseline_artifact_id": "0d315559c680",
+    "predictive_baseline_experiment_id": "096b04ef953a",
+    "reward_ablation_spec_id": "f5aff8f1e8c2",
+    "reward_contract_id": "37158c261364",
+    "selection_spec_id": "418876d6c8e9",
+    "startup_robustness_freeze_id": "25d65bbba36f",
+    "startup_robustness_spec_id": "60f1f14972a7"
+  }
+}

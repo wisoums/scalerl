@@ -118,3 +118,12 @@ The meaning of v1 must not change once training or tuning starts. Changing held-
 ## Model selection rule (#78)
 
 [`selection-v2-cost-under-sla.json`](selection-v2-cost-under-sla.json) freezes the constrained cost-aware selection rule (spec ID `418876d6c8e9`): per-workload SLA no worse than the tuned Threshold's on `syn-val-steady-high`, `syn-val-ramp-down` and `syn-val-bursty`, then minimum mean normalized cost among feasible candidates. It is loaded with `scalerl.evaluation.model_selection.SelectionSpec.load()` and uses validation evidence only. See [docs/EXPERIMENTS.md](../../docs/EXPERIMENTS.md#78--cost-aware-selection-under-an-sla-constraint).
+
+## Sim-to-real protocol (#72)
+
+These artifacts freeze the local systems-in-the-loop / Knative sim-to-real validation before any live or held-out result exists:
+- [`sim-to-real-protocol-v1.json`](sim-to-real-protocol-v1.json) (ID `b7bf45c109f1`): control, observation, cost and transfer-reporting contracts.
+- [`controller-deployment-manifest-v1.json`](controller-deployment-manifest-v1.json) (ID `553ddf3e512b`): frozen controllers and the canonical DQN/PPO artifacts with their five-seed lineage.
+- [`live-replay-manifest-v1.json`](live-replay-manifest-v1.json) (ID `7803b71fdfe8`): three fixed-offset 600 s windows of `azure-test-1166400`. The exact arrival schedules for load seeds 0–2 are in [`live-replay-schedules-v1/`](live-replay-schedules-v1/).
+
+No controller was run on these windows. Verify with `python -m scalerl.evaluation.sim_to_real check`. See [docs/EXPERIMENTS.md](../../docs/EXPERIMENTS.md#sim-to-real-protocol-72).
