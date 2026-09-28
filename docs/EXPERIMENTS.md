@@ -835,6 +835,130 @@ The protocol records `held_out_controller_outcomes_used: false` and `live_result
 - Azure traffic is a few requests per second, against 50 rps per replica, so the replay may not exercise scaling. Any load amplitude scaling or capacity calibration must be a versioned protocol revision committed before live runs (#73/#74), never tuned on results.
 - Live infrastructure (#73–#76) and the held-out suite (#46) are out of scope.
 
+## Held-out Azure evaluation (#46)
+
+#46 is the final held-out simulator evaluation. It is the first and only time the controllers frozen by #72 run on the Azure TEST workloads. Nothing in it was chosen, tuned or selected after seeing a TEST outcome.
+
+### Chronology and provenance
+
+1. The spec [`benchmarks/v1/heldout-evaluation-v1.json`](../benchmarks/v1/heldout-evaluation-v1.json) (`heldout-evaluation-v1`, ID `b32b2f3d3dd6`) was built only from frozen upstream artifacts. It was committed with the implementation and tests at the clean **pre-run SHA `ebccda67c72f677c731cb0d6c6c67cfcd21bfc05`** before any held-out episode ran. It records `test_data_used_for_design: false`, `model_selection_on_test: false` and `q_learning_included: false`.
+2. All 499 cases (484 main + 15 replay references) ran once, serially, from that SHA with a clean tree. They are logged in MLflow experiment `scalerl-heldout-v1` (`sqlite:///outputs/mlflow.db`), one run per case, all `FINISHED`. No run failed, none was superseded and nothing was rerun.
+3. The result artifact [`benchmarks/v1/heldout-results-v1.json`](../benchmarks/v1/heldout-results-v1.json) (`heldout-results-v1`, ID `d9d3fb985f2d`) was generated afterwards by the committed code. It contains:
+   - the MLflow run ID of every case;
+   - every summary group's raw run IDs;
+   - summaries, paired deltas and diagnostic flags;
+   - the replay references;
+   - the expected and actual counts (264 / 220 / 484 / 15);
+   - `post_hoc_protocol_change: false`.
+
+   The only execution SHA is the pre-run SHA.
+
+Before interpreting the results, the loaded DQN and PPO bundles were re-evaluated on the three synthetic VALIDATION workloads, as a diagnostic that was not recorded. They reproduced their frozen #20 validation metrics exactly (DQN cost 0.5767 / 0.5808 / 0.6058, PPO 0.900 / 0.9067 / 0.900, SLA identical). The loading and observation path is therefore not the cause of the behavior below.
+
+### Frozen design
+
+| Item | Frozen value |
+|---|---|
+| Workloads | `azure-test-993600`, `azure-test-1166400` (Azure TEST only; the synthetic TEST workloads are not part of this result) |
+| Controllers | `static-v1` (5 replicas), `random-v1` (sanity check, evaluation seeds 0–4), `threshold-v1` (0.2 / 0.6 / cooldown 3), `predictive-v1`, `predictive-seasonal-v1` (Azure TRAIN profile `d050d3b8ca0f`), DQN `dqn-c14` seed 0 (`920b0ddb58df4d2b9f550431d2f8ceeb`), PPO `ppo-c08` seed 4 (`9bac13a9447b4c64a44d9732568c949e`) |
+| Excluded | Q-learning (#47 open); Knative-native (real system only); every other DQN/PPO training seed (no selection on TEST) |
+| Contracts | `desired-replicas-v1`; `reward-contract-v1` `37158c261364` `full-cost-low-v1` (reward is a secondary metric) |
+| Upstream | #72 protocol `b7bf45c109f1`, replay `7803b71fdfe8`, controllers `553ddf3e512b`; #78 `418876d6c8e9`; #79 `0eb5562b01e6` / `899dfbb64217`; #80 `0d315559c680`; #81 `60f1f14972a7` / `25d65bbba36f`; #20 `f5aff8f1e8c2` / `37158c261364` |
+| `robustness-v1` (#65) | nominal and delayed-telemetry with dynamics seed 0 only; capacity-jitter and combined with dynamics seeds 0–4. 2 × (11 + 55 + 11 + 55) = **264** cases |
+| `startup-robustness-v1` (#81) | startup-delay-jitter `(0, 0..4)`, combined-startup-robustness `(s, s)`. 2 × 2 × 5 × 11 = **220** cases |
+| Replay references (#72) | 3 frozen windows × 5 #72 controllers, nominal: **15** cases, each mapped to its 3 load schedules |
+| Aggregation | `heldout-descriptive-v1` per case kind × workload × scenario × controller. Statistics are mean, median, SD (none for n = 1), min, max and quartiles. Random is also summarized over its per-evaluation-seed means. Paired deltas are taken against Threshold per matched realization. The diagnostic flags are predeclared. There is no pooling, no overall score and no winner. |
+
+Learned policies load strictly for nominal and capacity-jitter. Under telemetry delay or stochastic startup they use the #65/#81 robustness-only path, and each such run records the perturbed fields: `telemetry_delay_ticks` and/or `startup_delay_model`.
+
+### Primary held-out Azure nominal results
+
+Both TEST hours carry very little traffic: 4,742 and 5,444 requests in the hour, a mean of **1.3 and 1.5 requests/s**. One replica serves 50 requests/s, so **no controller violated the SLA in any of the 499 cases**. No request was queued or dropped in any case, and the largest per-tick p95 anywhere was 0.024 s. Only resource use and scaling behavior differ.
+
+`robustness-v1 / nominal`, one realization each (Random: 5 evaluation seeds):
+
+| Controller | Normalized cost (993600 / 1166400) | Replica-seconds (both hours) | SLA violation | Mean p95 (s) | Replicas moved | Churn |
+|---|---|---|---|---|---|---|
+| static-v1 | 0.500 / 0.500 | 18,000 | 0 | 0.0201 | 4 | 0.008 |
+| random-v1 (sanity) | 0.572 / 0.572 (5-seed mean) | 18,780 – 21,210 | 0 | 0.0203 | 392 | 0.885 |
+| threshold-v1 | 0.100 / 0.100 | 3,600 | 0 | 0.0206 | 0 | 0 |
+| predictive-v1 | 0.100 / 0.100 | 3,600 | 0 | 0.0206 | 0 | 0 |
+| predictive-seasonal-v1 | 0.100 / 0.100 | 3,600 | 0 | 0.0206 | 0 | 0 |
+| DQN `dqn-c14` seed 0 | **1.000 / 1.000** | 36,000 | 0 | 0.0201 | 9 | 0.008 |
+| PPO `ppo-c08` seed 4 | **0.935 / 0.934** | 33,630 – 33,660 | 0 | 0.0201 | 11 / 13 | 0.033 / 0.050 |
+
+The Threshold nominal run IDs are `aa2647217b4b4144a7fa78a66a675419` and `7e4eb2f999d845e58c389f56e009c797`. DQN's are `51ee3e000aa14dd7be40f70410ed3f00` and `d9a0d19a3ca7443094357f65fda3b4e3`; PPO's are `41da049771044dfbad2830dcfb19bbf2` and `696ce10cea4843c882a17a5503f01fdb`. All other run IDs are in the result artifact.
+
+**Interpretation:**
+- **The conventional baselines win this held-out comparison on cost at equal service.** Threshold, Predictive and the seasonal Predictive keep the minimum fleet (1 replica) for the whole hour, which is exactly adequate for this traffic.
+- **Both learned policies overprovision massively.** On its first decision DQN requests the full fleet of 10 replicas and holds it for the hour, costing 10× the baselines. PPO requests 9 immediately and stays at 9–10, costing about 9.3× the baselines.
+- **The overprovisioning buys nothing measurable.** Mean p95 improves by about 0.5 ms (0.0201 s vs 0.0206 s), well inside a 0.5 s latency target.
+- This matches the development evidence and extends it. PPO already ran a near-full fleet on validation under `full-cost-low-v1` (#20). The canonical DQN was far cheaper on synthetic validation (cost 0.58–0.61) but fails to scale in on this out-of-distribution, near-idle traffic.
+- Their episode reward is worse too (DQN −64.7, PPO −61.2, Threshold −10.7). Reward is a secondary metric.
+
+### Robustness-v1 results
+
+The picture is unchanged in every `robustness-v1` scenario on both workloads:
+- There are no SLA violations, no queue and no dropped requests.
+- Threshold and both predictive baselines stay at 1 replica (cost 0.100 in every one of the 5 capacity-jitter realizations).
+- DQN stays at cost 1.000 in every realization.
+- PPO stays at 0.934–0.935 (combined robustness: 11–13 replicas moved).
+
+With load this low, ±10% capacity jitter and one tick of telemetry delay have no measurable effect on any controller. This is **not** evidence of robustness under stress: the Azure hours never stress the system. Random's numbers are identical across scenarios because its actions ignore state. Its churn (0.81–0.93) is the only thrashing flagged.
+
+### Startup-delay robustness (#81 extension)
+
+Under `startup-delay-jitter` and `combined-startup-robustness`, cost and SLA are unchanged from nominal for every controller:
+- Pending replicas are billed, so realized startup delays of 30–90 s change readiness, not cost.
+- No controller ever needs capacity it does not already have.
+- Threshold and both predictive baselines never request a replica, so they never meet a startup delay.
+- DQN and PPO request their fleet at t = 0. Their realized delays averaged 50–66 s per replicate, ranging from 30 to 90 s.
+
+Startup stochasticity is therefore not exercised as a stress on these workloads.
+
+### Diagnostic flags
+
+The predeclared descriptive flags, over the 84 main groups:
+- `full_fleet` (mean normalized cost ≥ 0.9): all 24 DQN and PPO groups.
+- `never_scaled`: all 36 Threshold, Predictive and seasonal-Predictive groups.
+- `thrashing` (churn ≥ 0.3): all 12 Random groups.
+- No `underprovisioning`, `churn_aversion` or `persistent_backlog` flag anywhere.
+
+### Short-window simulator references for #76
+
+These are nominal simulator references on the frozen #72 windows of `azure-test-1166400`, from one run per slice and controller:
+- The slice environment uses `SourceWindow(start_bin, 120)`, so `episode_progress` continues from the source hour and the traffic history starts empty.
+- The seasonal predictor reads profile ticks `start_bin, start_bin + 1, ...`.
+- Each run is mapped to all three #72 schedule IDs. The load seeds only move requests inside a 30 s bin, and the simulator consumes bin counts, so these are **not** three simulator replicates.
+- The arrived requests (911 / 879 / 782) equal the #72 slice request counts.
+
+| Slice | Threshold | Predictive | Seasonal | DQN | PPO |
+|---|---|---|---|---|---|
+| w0 (600 s) | 0.10 · `7d2068f3…` | 0.10 · `e27429d7…` | 0.10 · `40789a62…` | 1.00 · `d598abec…` | 0.90 · `9aabfe87…` |
+| w1 (1500 s) | 0.10 · `8d59868a…` | 0.10 · `0dc7b160…` | 0.10 · `477105cd…` | 1.00 · `65ca3eb6…` | 0.885 · `b7ce45d8…` |
+| w2 (2400 s) | 0.10 · `6b982e76…` | 0.10 · `2c8498cf…` | 0.10 · `e916ea7a…` | 1.00 · `b65bc3b7…` | 0.92 · `0cf860c9…` |
+
+The table shows normalized cost and the start of each MLflow run ID; full IDs are in `replay_references` of the result artifact. SLA violation is 0 everywhere.
+
+### Limitations
+
+- **The Azure TEST hours are weak autoscaling stress cases.** At 1.3–1.5 requests/s against 50 requests/s per replica, one replica is always sufficient. The result is decisive only about **overprovisioning under low load**: a reactive or predictive baseline that holds the minimum fleet is 9–10× cheaper than either learned policy, with no SLA cost. It says nothing about SLA-constrained trade-offs under load, where the synthetic validation workloads showed a different picture. This was a known property of the benchmark (#80 already found every rule-based controller at one replica on Azure validation) and was **not** "fixed" after the results: #46 is unchanged. A calibrated-amplitude Azure study, or a live test at higher load, would need its own predeclared, versioned protocol.
+- The learned rows are one canonical artifact per family, as frozen by #72, not the five-seed families. The DQN family's bursty validation SLA mean sat exactly at the frozen limit (#20). DQN's held-out failure here is overprovisioning, not SLA brittleness, because the load never tests SLA.
+- Simulator p95 is a model proxy, and the capacity, startup and cost models are ScaleRL's abstractions, not a cloud provider's.
+- Synthetic TEST workloads were not evaluated. Any later synthetic TEST table must be a separate, supplemental result.
+
+Reproduce from prepared data:
+
+```bash
+python -m scalerl.evaluation.heldout check
+python -m scalerl.evaluation.heldout plan
+python -m scalerl.evaluation.heldout run --azure-csv data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt \
+    --tracking-uri sqlite:///outputs/mlflow.db
+python -m scalerl.evaluation.heldout freeze --pre-run-sha ebccda67c72f677c731cb0d6c6c67cfcd21bfc05
+```
+
+The Azure trace is the Microsoft Azure Functions Invocation Trace 2021 (CC-BY), cited as: Yanqi Zhang, Íñigo Goiri, Gohar Irfan Chaudhry, Rodrigo Fonseca, Sameh Elnikety, Christina Delimitrou, Ricardo Bianchini. "Faster and Cheaper Serverless Computing on Harvested Resources." SOSP 2021. See [`data/README.md`](../data/README.md).
+
 ## Fair comparison
 
 For every final comparison:

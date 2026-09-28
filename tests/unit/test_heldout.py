@@ -734,3 +734,31 @@ def test_pre_run_checklist(spec: dict[str, Any], tmp_path: Path) -> None:
         "scalerl-heldout-v1", "git_dirty=",
     ):  # fmt: skip
         assert expected in text
+
+
+def test_committed_results_artifact(spec: dict[str, Any]) -> None:
+    results = json.loads((BENCH / "heldout-results-v1.json").read_text())
+    assert results["results_id"] == ho.results_id(results) == "d9d3fb985f2d"
+    assert results["heldout_spec_id"] == SPEC_ID
+    pre_run = "ebccda67c72f677c731cb0d6c6c67cfcd21bfc05"
+    assert results["pre_run_sha"] == pre_run and results["execution_shas"] == [pre_run]
+    assert results["expected_counts"] == results["actual_counts"] == {
+        "primary": 264, "startup": 220, "main": 484, "replay": 15
+    }  # fmt: skip
+    assert sorted(results["runs"]) == sorted(c.case_id for c in ho.generate_cases(spec))
+    assert len(set(results["runs"].values())) == 499
+    grouped = [i for g in results["groups"].values() for i in g["mlflow_run_ids"]]
+    assert sorted(grouped) == sorted(
+        run for case, run in results["runs"].items() if not case.startswith("replay|")
+    )
+    assert results["controllers"] == spec["controllers"]
+    assert results["upstream"] == spec["upstream"] and results["reward"] == spec["reward"]
+    assert results["superseded_run_ids"] == []
+    for key in ("test_data_used_for_training", "test_data_used_for_model_selection",
+                "post_hoc_protocol_change", "declares_winner"):  # fmt: skip
+        assert results[key] is False
+    refs = results["replay_references"]
+    assert len(refs) == 15 and all(r["independent_simulator_replicates"] == 1 for r in refs)
+    slices = {s["slice_id"]: s["schedule_ids"] for s in spec["replay_references"]["slices"]}
+    assert all(r["maps_to_schedule_ids"] == slices[r["slice_id"]] for r in refs)
+    assert all(results["runs"][r["case_id"]] == r["mlflow_run_id"] for r in refs)

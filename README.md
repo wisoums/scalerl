@@ -56,6 +56,8 @@ Planned/active workload sources include:
 
 The raw Azure dataset is not committed. Source/license/citation and the local data layout are documented in [`data/README.md`](data/README.md).
 
+**Azure dataset attribution.** Real-trace results use the Microsoft Azure Functions Invocation Trace 2021 (CC-BY), from [Azure/AzurePublicDataset](https://github.com/Azure/AzurePublicDataset). Cite: Yanqi Zhang, Íñigo Goiri, Gohar Irfan Chaudhry, Rodrigo Fonseca, Sameh Elnikety, Christina Delimitrou, Ricardo Bianchini. "Faster and Cheaper Serverless Computing on Harvested Resources." *Proceedings of the ACM Symposium on Operating Systems Principles (SOSP)*, October 2021.
+
 Training, validation/tuning, and final held-out test workloads are explicitly separated before deep-RL tuning.
 
 ## Evaluation
@@ -101,6 +103,32 @@ All four decisions use train/validation evidence only and must be frozen before 
 - descriptive transfer reporting with no pass/fail and no "RL must win".
 
 Local Knative is not claimed to reproduce any cloud provider. See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#sim-to-real-protocol-72).
+
+## Held-out Azure results (#46)
+
+The final held-out simulator evaluation ran the #72-frozen controllers on the two frozen Azure TEST hours, `azure-test-993600` and `azure-test-1166400`. The spec ([`heldout-evaluation-v1`](benchmarks/v1/heldout-evaluation-v1.json), `b32b2f3d3dd6`) was committed at `ebccda6` **before** any held-out episode ran.
+
+Result: [`heldout-results-v1`](benchmarks/v1/heldout-results-v1.json), `d9d3fb985f2d`. It covers 264 `robustness-v1` + 220 startup-robustness cases and 15 #72 replay references, with one MLflow run each in `scalerl-heldout-v1`. No run was superseded.
+
+**Primary held-out Azure nominal result.** The table shows normalized cost; no controller violated the SLA.
+
+| Controller | azure-test-993600 | azure-test-1166400 |
+|---|---|---|
+| static-v1 (5 replicas) | 0.500 | 0.500 |
+| random-v1 (sanity, 5 seeds) | 0.572 | 0.572 |
+| threshold-v1 | **0.100** | **0.100** |
+| predictive-v1 | **0.100** | **0.100** |
+| predictive-seasonal-v1 | **0.100** | **0.100** |
+| DQN `dqn-c14` seed 0 | 1.000 | 1.000 |
+| PPO `ppo-c08` seed 4 | 0.935 | 0.934 |
+
+- **A conventional baseline wins this held-out comparison.** Both TEST hours carry only 1.3–1.5 requests/s against 50 requests/s per replica. Threshold and both Predictive baselines hold the minimum fleet for the whole hour.
+- **Both learned policies overprovision.** DQN requests all 10 replicas on its first decision and holds them; PPO stays at 9–10. That is 9–10× the baselines' cost with no measurable service benefit (mean p95 0.0201 s vs 0.0206 s).
+- **Robustness evidence is weak.** Capacity jitter, delayed telemetry and stochastic startup change nothing for any controller. The load never stresses the system, so this is **not** evidence of robustness under stress.
+- **Scope of the result.** It is decisive about overprovisioning at low load and silent about SLA trade-offs under load. The Azure TEST hours are weak autoscaling stress cases. This was not changed after the results; a calibrated-amplitude study would need its own predeclared protocol.
+- **Replay references for #76.** Each frozen #72 window has one nominal simulator reference per controller, mapped to its three live load schedules (not three replicates).
+
+Details, run IDs and limitations: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#held-out-azure-evaluation-46).
 
 ## MLOps
 
@@ -224,7 +252,7 @@ See [docs/CITY_VIEW.md](docs/CITY_VIEW.md) for the full guide.
 
 ## Project status
 
-The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Its validation-only run exposed that the v1 SLA-first selector can choose near-full-fleet DQN/PPO policies, so the project now resolves #78 (cost-under-SLA selection), #79 (desired-replica action semantics), #80 (stronger proactive predictive baseline), #81 (startup-delay stochasticity), and #20 (reward ablation), and freezes the #72 sim-to-real protocol, **before** opening #46. No final performance or robustness claim about any controller is made yet.
+The deterministic simulator/Gymnasium environment; random, static, tuned threshold, and queue-aware predictive baselines; the frozen synthetic + Azure benchmark; MLflow tracking, Optuna studies, and the Docker Compose stack; and the Scenario Lab with Live City are implemented. The GitHub Actions reproducibility gate (#45) and the DQN and PPO training pipelines (#15/#16: SB3 DQN and PPO, compatibility-checked model bundles, MLflow lineage, Optuna tuning on train/validation) are in place. Robustness scenarios (#65, `robustness-v1`: nominal, ±10% seeded capacity jitter, one-tick delayed telemetry, and both combined) are defined for evaluating fixed controllers. Multi-seed evaluation (#19: canonical train/validation tuning, five-seed DQN/PPO model families, matched-dynamics robustness evaluation, and descriptive statistics) is in place; see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#multi-seed-evaluation-19). Its validation-only run exposed that the v1 SLA-first selector can choose near-full-fleet DQN/PPO policies, so the project now resolves #78 (cost-under-SLA selection), #79 (desired-replica action semantics), #80 (stronger proactive predictive baseline), #81 (startup-delay stochasticity), and #20 (reward ablation), and freezes the #72 sim-to-real protocol, **before** opening #46. The held-out Azure evaluation (#46) is complete. On the two low-traffic Azure TEST hours, the Threshold and Predictive baselines matched every controller's SLA at 9–10× lower cost than the canonical DQN and PPO, which overprovision. Because the Azure hours never stress the system, this is not a verdict on RL under load; see [Held-out Azure results](#held-out-azure-results-46).
 
 ## License
 
