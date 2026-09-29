@@ -86,9 +86,9 @@ Static, tuned threshold, predictive, DQN, and PPO can be evaluated automatically
 - #80 preserve existing `predictive-v1` / `forecast-plus-backlog-v1` lineage and add a stronger cloud-style proactive predictive baseline — done: `predictive-seasonal-v1` frozen in `benchmarks/v1/predictive-baseline-v1.json` (validation only). Follow-ups: Azure capacity calibration; low-rate level adaptation
 - #81 add a separate seeded startup-delay robustness extension while preserving robustness-v1 — done: `startup-robustness-v1` frozen in `benchmarks/v1/startup-robustness-freeze-v1.json` (validation only)
 - #20 reward-function ablation on the final #79 action contract using the frozen #78 selection rule — done: `full-cost-low-v1` (cost weight 0.5) frozen in `benchmarks/v1/reward-contract-v1.json`; first desired-replicas-v1 DQN (`dqn-c14`), with a zero SLA margin on bursty
-- #72 freeze canonical controller artifacts and sim-to-real protocol before held-out outcomes can influence them
+- #72 freeze canonical controller artifacts and sim-to-real protocol before held-out outcomes can influence them — done: protocol `b7bf45c109f1`, replay `7803b71fdfe8`, controllers `553ddf3e512b`
 - #65 robustness-v1 remains frozen and unchanged
-- #46 held-out Azure trace comparison under the finalized action/baseline/reward contract and predeclared robustness conditions
+- #46 held-out Azure trace comparison under the finalized action/baseline/reward contract and predeclared robustness conditions — done: spec `b32b2f3d3dd6` committed before runs (`ebccda6`), result `heldout-results-v1` `d9d3fb985f2d`. Threshold/Predictive hold 1 replica at no SLA cost; DQN/PPO overprovision (cost 1.00 / 0.93) on the low-rate Azure TEST hours. Follow-up: a separately predeclared calibrated-amplitude or higher-load study
 - latency/SLA/cost/queue/churn analysis
 - per-seed raw results and dispersion
 - MLflow run IDs for reported results
@@ -160,7 +160,7 @@ final README
 v1.0.0 release
 ```
 
-The README must remain truthful: no BYO Controller until #88/#89, no live Knative claim until the sim-to-real implementation exists, and no final result table before #46.
+The README must remain truthful: no BYO Controller until #88/#89, no live Knative claim until the sim-to-real implementation exists, and no final result table before #46 (now published, with its low-load limitation).
 
 ### Must have
 

@@ -127,3 +127,18 @@ These artifacts freeze the local systems-in-the-loop / Knative sim-to-real valid
 - [`live-replay-manifest-v1.json`](live-replay-manifest-v1.json) (ID `7803b71fdfe8`): three fixed-offset 600 s windows of `azure-test-1166400`. The exact arrival schedules for load seeds 0–2 are in [`live-replay-schedules-v1/`](live-replay-schedules-v1/).
 
 No controller was run on these windows. Verify with `python -m scalerl.evaluation.sim_to_real check`. See [docs/EXPERIMENTS.md](../../docs/EXPERIMENTS.md#sim-to-real-protocol-72).
+
+## Held-out Azure evaluation (#46)
+
+- [`heldout-evaluation-v1.json`](heldout-evaluation-v1.json) (ID `b32b2f3d3dd6`) is the predeclared held-out spec, committed at `ebccda6` before any held-out run. It freezes:
+  - the Azure TEST workloads `azure-test-993600` and `azure-test-1166400`;
+  - the #72 controller identities;
+  - the `robustness-v1` and `startup-robustness-v1` matrices (264 + 220 cases) and the 15 #72 replay references;
+  - the metrics, the aggregation and the MLflow experiment `scalerl-heldout-v1`.
+- [`heldout-results-v1.json`](heldout-results-v1.json) (ID `d9d3fb985f2d`) is the frozen result. It contains:
+  - every case's MLflow run ID;
+  - summaries, with the raw run IDs of each summary group;
+  - paired deltas against Threshold, and the predeclared diagnostic flags;
+  - the replay-window references, each mapped to its three #72 load schedules.
+
+Verify the spec with `python -m scalerl.evaluation.heldout check`. See [docs/EXPERIMENTS.md](../../docs/EXPERIMENTS.md#held-out-azure-evaluation-46).

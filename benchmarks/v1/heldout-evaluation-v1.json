@@ -1,0 +1,649 @@
+{
+  "action_semantics": "desired-replicas-v1",
+  "aggregation": {
+    "diagnostic_flags": {
+      "churn_aversion": "mean SLA above Threshold's and mean scaling actions <= 2",
+      "full_fleet": "mean normalized cost >= 0.9",
+      "never_scaled": "no replica change in any run (stays at the initial fleet)",
+      "persistent_backlog": "mean queue pressure >= 0.2",
+      "thrashing": "mean churn rate >= 0.3",
+      "underprovisioning": "mean SLA above Threshold's (same workload/scenario) and mean normalized cost < 0.6"
+    },
+    "group": "case kind x workload (or slice) x scenario x controller variant; never pooled across workloads, scenarios or case kinds",
+    "method": "heldout-descriptive-v1",
+    "no_overall_score": true,
+    "no_winner": true,
+    "paired_deltas": "controller - threshold-v1 per matched realization (workload, scenario, dynamics seed, startup seed); descriptive only",
+    "random": "also summarized over its per-evaluation-seed means (evaluation-seed spread kept distinct from exogenous replicates)",
+    "replicates": "raw runs of the group (dynamics seeds, startup replicates, Random evaluation seeds kept explicit in each row)",
+    "statistics": "mean, median, sample SD (None for n = 1), min, max, q1, q3 (#19 descriptive-v1 describe); no fabricated variance for a single realization"
+  },
+  "benchmark_version": "v1",
+  "controllers": [
+    {
+      "candidate_id": null,
+      "candidate_set_id": null,
+      "controller": "static",
+      "deployment_name": null,
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": null,
+      "params": {
+        "target_replicas": 5
+      },
+      "role": "fixed half-fleet reference (#19 convention), not tuned",
+      "training_run_id": null,
+      "training_seed": null,
+      "variant_id": "static-v1",
+      "version": "static-v1"
+    },
+    {
+      "candidate_id": null,
+      "candidate_set_id": null,
+      "controller": "random",
+      "deployment_name": null,
+      "evaluation_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "model_artifact_uri": null,
+      "params": {},
+      "role": "sanity check only, never a performance target",
+      "training_run_id": null,
+      "training_seed": null,
+      "variant_id": "random-v1",
+      "version": "random-v1"
+    },
+    {
+      "candidate_id": null,
+      "candidate_set_id": null,
+      "controller": "threshold",
+      "deployment_name": "threshold-v1",
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": null,
+      "params": {
+        "cooldown_ticks": 3,
+        "high_threshold": 0.6,
+        "low_threshold": 0.2
+      },
+      "role": "primary",
+      "training_run_id": null,
+      "training_seed": null,
+      "variant_id": "threshold-v1",
+      "version": "threshold-sla-first-v1"
+    },
+    {
+      "candidate_id": null,
+      "candidate_set_id": null,
+      "controller": "predictive",
+      "deployment_name": "predictive-v1",
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": null,
+      "params": {
+        "forecast_method": "linear-trend",
+        "history_window_ticks": 4,
+        "target_utilization": 0.8
+      },
+      "role": "primary",
+      "training_run_id": null,
+      "training_seed": null,
+      "variant_id": "predictive-v1",
+      "version": "forecast-plus-backlog-v1"
+    },
+    {
+      "candidate_id": null,
+      "candidate_set_id": null,
+      "controller": "predictive-seasonal",
+      "deployment_name": "predictive-seasonal-v1",
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": null,
+      "params": {
+        "forecast_method": "historical-profile-plus-linear-v1",
+        "profile_id": "d050d3b8ca0f",
+        "profile_train_workload_ids": [
+          "azure-train-129600",
+          "azure-train-302400",
+          "azure-train-475200"
+        ]
+      },
+      "role": "primary",
+      "training_run_id": null,
+      "training_seed": null,
+      "variant_id": "predictive-seasonal-v1",
+      "version": "proactive-scaleout-conservative-scalein-v1"
+    },
+    {
+      "candidate_id": "dqn-c14",
+      "candidate_set_id": "cbe3c1c0719b",
+      "controller": "dqn",
+      "deployment_name": "dqn-desired-replicas-full-cost-low-v1",
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": "runs:/920b0ddb58df4d2b9f550431d2f8ceeb/model",
+      "params": {
+        "batch_size": 32,
+        "buffer_size": 100000,
+        "exploration_final_eps": 0.025939961146634407,
+        "exploration_fraction": 0.3404625331582255,
+        "exploration_initial_eps": 1.0,
+        "gamma": 0.95,
+        "gradient_steps": 1,
+        "learning_rate": 6.112170343513626e-05,
+        "learning_starts": 1000,
+        "net_arch": [
+          256,
+          256
+        ],
+        "target_update_interval": 250,
+        "train_freq": 4
+      },
+      "role": "primary",
+      "training_run_id": "920b0ddb58df4d2b9f550431d2f8ceeb",
+      "training_seed": 0,
+      "variant_id": "dqn-c14-seed0",
+      "version": "dqn-desired-replicas-full-cost-low-v1"
+    },
+    {
+      "candidate_id": "ppo-c08",
+      "candidate_set_id": "cbe3c1c0719b",
+      "controller": "ppo",
+      "deployment_name": "ppo-desired-replicas-full-cost-low-v1",
+      "evaluation_seeds": [
+        0
+      ],
+      "model_artifact_uri": "runs:/9bac13a9447b4c64a44d9732568c949e/model",
+      "params": {
+        "batch_size": 64,
+        "clip_range": 0.1,
+        "ent_coef": 0.001,
+        "gae_lambda": 0.95,
+        "gamma": 0.99,
+        "learning_rate": 0.00024198608614538694,
+        "max_grad_norm": 0.5,
+        "n_epochs": 10,
+        "n_steps": 1024,
+        "net_arch": [
+          256,
+          256
+        ],
+        "normalize_advantage": true,
+        "vf_coef": 0.5
+      },
+      "role": "primary",
+      "training_run_id": "9bac13a9447b4c64a44d9732568c949e",
+      "training_seed": 4,
+      "variant_id": "ppo-c08-seed4",
+      "version": "ppo-desired-replicas-full-cost-low-v1"
+    }
+  ],
+  "declares_winner": false,
+  "excluded_controllers": {
+    "knative-native-v1": "real-system baseline only (#72/#76); no simulator counterpart",
+    "other-dqn-ppo-training-seeds": "#72 already chose the deployed artifacts on validation evidence; no seed is evaluated or reselected on TEST",
+    "q-learning": "#47 is open when #46 is frozen; never added after results"
+  },
+  "execution": {
+    "bug_policy": "a genuine software bug is fixed generically with a regression test; affected runs are superseded and rerun from a new clean SHA; nothing else changes",
+    "requires_clean_git": true,
+    "resumable": "completed cases (local row or FINISHED MLflow run with the same spec, case and input identity) are never rerun",
+    "single_writer": "serial, one process; append-only fsynced JSONL rows"
+  },
+  "experiment_version": "heldout-evaluation-v1",
+  "learned_policy_loading": "the exact #72 MLflow bundles, deterministic inference; strict compatibility for nominal and capacity-jitter; the #65/#81 robustness-only path when telemetry delay > 0 or the startup model is not fixed-v1, with the perturbed fields recorded",
+  "main_cases": 484,
+  "metrics": {
+    "action": [
+      "action.scaling_events",
+      "action.total_absolute_replica_change",
+      "action.mean_absolute_replica_change_when_scaling",
+      "action.max_absolute_replica_change_in_one_tick",
+      "action.max_pending_replicas"
+    ],
+    "derived": {
+      "arrived_requests": "sum of arrived requests",
+      "dropped_requests": "sum of dropped requests",
+      "episode_ticks": "number of ticks",
+      "final_queued_requests": "queue at the end of the episode",
+      "processed_requests": "sum of processed (completed) requests",
+      "replica_seconds": "billable (active + pending) replica-seconds = cost / cost_per_hour * 3600",
+      "sla_violation_count": "ticks with sla_violated"
+    },
+    "dynamics": [
+      "dynamics.mean_capacity_multiplier",
+      "dynamics.min_capacity_multiplier",
+      "dynamics.max_capacity_multiplier"
+    ],
+    "episode": [
+      "infrastructure_cost",
+      "normalized_cost",
+      "sla_violation_rate",
+      "mean_p95_latency_seconds",
+      "max_p95_latency_seconds",
+      "mean_queue_depth",
+      "max_queue_depth",
+      "queue_pressure",
+      "scaling_actions",
+      "churn_rate",
+      "episode_reward"
+    ],
+    "primary": [
+      "sla_violation_rate",
+      "sla_violation_count",
+      "normalized_cost",
+      "infrastructure_cost",
+      "replica_seconds",
+      "mean_p95_latency_seconds",
+      "max_p95_latency_seconds",
+      "queue_pressure",
+      "mean_queue_depth",
+      "max_queue_depth",
+      "dropped_requests",
+      "processed_requests",
+      "scaling_actions",
+      "churn_rate",
+      "action.total_absolute_replica_change",
+      "action.mean_absolute_replica_change_when_scaling",
+      "action.max_absolute_replica_change_in_one_tick"
+    ],
+    "secondary": [
+      "episode_reward"
+    ],
+    "startup": [
+      "startup.replicas_requested",
+      "startup.mean_realized_delay_seconds",
+      "startup.min_realized_delay_seconds",
+      "startup.max_realized_delay_seconds",
+      "startup.mean_multiplier",
+      "startup.min_multiplier",
+      "startup.max_multiplier",
+      "startup.multi_replica_batches",
+      "startup.mean_batch_readiness_spread_seconds",
+      "startup.max_batch_readiness_spread_seconds"
+    ]
+  },
+  "mlflow": {
+    "experiment": "scalerl-heldout-v1",
+    "one_run_per_case": true,
+    "required_tags": [
+      "scalerl.heldout_spec_id",
+      "scalerl.heldout_version",
+      "scalerl.git_sha",
+      "scalerl.git_dirty",
+      "scalerl.workload_id",
+      "scalerl.workload_split",
+      "scalerl.controller",
+      "scalerl.controller_variant_id",
+      "scalerl.action_semantics",
+      "scalerl.reward_contract_id",
+      "scalerl.protocol_id",
+      "scalerl.replay_manifest_id",
+      "scalerl.controller_manifest_id",
+      "scalerl.robustness_scenario",
+      "scalerl.robustness_version",
+      "scalerl.dynamics_seed",
+      "scalerl.evaluation_seed",
+      "scalerl.startup_delay_model",
+      "scalerl.startup_delay_seed",
+      "scalerl.evaluation_case_id",
+      "scalerl.case_kind",
+      "scalerl.input_id"
+    ],
+    "tracking_uri": "sqlite:///outputs/mlflow.db"
+  },
+  "model_selection_on_test": false,
+  "outputs": {
+    "per_run_artifacts": "heldout/row.json and heldout/step-infos.json in each run",
+    "raw": "outputs/heldout-evaluation-v1/raw-results.jsonl",
+    "results_artifact": "benchmarks/v1/heldout-results-v1.json",
+    "row_schema": "heldout-raw-row-v1"
+  },
+  "primary_matrix": {
+    "cases": 264,
+    "evaluation_seeds": {
+      "deterministic_controllers": [
+        0
+      ],
+      "random-v1": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "fairness": "same workload, scenario and dynamics seed give every controller the same capacity-multiplier sequence, independent of actions and evaluation order",
+    "pseudo_replication": "scenarios without capacity jitter use dynamics seed 0 only; deterministic controllers use evaluation seed 0 only",
+    "scenarios": {
+      "capacity-jitter": {
+        "capacity_jitter_fraction": 0.1,
+        "dynamics_seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "telemetry_delay_ticks": 0,
+        "version": "robustness-v1"
+      },
+      "combined-robustness": {
+        "capacity_jitter_fraction": 0.1,
+        "dynamics_seeds": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "telemetry_delay_ticks": 1,
+        "version": "robustness-v1"
+      },
+      "delayed-telemetry": {
+        "capacity_jitter_fraction": 0.0,
+        "dynamics_seeds": [
+          0
+        ],
+        "telemetry_delay_ticks": 1,
+        "version": "robustness-v1"
+      },
+      "nominal": {
+        "capacity_jitter_fraction": 0.0,
+        "dynamics_seeds": [
+          0
+        ],
+        "telemetry_delay_ticks": 0,
+        "version": "robustness-v1"
+      }
+    }
+  },
+  "purpose": "final held-out simulator evaluation of the #72-frozen controllers on the frozen Azure TEST workloads; descriptive, no winner, RL is not required to win",
+  "q_learning_included": false,
+  "replay_references": {
+    "cases": 15,
+    "controllers": [
+      "threshold-v1",
+      "predictive-v1",
+      "predictive-seasonal-v1",
+      "dqn-c14-seed0",
+      "ppo-c08-seed4"
+    ],
+    "dynamics_seed": 0,
+    "evaluation_seed": 0,
+    "load_seeds": "one simulator run per slice and controller (the simulator consumes 30 s bin counts, identical for every load seed), mapped to all three #72 schedule IDs; never counted as three replicates",
+    "manifest_id": "7803b71fdfe8",
+    "observation": "SourceWindow(start_bin, 120): episode_progress = (start_bin + completed_ticks) / 120; traffic history starts empty at the slice boundary",
+    "scenario": "nominal",
+    "seasonal_profile_alignment": "the frozen Azure TRAIN profile is read from the slice's source position: profile ticks start_bin, start_bin + 1, ...",
+    "slices": [
+      {
+        "control_interval_seconds": 30.0,
+        "duration_seconds": 600.0,
+        "end_bin_exclusive": 40,
+        "load_seeds": [
+          0,
+          1,
+          2
+        ],
+        "request_count": 911,
+        "schedule_ids": [
+          "azure-test-1166400-w0-s600-d600-seed0",
+          "azure-test-1166400-w0-s600-d600-seed1",
+          "azure-test-1166400-w0-s600-d600-seed2"
+        ],
+        "slice_checksum": "9a8812113a0e8542421cb6413bc997f3fb66099d131749ffc294fb2e948c977e",
+        "slice_id": "azure-test-1166400-w0-s600-d600",
+        "slice_index": 0,
+        "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+        "source_workload_id": "azure-test-1166400",
+        "split": "test",
+        "start_bin": 20,
+        "start_offset_seconds": 600.0
+      },
+      {
+        "control_interval_seconds": 30.0,
+        "duration_seconds": 600.0,
+        "end_bin_exclusive": 70,
+        "load_seeds": [
+          0,
+          1,
+          2
+        ],
+        "request_count": 879,
+        "schedule_ids": [
+          "azure-test-1166400-w1-s1500-d600-seed0",
+          "azure-test-1166400-w1-s1500-d600-seed1",
+          "azure-test-1166400-w1-s1500-d600-seed2"
+        ],
+        "slice_checksum": "0781d4ba3c2445bf02c4cc99d64e6d2e240e9af40031be7bc1b3c46fe9e33ce5",
+        "slice_id": "azure-test-1166400-w1-s1500-d600",
+        "slice_index": 1,
+        "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+        "source_workload_id": "azure-test-1166400",
+        "split": "test",
+        "start_bin": 50,
+        "start_offset_seconds": 1500.0
+      },
+      {
+        "control_interval_seconds": 30.0,
+        "duration_seconds": 600.0,
+        "end_bin_exclusive": 100,
+        "load_seeds": [
+          0,
+          1,
+          2
+        ],
+        "request_count": 782,
+        "schedule_ids": [
+          "azure-test-1166400-w2-s2400-d600-seed0",
+          "azure-test-1166400-w2-s2400-d600-seed1",
+          "azure-test-1166400-w2-s2400-d600-seed2"
+        ],
+        "slice_checksum": "427a6f4f790cf13d54fb1644412be2c669663ea257ccd2ddd399654271d38ceb",
+        "slice_id": "azure-test-1166400-w2-s2400-d600",
+        "slice_index": 2,
+        "source_trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838",
+        "source_workload_id": "azure-test-1166400",
+        "split": "test",
+        "start_bin": 80,
+        "start_offset_seconds": 2400.0
+      }
+    ],
+    "source_workload_id": "azure-test-1166400",
+    "trace_fingerprint": "4a452ead79a9108287238f11dfd2d58c88c1160898421d88ee69f8ef5e7ff838"
+  },
+  "reward": {
+    "contract": "reward-contract-v1",
+    "contract_id": "37158c261364",
+    "role": "secondary metric (episode_reward); system metrics are primary",
+    "variant": "full-cost-low-v1",
+    "weights": {
+      "churn": 0.1,
+      "cost": 0.5,
+      "latency": 1.0,
+      "queue": 1.0,
+      "sla": 1.0
+    }
+  },
+  "simulator_config": {
+    "action": {
+      "semantics": "desired-replicas-v1"
+    },
+    "dynamics": {
+      "capacity_jitter_fraction": 0.0,
+      "dynamics_seed": 0,
+      "telemetry_delay_ticks": 0
+    },
+    "observation": {
+      "traffic_history_ticks": 4
+    },
+    "replicas": {
+      "cost_per_hour": 0.1,
+      "initial_replicas": 1,
+      "max_replicas": 10,
+      "min_replicas": 1,
+      "service_capacity_rps": 50.0,
+      "startup_delay_seconds": 60.0
+    },
+    "sla": {
+      "latency_target_seconds": 0.5
+    },
+    "timing": {
+      "control_interval_seconds": 30.0,
+      "episode_duration_seconds": 3600.0
+    }
+  },
+  "source_issue": "#46",
+  "startup_matrix": {
+    "cases": 220,
+    "evaluation_seeds": {
+      "deterministic_controllers": [
+        0
+      ],
+      "random-v1": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "note": "the frozen #81 dynamics definitions applied to the #46 controller set; the #81 spec (PPO seeds, validation workloads) is not modified",
+    "scenarios": {
+      "combined-startup-robustness": {
+        "capacity_jitter_fraction": 0.1,
+        "seed_pairs_dynamics_startup": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            3
+          ],
+          [
+            4,
+            4
+          ]
+        ],
+        "startup_delay_model": "tri-point-multiplicative-v1",
+        "telemetry_delay_ticks": 1,
+        "version": "startup-robustness-v1"
+      },
+      "startup-delay-jitter": {
+        "capacity_jitter_fraction": 0.0,
+        "seed_pairs_dynamics_startup": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            0,
+            3
+          ],
+          [
+            0,
+            4
+          ]
+        ],
+        "startup_delay_model": "tri-point-multiplicative-v1",
+        "telemetry_delay_ticks": 0,
+        "version": "startup-robustness-v1"
+      }
+    },
+    "startup_model": {
+      "calibration": "robustness stress model, not a provider-calibrated distribution",
+      "canonical_example": "60 s nominal -> 30 / 60 / 90 s: ready after 1 / 2 / 3 ticks of 30 s",
+      "expected_multiplier": 1.0,
+      "id": "tri-point-multiplicative-v1",
+      "multipliers": [
+        0.5,
+        1.0,
+        1.5
+      ],
+      "per_replica": "one independent draw per newly requested replica, in request order",
+      "probabilities": [
+        0.25,
+        0.5,
+        0.25
+      ],
+      "rng": "dedicated per-environment RNG: default_rng(SeedSequence(startup_delay_seed, spawn_key=(1937012080,))), domain-separated from the capacity RNG default_rng(dynamics_seed); reset restarts both",
+      "rounding": "no pre-rounding of realized seconds; activation only through the lifecycle's per-tick advance",
+      "support": [
+        0.5,
+        1.5
+      ]
+    },
+    "startup_spec_id": "60f1f14972a7"
+  },
+  "test_data_used_for_design": false,
+  "test_outcomes_used_for_design": false,
+  "upstream": {
+    "action_decision_id": "0eb5562b01e6",
+    "action_experiment_spec_id": "899dfbb64217",
+    "candidate_set_id": "cbe3c1c0719b",
+    "controller_deployment_manifest_id": "553ddf3e512b",
+    "historical_profile_id": "d050d3b8ca0f",
+    "historical_profile_train_workload_ids": [
+      "azure-train-129600",
+      "azure-train-302400",
+      "azure-train-475200"
+    ],
+    "live_replay_manifest_id": "7803b71fdfe8",
+    "predictive_baseline_artifact_id": "0d315559c680",
+    "predictive_baseline_experiment_id": "096b04ef953a",
+    "reward_ablation_spec_id": "f5aff8f1e8c2",
+    "reward_contract_id": "37158c261364",
+    "robustness_scenarios": [
+      "nominal",
+      "capacity-jitter",
+      "delayed-telemetry",
+      "combined-robustness"
+    ],
+    "robustness_version": "robustness-v1",
+    "selection_spec_id": "418876d6c8e9",
+    "sim_to_real_protocol_id": "b7bf45c109f1",
+    "startup_robustness_freeze_id": "25d65bbba36f",
+    "startup_robustness_spec_id": "60f1f14972a7",
+    "startup_robustness_version": "startup-robustness-v1"
+  },
+  "workloads": {
+    "excluded_from_primary": {
+      "syn-test-seasonal-shifted": "synthetic TEST workload: not part of the primary Azure result",
+      "syn-test-spike-hard": "synthetic TEST workload: not part of the primary Azure result"
+    },
+    "no_train_or_validation_workload": true,
+    "primary_azure_test": [
+      "azure-test-993600",
+      "azure-test-1166400"
+    ],
+    "source": "azure",
+    "split": "test"
+  }
+}

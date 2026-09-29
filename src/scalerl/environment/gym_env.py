@@ -85,6 +85,15 @@ Robustness dynamics (#65, ``config.dynamics``; nominal defaults change nothing):
   exists, observation telemetry is zero (as at reset) and ``decision_info``
   contains no measurement fields (rule-based controllers then see "no sample",
   never a fabricated value).
+
+**Replay windows (#72/#46).** By default the trace is a whole episode. With
+``source_window=SourceWindow(start_tick, source_episode_ticks)`` the trace is a
+contiguous slice of a longer source episode (a frozen #72 replay window): the
+episode runs ``len(trace)`` ticks, and ``episode_progress`` is
+``(start_tick + completed_ticks) / source_episode_ticks``, the slice's position
+in the source hour, instead of restarting at 0. Everything else, including the
+empty traffic history at the slice boundary and the ``tick`` numbering in
+``info``, is unchanged.
 """
 
 from __future__ import annotations
@@ -128,6 +137,7 @@ __all__ = [
     "AutoscalingEnv",
     "Observation",
     "PHYSICAL_ONLY_KEYS",
+    "SourceWindow",
     "TelemetrySnapshot",
 ]
 
@@ -189,6 +199,18 @@ class TelemetrySnapshot:
         return float(self.measurements["infrastructure_cost"])
 
 
+@dataclass(frozen=True, slots=True)
+class SourceWindow:
+    """Where a replayed trace slice sits in its source episode (see the module docstring)."""
+
+    start_tick: int
+    source_episode_ticks: int
+
+    def __post_init__(self) -> None:
+        if self.start_tick < 0 or self.source_episode_ticks < 1:
+            raise ValueError("a source window needs start_tick >= 0 and source_episode_ticks >= 1")
+
+
 class AutoscalingEnv(gym.Env[Observation, np.int64]):
     """Autoscaling MDP over a fixed workload trace."""
 
@@ -199,8 +221,11 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
         config: SimulatorConfig,
         trace: WorkloadTrace,
         reward_weights: RewardWeights | None = None,
+        *,
+        source_window: SourceWindow | None = None,
     ) -> None:
-        self._episode_ticks = _episode_ticks(config, trace)
+        self._episode_ticks = _episode_ticks(config, trace, source_window)
+        self._source_window = source_window
         self.config = config
         self.trace = trace
         self.reward_weights = reward_weights or RewardWeights()
@@ -430,9 +455,22 @@ class AutoscalingEnv(gym.Env[Observation, np.int64]):
             latest=latest,
             active_replicas=self._pool.active_count,
             pending_by_ticks=self._pending_buckets(),
-            completed_ticks=self._clock.step_count,
-            episode_ticks=self._episode_ticks,
+            completed_ticks=self._progress_offset + self._clock.step_count,
+            episode_ticks=self._progress_ticks,
         )
+
+    @property
+    def source_window(self) -> SourceWindow | None:
+        return self._source_window
+
+    @property
+    def _progress_offset(self) -> int:
+        return 0 if self._source_window is None else self._source_window.start_tick
+
+    @property
+    def _progress_ticks(self) -> int:
+        window = self._source_window
+        return self._episode_ticks if window is None else window.source_episode_ticks
 
     def _pending_buckets(self) -> tuple[int, ...]:
         return self._pool.pending_by_ticks_until_active(self.config.timing.control_interval_seconds)
@@ -460,8 +498,14 @@ def _queue_info(result: QueueStepResult) -> dict[str, float]:
     }
 
 
-def _episode_ticks(config: SimulatorConfig, trace: WorkloadTrace) -> int:
-    """Return the episode length in ticks, requiring the trace to match it exactly."""
+def _episode_ticks(
+    config: SimulatorConfig, trace: WorkloadTrace, window: SourceWindow | None = None
+) -> int:
+    """Return the episode length in ticks, requiring the trace to match it exactly.
+
+    With a source window the trace is a slice: it must lie inside a source
+    episode of exactly the configured length, and the episode is the slice.
+    """
     interval = config.timing.control_interval_seconds
     if not math.isclose(trace.control_interval_seconds, interval, rel_tol=1e-9):
         raise ValueError(
@@ -473,6 +517,15 @@ def _episode_ticks(config: SimulatorConfig, trace: WorkloadTrace) -> int:
     ticks = round(ratio)
     if not math.isclose(ratio, ticks, rel_tol=1e-9):
         raise ValueError("episode_duration_seconds must be a whole number of control intervals")
+    if window is not None:
+        if window.source_episode_ticks != ticks:
+            raise ValueError(
+                f"source episode has {window.source_episode_ticks} ticks but the configured "
+                f"episode has {ticks}; progress would not mean what it did in training"
+            )
+        if window.start_tick + len(trace) > ticks:
+            raise ValueError("the replay slice extends past the end of its source episode")
+        return len(trace)
     if len(trace) != ticks:
         raise ValueError(
             f"trace has {len(trace)} ticks but the configured episode needs {ticks}; "
