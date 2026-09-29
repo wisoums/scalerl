@@ -853,6 +853,8 @@ The protocol records `held_out_controller_outcomes_used: false` and `live_result
 
    The only execution SHA is the pre-run SHA.
 
+4. **MLflow provenance audit.** `freeze` (and `audit`) checks every run of record against what its MLflow run recorded itself when it was created, not against the fields copied into the raw rows. It checks the status, the spec, case and input identity, every #46 provenance tag, the step-infos checksum and the Git SHA and dirty state. All 499 runs are `FINISHED`, record Git SHA `ebccda67c72f677c731cb0d6c6c67cfcd21bfc05` with `git_dirty=false`, and match their rows. No run of the spec is unreferenced. The runner also re-checks the Git state immediately before every new case and stops if the SHA or the clean state changed. The result ID stayed `d9d3fb985f2d`.
+
 Before interpreting the results, the loaded DQN and PPO bundles were re-evaluated on the three synthetic VALIDATION workloads, as a diagnostic that was not recorded. They reproduced their frozen #20 validation metrics exactly (DQN cost 0.5767 / 0.5808 / 0.6058, PPO 0.900 / 0.9067 / 0.900, SLA identical). The loading and observation path is therefore not the cause of the behavior below.
 
 ### Frozen design
@@ -892,23 +894,23 @@ The Threshold nominal run IDs are `aa2647217b4b4144a7fa78a66a675419` and `7e4eb2
 **Interpretation:**
 - **The conventional baselines win this held-out comparison on cost at equal service.** Threshold, Predictive and the seasonal Predictive keep the minimum fleet (1 replica) for the whole hour, which is exactly adequate for this traffic.
 - **Both learned policies overprovision massively.** On its first decision DQN requests the full fleet of 10 replicas and holds it for the hour, costing 10× the baselines. PPO requests 9 immediately and stays at 9–10, costing about 9.3× the baselines.
-- **The overprovisioning buys nothing measurable.** Mean p95 improves by about 0.5 ms (0.0201 s vs 0.0206 s), well inside a 0.5 s latency target.
+- **The overprovisioning brings no SLA or queueing benefit.** The learned policies reduce the simulator's mean p95 by only about 0.5 ms (0.0201 s vs 0.0206 s), which is operationally negligible next to the 0.5 s SLA target.
 - This matches the development evidence and extends it. PPO already ran a near-full fleet on validation under `full-cost-low-v1` (#20). The canonical DQN was far cheaper on synthetic validation (cost 0.58–0.61) but fails to scale in on this out-of-distribution, near-idle traffic.
 - Their episode reward is worse too (DQN −64.7, PPO −61.2, Threshold −10.7). Reward is a secondary metric.
 
 ### Robustness-v1 results
 
-The picture is unchanged in every `robustness-v1` scenario on both workloads:
+The robustness conditions did not materially change scaling behavior, SLA, queueing or the cost conclusion on these low-load traces. On both workloads, in every `robustness-v1` scenario:
 - There are no SLA violations, no queue and no dropped requests.
 - Threshold and both predictive baselines stay at 1 replica (cost 0.100 in every one of the 5 capacity-jitter realizations).
 - DQN stays at cost 1.000 in every realization.
 - PPO stays at 0.934–0.935 (combined robustness: 11–13 replicas moved).
 
-With load this low, ±10% capacity jitter and one tick of telemetry delay have no measurable effect on any controller. This is **not** evidence of robustness under stress: the Azure hours never stress the system. Random's numbers are identical across scenarios because its actions ignore state. Its churn (0.81–0.93) is the only thrashing flagged.
+Seeded capacity jitter produces only small latency variation: across all conditions, a controller's mean p95 on a workload varies by at most 0.3 ms. This is **not** evidence of robustness under stress, because the Azure hours never stress the system. Random's actions ignore state, so its scaling and cost are identical across scenarios. Its churn (0.81–0.93) is the only thrashing flagged.
 
 ### Startup-delay robustness (#81 extension)
 
-Under `startup-delay-jitter` and `combined-startup-robustness`, cost and SLA are unchanged from nominal for every controller:
+Under `startup-delay-jitter` and `combined-startup-robustness`, scaling behavior, cost and SLA are unchanged from nominal for every controller (latency differs by well under 1 ms):
 - Pending replicas are billed, so realized startup delays of 30–90 s change readiness, not cost.
 - No controller ever needs capacity it does not already have.
 - Threshold and both predictive baselines never request a replica, so they never meet a startup delay.
@@ -954,6 +956,7 @@ python -m scalerl.evaluation.heldout check
 python -m scalerl.evaluation.heldout plan
 python -m scalerl.evaluation.heldout run --azure-csv data/raw/AzureFunctionsInvocationTraceForTwoWeeksJan2021.txt \
     --tracking-uri sqlite:///outputs/mlflow.db
+python -m scalerl.evaluation.heldout audit --pre-run-sha ebccda67c72f677c731cb0d6c6c67cfcd21bfc05
 python -m scalerl.evaluation.heldout freeze --pre-run-sha ebccda67c72f677c731cb0d6c6c67cfcd21bfc05
 ```
 

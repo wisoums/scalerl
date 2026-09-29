@@ -47,6 +47,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -1056,9 +1057,19 @@ def _run_spec(case: Case, spec: Mapping[str, Any]) -> RunSpec:
 
 
 def _recover(
-    spec_identity: str, case: Case, tracking_uri: str | None, experiment_name: str
+    spec: Mapping[str, Any],
+    spec_identity: str,
+    case: Case,
+    tracking_uri: str | None,
+    experiment_name: str,
+    require_clean: bool = True,
 ) -> dict[str, Any] | None:
-    """The row of a FINISHED MLflow run of this exact case whose local row was lost."""
+    """The row of a FINISHED MLflow run of this exact case whose local row was lost.
+
+    The recovered row must agree with the provenance its MLflow run recorded
+    independently (clean tree, same Git SHA, case/input/spec identity); the
+    run is not rerun merely because the current checkout is a later commit.
+    """
     from mlflow import MlflowClient
 
     client = MlflowClient(tracking_uri)
@@ -1084,7 +1095,140 @@ def _recover(
         row: dict[str, Any] = json.loads(Path(path).read_text())
     if row["mlflow_run_id"] != runs[0].info.run_id or row["case_id"] != case.case_id:
         raise ValueError(f"{case.case_id}: recovered row does not match its run")
+    problems = run_provenance_problems(
+        spec, row, runs[0], execution_sha=None, require_clean=require_clean
+    )
+    if problems:
+        raise ValueError(f"{case.case_id}: recovered run provenance: " + "; ".join(problems))
     return row
+
+
+def expected_run_tags(spec: Mapping[str, Any], row: Mapping[str, Any]) -> dict[str, str]:
+    """The MLflow tags a run of record must carry, derived from its raw row and the spec."""
+    upstream = spec["upstream"]
+    startup = row["startup_delay_seed"]
+    tags = {
+        "scalerl.heldout_spec_id": spec_id(spec),
+        "scalerl.heldout_version": spec["experiment_version"],
+        "scalerl.evaluation_case_id": row["case_id"],
+        "scalerl.case_kind": row["case_kind"],
+        "scalerl.input_id": str(row["input_id"]),
+        "scalerl.workload_id": row["workload_id"],
+        "scalerl.workload_split": "test",
+        "scalerl.controller": row["controller"],
+        "scalerl.controller_variant_id": row["controller_variant_id"],
+        "scalerl.controller_version": row["controller_version"],
+        "scalerl.action_semantics": spec["action_semantics"],
+        "scalerl.reward_contract_id": spec["reward"]["contract_id"],
+        "scalerl.protocol_id": upstream["sim_to_real_protocol_id"],
+        "scalerl.replay_manifest_id": upstream["live_replay_manifest_id"],
+        "scalerl.controller_manifest_id": upstream["controller_deployment_manifest_id"],
+        "scalerl.robustness_scenario": row["scenario"],
+        "scalerl.robustness_version": row["scenario_version"],
+        "scalerl.dynamics_seed": str(row["dynamics_seed"]),
+        "scalerl.evaluation_seed": str(row["evaluation_seed"]),
+        "scalerl.startup_delay_model": row["startup_delay_model"],
+        "scalerl.startup_delay_seed": "none" if startup is None else str(startup),
+        "scalerl.step_infos_sha256": row["step_infos_sha256"],
+    }
+    if row["model_source_run_id"] is not None:
+        tags |= {
+            "scalerl.model_source_run_id": row["model_source_run_id"],
+            "scalerl.training_seed": str(row["training_seed"]),
+            "scalerl.candidate_id": str(row["candidate_id"]),
+        }
+    if row["replay_slice_id"] is not None:
+        tags["scalerl.replay_slice_id"] = row["replay_slice_id"]
+    return tags
+
+
+def run_provenance_problems(
+    spec: Mapping[str, Any],
+    row: Mapping[str, Any],
+    run: Any,
+    *,
+    execution_sha: str | None,
+    require_clean: bool = True,
+) -> list[str]:
+    """Every disagreement between a raw row and what its MLflow run recorded itself.
+
+    The Git SHA/dirty state checked here are the ones ``start_tracked_run``
+    recorded when the run was created, independent of the row. With
+    ``execution_sha`` the run must also come from exactly that commit.
+    """
+    problems = []
+    tags = run.data.tags
+    if run.info.run_id != row["mlflow_run_id"]:
+        problems.append(f"run ID {run.info.run_id} != row {row['mlflow_run_id']}")
+    if run.info.status != "FINISHED":
+        problems.append(f"status {run.info.status}")
+    for key, value in expected_run_tags(spec, row).items():
+        if tags.get(key) != value:
+            problems.append(f"{key}={tags.get(key)!r}, expected {value!r}")
+    perturbed = tags.get("scalerl.robustness.perturbed_compatibility", "")
+    if perturbed != row["perturbed_compatibility"]:
+        problems.append(f"perturbed compatibility {perturbed!r} != row")
+    recorded_sha = tags.get("scalerl.git_sha")
+    if tags.get("scalerl.git_dirty") != str(row["git_dirty"]).lower():
+        problems.append(f"MLflow git_dirty={tags.get('scalerl.git_dirty')!r} != row")
+    if require_clean and tags.get("scalerl.git_dirty") != "false":
+        problems.append(f"MLflow git_dirty={tags.get('scalerl.git_dirty')!r}, not a clean tree")
+    if recorded_sha != row["git_sha"] or tags.get("mlflow.source.git.commit") != recorded_sha:
+        problems.append(f"MLflow git_sha={recorded_sha!r} != row {row['git_sha']!r}")
+    if execution_sha is not None and recorded_sha != execution_sha:
+        problems.append(f"MLflow git_sha={recorded_sha!r} is not the execution SHA")
+    return problems
+
+
+def audit_mlflow_provenance(
+    spec: Mapping[str, Any],
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    tracking_uri: str | None,
+    execution_sha: str,
+    experiment_name: str = EXPERIMENT_NAME,
+) -> dict[str, Any]:
+    """Check every run of record against its own MLflow record (not the copied row fields)."""
+    from mlflow import MlflowClient
+    from mlflow.entities import ViewType
+
+    client = MlflowClient(tracking_uri)
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        raise ValueError(f"MLflow experiment {experiment_name!r} not found")
+    runs = {
+        r.info.run_id: r
+        for r in client.search_runs(
+            [experiment.experiment_id],
+            filter_string=f"tags.`scalerl.heldout_spec_id` = '{spec_id(spec)}'",
+            run_view_type=ViewType.ALL,
+            max_results=50000,
+        )
+    }
+    mismatches: dict[str, list[str]] = {}
+    shas: Counter[str] = Counter()
+    dirty: Counter[str] = Counter()
+    status: Counter[str] = Counter()
+    for row in rows:
+        run = runs.get(row["mlflow_run_id"])
+        if run is None:
+            mismatches[row["case_id"]] = ["run not found in the experiment for this spec"]
+            continue
+        shas[str(run.data.tags.get("scalerl.git_sha"))] += 1
+        dirty[str(run.data.tags.get("scalerl.git_dirty"))] += 1
+        status[run.info.status] += 1
+        problems = run_provenance_problems(spec, row, run, execution_sha=execution_sha)
+        if problems:
+            mismatches[row["case_id"]] = problems
+    referenced = {row["mlflow_run_id"] for row in rows}
+    return {
+        "checked": len(rows),
+        "git_sha": dict(shas),
+        "git_dirty": dict(dirty),
+        "status": dict(status),
+        "mismatches": mismatches,
+        "unreferenced_runs_for_spec": sorted(set(runs) - referenced),
+    }
 
 
 def git_state() -> tuple[str, bool | None]:
@@ -1150,7 +1294,7 @@ def run(
     identity = spec_id(spec)
     all_cases = generate_cases(spec)
     require_expected_counts(spec, all_cases)
-    sha, dirty = git_state()
+    execution_sha, dirty = git_state()
     if require_clean and dirty is not False:
         raise RuntimeError(f"held-out runs of record need a clean git tree (dirty={dirty})")
     cases = [c for c in all_cases if select is None or select(c)]
@@ -1177,11 +1321,20 @@ def run(
     for case in resolved:
         if case.case_id in done:
             continue
-        recovered = _recover(identity, case, tracking_uri, experiment_name)
+        recovered = _recover(spec, identity, case, tracking_uri, experiment_name, require_clean)
         if recovered is not None:
             _append_row(raw_path, recovered)
             done.add(case.case_id)
             continue
+        # Re-check immediately before every new execution: a run of record must
+        # come from the clean execution SHA the run started from, never from a
+        # checkout or worktree that changed during the long serial run.
+        sha, dirty = git_state()
+        if require_clean and (dirty is not False or sha != execution_sha):
+            raise RuntimeError(
+                f"git state changed during the held-out run before {case.case_id}: "
+                f"sha={sha} dirty={dirty}, expected {execution_sha} clean; stopping"
+            )
         trace, profile = case_inputs(case, inputs)
         with start_tracked_run(
             _run_spec(case, spec),
@@ -1534,15 +1687,17 @@ def describe_plan(spec: Mapping[str, Any], *, tracking_uri: str | None, out: Pat
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=f"{HELDOUT_VERSION} (#46)")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("spec", "check", "plan", "run", "freeze", "summarize"):
+    for name in ("spec", "check", "plan", "run", "freeze", "summarize", "audit"):
         cmd = commands.add_parser(name)
         cmd.add_argument("--bench", type=Path, default=BENCH)
         cmd.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
         cmd.add_argument("--tracking-uri", default=DEFAULT_TRACKING_URI)
         if name == "run":
             cmd.add_argument("--azure-csv", type=Path, default=DEFAULT_AZURE_CSV)
-        if name == "freeze":
+        if name in ("freeze", "audit"):
             cmd.add_argument("--pre-run-sha", required=True)
+            cmd.add_argument("--execution-sha", default=None, help="defaults to the pre-run SHA")
+        if name == "freeze":
             cmd.add_argument("--superseded-run-id", action="append", default=[])
             cmd.add_argument("--superseded-note", default=None)
     args = parser.parse_args(argv)
@@ -1579,11 +1734,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_reports(args.output_dir, rows)
         print(f"{len(rows)} rows summarized")
         return 0
+    pre_run = _git("rev-parse", args.pre_run_sha).strip()
+    execution = _git("rev-parse", args.execution_sha or pre_run).strip()
+    audit = audit_mlflow_provenance(
+        spec, rows, tracking_uri=args.tracking_uri, execution_sha=execution
+    )
+    print(json.dumps({k: v for k, v in audit.items() if k != "mismatches"}, indent=2))
+    orphans = set(audit["unreferenced_runs_for_spec"]) - set(getattr(args, "superseded_run_id", []))
+    if audit["mismatches"] or orphans or audit["checked"] != len(generate_cases(spec)):
+        if orphans:
+            print(f"UNREFERENCED runs of this spec (not declared superseded): {sorted(orphans)}")
+        for case_id, problems in audit["mismatches"].items():
+            print(f"MISMATCH {case_id}: {'; '.join(problems)}")
+        raise SystemExit("MLflow provenance audit failed; nothing frozen")
+    if args.command == "audit":
+        print(f"{audit['checked']} runs of record verified against MLflow")
+        return 0
     at_pre_run = json.loads(_git("show", f"{args.pre_run_sha}:{DEFAULT_SPEC.as_posix()}"))
     results = build_results(
         spec,
         rows,
-        pre_run_sha=_git("rev-parse", args.pre_run_sha).strip(),
+        pre_run_sha=pre_run,
         spec_at_pre_run=at_pre_run,
         superseded_run_ids=args.superseded_run_id,
         superseded_note=args.superseded_note,

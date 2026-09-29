@@ -123,8 +123,8 @@ Result: [`heldout-results-v1`](benchmarks/v1/heldout-results-v1.json), `d9d3fb98
 | PPO `ppo-c08` seed 4 | 0.935 | 0.934 |
 
 - **A conventional baseline wins this held-out comparison.** Both TEST hours carry only 1.3–1.5 requests/s against 50 requests/s per replica. Threshold and both Predictive baselines hold the minimum fleet for the whole hour.
-- **Both learned policies overprovision.** DQN requests all 10 replicas on its first decision and holds them; PPO stays at 9–10. That is 9–10× the baselines' cost with no measurable service benefit (mean p95 0.0201 s vs 0.0206 s).
-- **Robustness evidence is weak.** Capacity jitter, delayed telemetry and stochastic startup change nothing for any controller. The load never stresses the system, so this is **not** evidence of robustness under stress.
+- **Both learned policies overprovision.** DQN requests all 10 replicas on its first decision and holds them; PPO stays at 9–10. That is 9–10× the baselines' cost with no SLA or queueing benefit. The learned policies reduce the simulator's mean p95 by only about 0.5 ms (0.0201 s vs 0.0206 s), operationally negligible relative to the 0.5 s SLA target.
+- **Robustness evidence is weak.** Capacity jitter, delayed telemetry and stochastic startup did not materially change scaling behavior, SLA, queueing or the cost conclusion on these low-load traces; seeded capacity jitter produces only small latency variation (at most 0.3 ms in mean p95). The load never stresses the system, so this is **not** evidence of robustness under stress.
 - **Scope of the result.** It is decisive about overprovisioning at low load and silent about SLA trade-offs under load. The Azure TEST hours are weak autoscaling stress cases. This was not changed after the results; a calibrated-amplitude study would need its own predeclared protocol.
 - **Replay references for #76.** Each frozen #72 window has one nominal simulator reference per controller, mapped to its three live load schedules (not three replicates).
 

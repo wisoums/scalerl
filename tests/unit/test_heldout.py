@@ -762,3 +762,140 @@ def test_committed_results_artifact(spec: dict[str, Any]) -> None:
     slices = {s["slice_id"]: s["schedule_ids"] for s in spec["replay_references"]["slices"]}
     assert all(r["maps_to_schedule_ids"] == slices[r["slice_id"]] for r in refs)
     assert all(results["runs"][r["case_id"]] == r["mlflow_run_id"] for r in refs)
+
+
+# --- provenance: git state during the run, MLflow audit at freeze ------------------------------
+
+
+def two_threshold_cases(case: ho.Case) -> bool:
+    return (
+        case.kind == "primary" and case.scenario == "nominal"
+        and case.variant.variant_id == "threshold-v1"
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize("later", [("b" * 40, False), ("a" * 40, True), ("a" * 40, None)])
+def test_run_stops_when_git_state_changes_before_the_next_case(
+    spec: dict[str, Any], tmp_path: Path, tracking_uri: str, monkeypatch: pytest.MonkeyPatch,
+    tiny_ppo: Path, later: tuple[str, bool | None],
+) -> None:  # fmt: skip
+    from mlflow import MlflowClient
+
+    edited, inputs = offline_inputs(spec, tiny_ppo)
+    states = iter([("a" * 40, False), ("a" * 40, False), later, later])
+    monkeypatch.setattr(ho, "git_state", lambda: next(states))
+    out = tmp_path / "out"
+    with pytest.raises(RuntimeError, match="git state changed"):
+        ho.run(edited, inputs, out=out, tracking_uri=tracking_uri, select=two_threshold_cases,
+               progress=lambda _: None)  # fmt: skip
+    rows = [json.loads(line) for line in (out / "raw-results.jsonl").read_text().splitlines()]
+    assert len(rows) == 1 and rows[0]["git_sha"] == "a" * 40 and rows[0]["git_dirty"] is False
+    experiment = MlflowClient(tracking_uri).get_experiment_by_name("scalerl-heldout-v1")
+    assert experiment is not None
+    assert len(MlflowClient(tracking_uri).search_runs([experiment.experiment_id])) == 1
+
+
+def recorded_runs(
+    spec: dict[str, Any], tracking_uri: str, *, sha: str = "a" * 40, count: int = 4
+) -> list[dict[str, Any]]:
+    """Fake rows of record with MLflow runs carrying their own (independent) provenance."""
+    from mlflow import MlflowClient
+
+    client = MlflowClient(tracking_uri)
+    experiment = client.create_experiment("scalerl-heldout-v1")
+    rows = []
+    for row in fake_rows(spec)[:count]:
+        run = client.create_run(experiment)
+        row = dict(row, mlflow_run_id=run.info.run_id, git_sha=sha, git_dirty=False)
+        tags = ho.expected_run_tags(spec, row) | {
+            "scalerl.git_sha": sha, "scalerl.git_dirty": "false",
+            "mlflow.source.git.commit": sha,
+        }  # fmt: skip
+        for key, value in tags.items():
+            client.set_tag(run.info.run_id, key, value)
+        client.set_terminated(run.info.run_id, "FINISHED")
+        rows.append(row)
+    return rows
+
+
+def audit(spec: dict[str, Any], rows: list[dict[str, Any]], uri: str) -> dict[str, Any]:
+    return ho.audit_mlflow_provenance(spec, rows, tracking_uri=uri, execution_sha="a" * 40)
+
+
+def test_audit_accepts_runs_whose_mlflow_provenance_agrees(
+    spec: dict[str, Any], tracking_uri: str
+) -> None:
+    rows = recorded_runs(spec, tracking_uri)
+    report = audit(spec, rows, tracking_uri)
+    assert report["mismatches"] == {} and report["checked"] == 4
+    assert report["git_sha"] == {"a" * 40: 4} and report["git_dirty"] == {"false": 4}
+    assert report["status"] == {"FINISHED": 4} and report["unreferenced_runs_for_spec"] == []
+
+
+@pytest.mark.parametrize(
+    ("tag", "value", "reason"),
+    [
+        ("scalerl.git_sha", "b" * 40, "git_sha"),
+        ("scalerl.git_dirty", "true", "git_dirty"),
+        ("scalerl.git_dirty", "none", "git_dirty"),
+        ("mlflow.source.git.commit", "b" * 40, "git_sha"),
+        ("scalerl.evaluation_case_id", "other", "evaluation_case_id"),
+        ("scalerl.input_id", "other", "input_id"),
+        ("scalerl.heldout_spec_id", "other", "not found"),
+        ("scalerl.dynamics_seed", "9", "dynamics_seed"),
+        ("scalerl.protocol_id", "other", "protocol_id"),
+        ("scalerl.step_infos_sha256", "0", "step_infos"),
+    ],
+)
+def test_audit_rejects_a_row_that_claims_provenance_its_run_does_not_have(
+    spec: dict[str, Any], tracking_uri: str, tag: str, value: str, reason: str
+) -> None:
+    from mlflow import MlflowClient
+
+    rows = recorded_runs(spec, tracking_uri)
+    MlflowClient(tracking_uri).set_tag(rows[1]["mlflow_run_id"], tag, value)
+    report = audit(spec, rows, tracking_uri)
+    assert list(report["mismatches"]) == [rows[1]["case_id"]]
+    assert any(reason in problem for problem in report["mismatches"][rows[1]["case_id"]])
+
+
+def test_audit_rejects_unfinished_other_sha_and_unknown_runs(
+    spec: dict[str, Any], tracking_uri: str
+) -> None:
+    from mlflow import MlflowClient
+
+    rows = recorded_runs(spec, tracking_uri)
+    MlflowClient(tracking_uri).set_terminated(rows[0]["mlflow_run_id"], "FAILED")
+    rows[2] = dict(rows[2], mlflow_run_id="f" * 32)
+    report = audit(spec, rows, tracking_uri)
+    assert "status FAILED" in report["mismatches"][rows[0]["case_id"]]
+    assert "not found" in report["mismatches"][rows[2]["case_id"]][0]
+    assert report["unreferenced_runs_for_spec"]  # the orphaned real run of rows[2]
+    other = ho.audit_mlflow_provenance(
+        spec, rows[3:], tracking_uri=tracking_uri, execution_sha="c" * 40
+    )
+    assert "not the execution SHA" in other["mismatches"][rows[3]["case_id"]][-1]
+
+
+def test_recovery_rejects_a_run_whose_provenance_disagrees(
+    spec: dict[str, Any], tmp_path: Path, tracking_uri: str, tiny_ppo: Path
+) -> None:
+    from mlflow import MlflowClient
+
+    edited, inputs = offline_inputs(spec, tiny_ppo)
+    out = tmp_path / "out"
+    rows = ho.run(edited, inputs, out=out, tracking_uri=tracking_uri, require_clean=False,
+                  select=two_threshold_cases, progress=lambda _: None)  # fmt: skip
+    client = MlflowClient(tracking_uri)
+    for row in rows:  # what run() writes is exactly what the audit expects
+        run = client.get_run(row["mlflow_run_id"])
+        assert (
+            ho.run_provenance_problems(edited, row, run, execution_sha=None, require_clean=False)
+            == []
+        )
+    client.set_tag(rows[-1]["mlflow_run_id"], "scalerl.git_sha", "b" * 40)
+    raw = out / "raw-results.jsonl"
+    raw.write_text(raw.read_text().splitlines()[0] + "\n")
+    with pytest.raises(ValueError, match="recovered run provenance"):
+        ho.run(edited, inputs, out=out, tracking_uri=tracking_uri, require_clean=False,
+               select=two_threshold_cases, progress=lambda _: None)  # fmt: skip
