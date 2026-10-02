@@ -1022,7 +1022,7 @@ CI verifies code/package/container/training plumbing with short smoke jobs. Benc
 
 ## Success criterion
 
-The project is successful even if RL does not dominate every baseline. The research objective is to identify when learned sequential policies are useful, when simple controllers are sufficient, and what trade-offs cause each result.
+The project is useful as a learning exercise even if RL does not dominate every baseline. The goal is to understand when learned sequential policies appear useful inside the current simulator, when simple controllers are sufficient, and what trade-offs cause each result.
 
 ## Next learning phase: benchmark-v2 generalization
 
