@@ -1,8 +1,38 @@
 # ScaleRL Data
 
-ScaleRL supports reproducible synthetic workloads and will also evaluate controllers on selected slices of the Microsoft Azure Functions Invocation Trace 2021.
+ScaleRL is a student learning project. The data layer is being expanded gradually so model behavior can be tested on more than one narrow traffic source.
+
+Implemented today:
+- reproducible synthetic workloads;
+- selected slices of the Microsoft Azure Functions Invocation Trace 2021.
+
+Planned benchmark-v2 sources are listed below, but a source is **not considered implemented** until #116 adds a deterministic loader/preparation path and #115 freezes its role in the benchmark.
 
 Raw production traces are **not committed to this repository**.
+
+## Candidate benchmark-v2 data catalog
+
+| Source | Intended role | Status / caution |
+| --- | --- | --- |
+| [Azure Functions 2019](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsDataset2019.md) | Additional real serverless invocation patterns; may also contribute execution-time/memory summaries | Planned candidate; loader not yet implemented |
+| [Azure Functions Invocation Trace 2021](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsInvocationTrace2021.md) | Existing real invocation trace, but benchmark-v2 may sample a broader set of apps/windows | Partially implemented today |
+| [Alibaba Cluster Trace — Microservices 2021](https://github.com/alibaba/clusterdata/tree/master/cluster-trace-microservices-v2021) | Candidate source of real microservice call-rate/response-time diversity | Planned candidate; semantics must be mapped explicitly |
+| [Google ClusterData 2019](https://github.com/google/cluster-data/blob/master/ClusterData2019.md) | Possible resource/environment variability evidence | **Not an HTTP request trace**; must not be treated as interchangeable with invocation data |
+| [SeBS](https://github.com/spcl/serverless-benchmarks) | Possible application/service benchmark for later systems work and calibration | **Benchmark application suite, not a request-trace dataset** |
+
+#115 decides which sources are actually used for TRAIN, VALIDATION, and fresh TEST. #116 owns provenance-aware ingestion.
+
+For every accepted external source, ScaleRL should record:
+- official source/version;
+- license;
+- required citation;
+- original schema and units;
+- deterministic preparation version;
+- source/application identity needed for leakage-safe splitting;
+- trace/window fingerprint;
+- limitations of how the source maps into ScaleRL.
+
+The goal is not to turn every public systems dataset into request rate. If a source only provides resource usage, service characteristics, or application behavior, that role should remain explicit.
 
 ## Azure Functions Invocation Trace 2021
 
@@ -136,3 +166,18 @@ Processed slices should be reconstructable from:
 - any preprocessing parameters.
 
 CI must use tiny committed fixtures under `tests/`; CI must not download the full Azure dataset.
+
+## Benchmark-v2 split policy
+
+The v1 benchmark windows remain frozen historical evidence.
+
+Benchmark-v2 (#115) will define a **new** train/validation/test split before generalist training begins.
+
+Important rules:
+- do not place neighboring windows from the same grouped application into different splits without an explicit leakage-safe rule;
+- do not train on the two #46 TEST hours merely to repair their observed failure;
+- freeze fresh TEST identities before #118 training;
+- keep source/domain labels for sampling and analysis, not as hidden controller hints;
+- preserve dataset-specific semantics instead of forcing every source into one misleading schema.
+
+Synthetic workloads remain useful because real datasets may not cover rare but important regimes such as overload, flash crowds, abrupt drops, or controlled regime shifts.
