@@ -1,97 +1,166 @@
 # Why Reinforcement Learning?
 
-ScaleRL uses reinforcement learning as the **primary learning hypothesis**, not as a predetermined winner.
+ScaleRL is a **personal student learning project**. RL is used because autoscaling is a good place to learn sequential decision-making, delayed effects, and ML-system evaluation — not because this repository assumes RL should replace real production autoscalers.
 
-The central claim being tested is that cloud autoscaling is not only a prediction problem. It is also a **sequential decision problem with delayed consequences**: a scaling action changes future capacity, queueing, latency, cost, and the set of actions that will be useful later. Replica startup delay makes this especially important because an action taken now may not affect service capacity until several control intervals later.
+The current project is intentionally simplified. It does not model every parameter that could matter in a production cluster, and its conclusions only apply to the exact simulator/workload contracts used in each experiment.
 
-## Problem structure
+## The narrow question
 
-At each control step, an autoscaler observes a system state, chooses a scaling action, and then sees the system evolve.
+The current question is:
 
-- **State:** request rate and trend, CPU/load, queue depth, p95 latency, active and pending replicas, recent scaling history, and cost-related signals.
-- **Action:** scale down, hold, or scale up.
-- **Transition:** workload and infrastructure dynamics determine the next state. Scaling actions can have delayed effects because replicas take time to start or terminate.
-- **Reward/objective:** balance latency, SLA violations, infrastructure cost, dropped work, and scaling churn over time.
+> **Within ScaleRL's simplified simulator, can DQN or PPO learn a useful cost/SLA scaling policy across diverse workload patterns compared with strong reactive and predictive baselines?**
 
-This maps naturally to a Markov decision process or an approximate partially observed decision process.
+That is much narrower than:
+
+> "Is RL the best way to autoscale arbitrary cloud systems?"
+
+ScaleRL is not designed to prove the second statement.
+
+## Why RL is interesting to learn here
+
+Autoscaling is sequential:
+
+- a decision is repeated every control interval;
+- scaling actions change future capacity;
+- new replicas take time to become ready;
+- scaling down can increase future queueing;
+- overprovisioning protects service quality but wastes resources;
+- short-term choices can create longer-term churn and cost.
+
+That makes RL a reasonable learning tool because the action changes the future state and future reward.
 
 ## Why not supervised learning alone?
 
-Supervised learning is well suited to predicting a target from labeled examples. For autoscaling, it could predict future request rate, latency, or required capacity.
+Supervised learning is useful for forecasting demand, latency, or required capacity.
 
-The difficulty is that there is usually no ground-truth label for the **optimal action** at every state. A dataset may tell us what a previous controller did, but training on those actions would largely imitate that controller rather than discover a better policy.
+But forecasting answers:
 
-Supervised forecasting can still be useful inside ScaleRL. A demand forecast can be part of the observation or power a predictive baseline. The distinction is:
+> "What is likely to happen?"
 
-- forecasting answers **"what is likely to happen?"**
-- control answers **"what should I do now, given what may happen and the future consequences of this action?"**
+Control asks:
 
-ScaleRL evaluates both.
+> "What should I do now, given what may happen and the future consequences of this action?"
 
-## Why not unsupervised learning?
+ScaleRL therefore keeps predictive controllers as important baselines instead of treating forecasting as a competing idea that must disappear.
 
-Unsupervised learning is useful for discovering structure without labels: clustering workload regimes, learning representations, or detecting anomalies. Those are potentially useful supporting components, but unsupervised learning does not directly specify a policy that optimizes a sequence of scaling actions against latency/cost/SLA objectives.
+## Why not simpler controllers?
 
-It is therefore not the primary controller-learning paradigm for this project.
+They may be better.
 
-## Why not a contextual bandit?
+Threshold, predictive, and classical-control approaches can be easier to understand, cheaper to run, and more robust than RL.
 
-A contextual bandit chooses an action from the current context and receives an immediate reward, but it generally assumes the current action does not meaningfully change the future state distribution that must be optimized.
+A useful ScaleRL result can therefore be:
 
-Autoscaling violates that simplification. Scaling up now can create capacity only after a startup delay; scaling down can increase future queueing; repeated scale-up/scale-down decisions can create churn. Because actions affect later states and later rewards, a sequential RL formulation is more appropriate to investigate.
+> "The simpler controller handled this regime just as well or better."
 
-## What about control theory and model predictive control?
+The project is not considered a failure when RL loses.
 
-Classical feedback control and model predictive control (MPC) are strong alternatives and may outperform RL when the system dynamics are sufficiently known, stable, and modelable. ScaleRL should not frame them as obsolete.
+## What the current simulator actually contains
 
-The practical comparison in v1 focuses on strong reactive and predictive autoscaling baselines. A future extension can add an MPC controller if time permits.
+The v1 environment currently reasons about a limited set of signals such as:
 
-RL is most interesting when:
+- recent demand pressure;
+- active/pending replicas;
+- utilization/capacity pressure;
+- queue pressure;
+- latency pressure;
+- a simplified cost signal;
+- startup delay;
+- a fixed control cadence;
+- a fixed fleet range and SLA contract.
 
-- dynamics are nonlinear or difficult to model exactly;
-- workloads are stochastic or non-stationary;
-- several competing objectives must be traded off;
-- actions have delayed effects;
-- a policy must adapt behavior across many operating regimes.
+It does **not** currently model the full set of factors that may matter in real systems, such as richer CPU/memory/I/O behavior, network/storage effects, heterogeneous services, request classes, resource requests/limits, multi-service dependencies, provider-specific schedulers, richer failures, or arbitrary deployment sizes.
 
-## Why RL is worth evaluating here
+That is why the project should be read as a learning environment, not a production autoscaling claim.
 
-The project has the characteristics that make RL scientifically reasonable to test:
+## What v1 taught us
 
-1. **Sequential decisions:** scaling is repeated over time rather than performed once.
-2. **Delayed effects:** startup and shutdown delays separate action time from capacity impact.
-3. **Long-term trade-offs:** saving money now can cause SLA violations later; over-provisioning can protect latency at unnecessary cost.
-4. **No direct optimal-action labels:** the simulator provides outcomes and rewards, not a dataset of known optimal actions.
-5. **Multi-objective control:** the controller must balance latency, SLA compliance, cost, dropped work, and scaling stability.
-6. **Interaction:** actions change the environment the agent will observe next.
+The first frozen held-out Azure experiment (#46) exposed a real limitation.
 
-These properties motivate RL, but they do not prove RL will be better.
+The canonical v1 DQN/PPO policies were trained under a narrow workload distribution. On two very-low-load Azure TEST hours, they overprovisioned badly while Threshold and Predictive stayed at one replica.
 
-## Falsifiable hypothesis
+That does not prove RL is generally bad at autoscaling.
 
-ScaleRL tests the hypothesis:
+It shows:
 
-> A reinforcement-learning policy can learn scaling behavior that improves the latency/cost/SLA/stability trade-off relative to well-tuned reactive and forecasting-based baselines, particularly under workloads with delayed capacity effects and unpredictable changes.
+> **The v1 learned policies did not generalize economically to this low-load regime.**
 
-The hypothesis is weakened or rejected if, on held-out workloads and multiple random seeds, RL:
+The project keeps that result unchanged.
 
-- does not improve the Pareto trade-off between service quality and cost;
-- is consistently less stable than tuned reactive/predictive controllers;
-- only wins after excessive hyperparameter tuning on evaluation workloads;
-- fails to generalize to traffic patterns outside its training distribution; or
-- provides gains too small to justify its complexity.
+## Next hypothesis: workload generalization
 
-A result showing that a simpler controller wins is still a valid and useful outcome.
+The next phase, benchmark-v2 (#115–#119), tests a more precise question:
+
+> **If DQN/PPO are trained across a broader, predeclared workload distribution, does their held-out cost/SLA behavior generalize better?**
+
+Stage A intentionally changes workload diversity while keeping the main simulator/action/observation world fixed.
+
+That lets us study whether training-distribution coverage itself matters.
+
+## Later question: environment generalization
+
+A separate future study (#120) asks whether a single policy could sensibly transfer across different:
+
+- fleet sizes;
+- service capacities;
+- startup delays;
+- control intervals;
+- SLA targets;
+- initial capacity;
+- service characteristics.
+
+That may require a future observation-v2/action-v2.
+
+Those designs are not implemented or selected yet.
+
+## Falsifiable outcomes
+
+The benchmark-v2 hypothesis is weakened if, on fresh untouched TEST data, RL:
+
+- still overprovisions at low load;
+- cannot maintain SLA under harder traffic;
+- produces worse cost/service trade-offs than simpler baselines;
+- becomes unstable or churn-heavy;
+- only looks good after test-driven tuning;
+- fails on unseen workload domains.
+
+The hypothesis gains support if a frozen generalist RL policy improves meaningful cost/SLA/churn trade-offs on fresh unseen workloads without relying on post-hoc test changes.
+
+Either outcome is useful for learning.
 
 ## Experimental implication
 
-The project therefore compares the following controller families under identical simulated workloads:
+ScaleRL compares:
 
 1. static capacity;
 2. random policy as a sanity check;
 3. threshold / target-tracking control;
-4. predictive autoscaling based on demand forecasting;
+4. predictive autoscaling;
 5. DQN;
 6. PPO.
 
-All controllers are evaluated using the same raw system metrics, held-out workload traces, and multiple seeds. Episodic reward alone is never sufficient evidence that RL is better.
+The important outputs are raw system metrics such as:
+
+- SLA violation;
+- p95 latency;
+- infrastructure cost;
+- queue/backlog;
+- dropped/failed work;
+- scaling churn/movement.
+
+Reward is secondary.
+
+## What this project is really for
+
+The main goal is to practice:
+
+- defining a model/control problem;
+- building baselines;
+- training RL agents;
+- designing fair experiments;
+- preventing train/test leakage;
+- tracking model provenance;
+- diagnosing failure;
+- adding realism gradually instead of pretending the first simulator is complete.
+
+That is the reason RL belongs in ScaleRL.
