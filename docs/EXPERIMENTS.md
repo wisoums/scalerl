@@ -1,5 +1,9 @@
 # Experimental Methodology
 
+> **Scope:** ScaleRL is a personal student learning project. The methodology in this document is intentionally careful, but it does not make the simulator a complete scientific model of production autoscaling. The project uses research-style habits to learn how ML experiments can be made reproducible and falsifiable. Results should always be interpreted inside the exact simulator, workload, and controller contract that produced them.
+
+The current simulator omits many factors that may matter in real deployments, including richer CPU/memory/I/O behavior, request/service heterogeneity, network effects, multi-service dependencies, provider-specific scheduling, heterogeneous hardware, richer failure modes, and many operational controls. Those omissions are part of the project's scope and are not hidden.
+
 ScaleRL evaluates every controller under the same simulator configuration and workload traces.
 
 ## Controllers
@@ -1018,4 +1022,96 @@ CI verifies code/package/container/training plumbing with short smoke jobs. Benc
 
 ## Success criterion
 
-The project is successful even if RL does not dominate every baseline. The research objective is to identify when learned sequential policies are useful, when simple controllers are sufficient, and what trade-offs cause each result.
+The project is useful as a learning exercise even if RL does not dominate every baseline. The goal is to understand when learned sequential policies appear useful inside the current simulator, when simple controllers are sufficient, and what trade-offs cause each result.
+
+## Next learning phase: benchmark-v2 generalization
+
+The frozen #46 Azure result is preserved as the v1 held-out result. It exposed a narrow but useful failure mode: the v1 DQN/PPO policies overprovisioned on very-low-load Azure traces.
+
+The project will **not** change that TEST set until RL looks better.
+
+Instead, the next experiment starts a new versioned benchmark with new untouched test data.
+
+### More precise question
+
+For Stage A, the question is intentionally narrower than "does RL solve cloud autoscaling?":
+
+> **Within the current simplified simulator and fixed v1 environment contract, does training DQN/PPO over a broader, predeclared workload distribution improve cost/SLA generalization relative to strong reactive and predictive baselines?**
+
+This is owned by #115–#119.
+
+### Stage A — workload generalization
+
+Stage A keeps the main environment assumptions fixed so that the primary change is the training workload distribution.
+
+The intended fixed contract includes:
+- 30 s control interval;
+- 1–10 replicas;
+- 50 requests/s per replica;
+- 60 s startup delay;
+- 0.5 s SLA target;
+- desired-replicas-v1;
+- scalerl-observation-v1;
+- the reward contract frozen before generalist training.
+
+The exact benchmark-v2 contract is not valid until #115 freezes it.
+
+Planned sequence:
+
+~~~text
+#115 methodology freeze
+  ↓
+#116 dataset/provenance pipeline
+  ↓
+#117 workload taxonomy + balanced sampler
+  ↓
+#118 generalist DQN/PPO training + validation selection
+  ↓
+#119 fresh untouched TEST
+~~~
+
+### Fresh-test discipline
+
+Benchmark-v2 TEST data must be chosen and frozen before #118 training.
+
+The project must not:
+- train directly on the two #46 TEST hours merely to repair the observed failure;
+- tune sampling weights from TEST outcomes;
+- choose a model seed from TEST;
+- change reward/action/observation contracts after TEST begins;
+- add or remove test domains because a controller performs badly.
+
+Low-load behavior should instead be represented through other TRAIN/VALIDATION examples.
+
+### Generalization tiers
+
+Where feasible, benchmark-v2 should separate:
+
+1. unseen applications/windows from known source families;
+2. unseen workload/regime combinations;
+3. an entire held-out source/domain.
+
+These tiers should remain separate in reporting rather than being hidden in one grand mean.
+
+### Stage B — environment generalization
+
+#120 is a separate later study.
+
+It asks whether the policy contract must change before a single model can sensibly generalize across:
+- fleet size;
+- service capacity;
+- startup delay;
+- control cadence;
+- SLA target;
+- initial replicas;
+- service characteristics.
+
+Potential observation-v2/action-v2 designs are future work. They are not part of the current implemented contract and must not be described as accepted until separately frozen.
+
+### Interpretation
+
+A stronger benchmark-v2 result can show that **training coverage mattered within ScaleRL's simulator**.
+
+It still would not establish universal real-cloud performance.
+
+Likewise, if strong conventional baselines continue to match or beat RL, that is a valid learning outcome rather than a reason to keep modifying the experiment.

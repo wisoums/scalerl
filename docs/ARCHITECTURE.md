@@ -1,6 +1,9 @@
 # Architecture
 
-ScaleRL is an experimental autoscaling platform for comparing traditional controllers with deep reinforcement-learning policies under identical workload/configuration contracts.
+ScaleRL is a **student learning platform** for experimenting with autoscaling controllers under a simplified, reproducible simulator.
+
+The architecture is intentionally modular so assumptions can be changed over time, but the current implementation should not be read as a production-cloud model. It captures enough state to study delayed scaling, queueing, latency/cost trade-offs, and controller behavior while leaving many real deployment factors out of scope.
+
 
 ## System layers
 
@@ -101,3 +104,67 @@ See `docs/MLOPS.md` for the run contract, Docker roles, and CI/CD boundaries.
 ## Design principle
 
 ScaleRL must never assume that RL is superior. Every RL policy is evaluated against fair simpler baselines under the same held-out traces, seeds, constraints, and metrics.
+
+## Generalization roadmap
+
+The architecture is now intentionally split into two learning stages.
+
+### Stage A — workload generalization
+
+Issues #115–#119 keep the main v1 simulator/policy contract fixed and change the **distribution of workloads used for training and evaluation**.
+
+That means the current:
+- scalerl-observation-v1;
+- desired-replicas-v1;
+- fleet bounds;
+- service-capacity assumption;
+- startup delay;
+- control cadence;
+- SLA target
+
+remain the Stage-A world unless #115 identifies a correctness blocker before training.
+
+The point is to isolate whether broader workload coverage improves DQN/PPO generalization.
+
+A future multi-workload sampler sits above the existing WorkloadTrace abstraction:
+
+~~~text
+synthetic / Azure / other approved sources
+                  │
+                  ▼
+         benchmark-v2 catalog
+                  │
+                  ▼
+      train episode sampler
+                  │
+                  ▼
+      existing ScaleRL env
+                  │
+            DQN / PPO
+~~~
+
+Dataset/source labels may be used for split/sampling/audit metadata, but should not become policy features unless a future versioned observation contract explicitly decides that.
+
+### Stage B — environment generalization
+
+#120 studies limitations that cannot be solved by workload diversity alone.
+
+Examples:
+
+- desired-replicas-v1 has an output size tied to fleet bounds;
+- pending-readiness feature count depends on startup delay / control interval;
+- a fixed number of history ticks represents different physical time under a different cadence;
+- episode_progress is natural for finite simulator episodes but less natural for an always-on service;
+- normalization semantics depend on configured capacity/fleet/SLA values.
+
+A future observation-v2/action-v2 may address those limitations.
+
+No v2 contract is implemented or accepted yet.
+
+### Why Stage A and Stage B are separate
+
+Changing workload distribution, observation representation, action semantics, fleet size, capacity, startup delay, and reward all at once would make it hard to know why a model improved or failed.
+
+ScaleRL therefore prefers versioned, narrower changes.
+
+The architecture is expected to evolve over time as the learning questions become more realistic.
