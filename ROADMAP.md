@@ -67,16 +67,17 @@ Before new generalist training begins, define:
 
 The benchmark-v2 TEST suite must be frozen before #118 training.
 
+**Status:** the methodology is frozen in [`benchmarks/v2/generalization-protocol-v1.json`](benchmarks/v2/generalization-protocol-v1.json) (see [`benchmarks/v2/README.md`](benchmarks/v2/README.md)). Approved sources are Azure Functions 2019 (TRAIN/VALIDATION/TEST-A/TEST-B), Azure Functions 2021 (TEST-C source holdout only) and synthetic-v2 (TRAIN/VALIDATION supplement). Alibaba 2021 is excluded because no license or usage terms were found.
+
 ### #116 — Expand dataset coverage
 
-Implement only the sources approved by #115.
+Implement only the sources approved by #115:
 
-Candidate sources currently include:
+- Azure Functions 2019 (per-app minute counts, grouped by owner);
+- per-app Azure Functions 2021 windows (TEST-C only);
+- synthetic-v2 generators used deliberately to cover missing TRAIN regimes.
 
-- Azure Functions 2019;
-- broader Azure Functions 2021 windows/apps;
-- Alibaba microservice traces;
-- synthetic generators used deliberately to cover missing regimes.
+Alibaba microservice traces are excluded from Stage A until usage terms are verified and a new protocol version is frozen.
 
 Google ClusterData and SeBS may contribute different kinds of system/application evidence, but they must not be misrepresented as ordinary request-rate traces.
 

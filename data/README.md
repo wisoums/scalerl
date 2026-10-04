@@ -10,17 +10,19 @@ Planned benchmark-v2 sources are listed below, but a source is **not considered 
 
 Raw production traces are **not committed to this repository**.
 
-## Candidate benchmark-v2 data catalog
+## Benchmark-v2 data catalog (frozen by #115)
 
-| Source | Intended role | Status / caution |
-| --- | --- | --- |
-| [Azure Functions 2019](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsDataset2019.md) | Additional real serverless invocation patterns; may also contribute execution-time/memory summaries | Planned candidate; loader not yet implemented |
-| [Azure Functions Invocation Trace 2021](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsInvocationTrace2021.md) | Existing real invocation trace, but benchmark-v2 may sample a broader set of apps/windows | Partially implemented today |
-| [Alibaba Cluster Trace — Microservices 2021](https://github.com/alibaba/clusterdata/tree/master/cluster-trace-microservices-v2021) | Candidate source of real microservice call-rate/response-time diversity | Planned candidate; semantics must be mapped explicitly |
-| [Google ClusterData 2019](https://github.com/google/cluster-data/blob/master/ClusterData2019.md) | Possible resource/environment variability evidence | **Not an HTTP request trace**; must not be treated as interchangeable with invocation data |
-| [SeBS](https://github.com/spcl/serverless-benchmarks) | Possible application/service benchmark for later systems work and calibration | **Benchmark application suite, not a request-trace dataset** |
+Source roles are frozen in [`benchmarks/v2/generalization-protocol-v1.json`](../benchmarks/v2/generalization-protocol-v1.json); see [`benchmarks/v2/README.md`](../benchmarks/v2/README.md). Licenses were checked against the official pages on 2026-10-02.
 
-#115 decides which sources are actually used for TRAIN, VALIDATION, and fresh TEST. #116 owns provenance-aware ingestion.
+| Source | Stage-A role | License | Status / caution |
+| --- | --- | --- | --- |
+| [Azure Functions 2019](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsDataset2019.md) | TRAIN, VALIDATION, TEST-A, TEST-B | CC-BY-4.0 | Loader not yet implemented (#116). Per-minute counts are recorded **after execution** (completion-binned). Split by `HashOwner`, which groups possibly related apps. |
+| [Azure Functions Invocation Trace 2021](https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsInvocationTrace2021.md) | **TEST-C only** (held-out source) | CC-BY-4.0 | Per-app windows need #116. Windows overlapping any v1 Azure hour, including both #46 TEST hours, are excluded. |
+| [Alibaba Cluster Trace — Microservices 2021](https://github.com/alibaba/clusterdata/tree/master/cluster-trace-microservices-v2021) | **Excluded** | none found | No license file or usage terms in the repository; 12 h only; per-container call rates at 60 s |
+| [Google ClusterData 2019](https://github.com/google/cluster-data/blob/master/ClusterData2019.md) | Excluded (possible #120 evidence) | CC-BY-4.0 | **Not an HTTP request trace**; never converted into one |
+| [SeBS](https://github.com/spcl/serverless-benchmarks) | Excluded (possible sim-to-real-v2 calibration) | BSD-3-Clause | **Benchmark application suite, not a request-trace dataset** |
+
+#116 owns provenance-aware ingestion of the two Azure sources.
 
 For every accepted external source, ScaleRL should record:
 - official source/version;
@@ -171,7 +173,7 @@ CI must use tiny committed fixtures under `tests/`; CI must not download the ful
 
 The v1 benchmark windows remain frozen historical evidence.
 
-Benchmark-v2 (#115) will define a **new** train/validation/test split before generalist training begins.
+Benchmark-v2 (#115) defines a **new** train/validation/test split before generalist training begins: `grouped-temporal-split-v1` in [`benchmarks/v2/README.md`](../benchmarks/v2/README.md). It uses contiguous development/embargo/temporal-test day blocks plus owner-level groups, so neighbouring windows of one app never straddle TRAIN and TEST.
 
 Important rules:
 - do not place neighboring windows from the same grouped application into different splits without an explicit leakage-safe rule;
