@@ -1054,7 +1054,18 @@ The intended fixed contract includes:
 - scalerl-observation-v1;
 - the reward contract frozen before generalist training.
 
-The exact benchmark-v2 contract is not valid until #115 freezes it.
+#115 has frozen this exactly in [`benchmarks/v2/generalization-protocol-v1.json`](../benchmarks/v2/generalization-protocol-v1.json) (`benchmark-v2-generalization-protocol-v1`; human-readable summary in [`benchmarks/v2/README.md`](../benchmarks/v2/README.md)). The protocol records `changed_from_v1 = []`, and its check verifies the contract against the #46 configuration.
+
+Frozen methodology decisions (#115):
+- Sources: Azure Functions 2019 is the only real TRAIN/VALIDATION source. Azure Functions 2021 is held out entirely as TEST-C. synthetic-v2 is a TRAIN/VALIDATION supplement only. Alibaba 2021 is excluded because no usage terms could be found. Google 2019 and SeBS are excluded because they are not request traces.
+- Split: contiguous days 1–11 (development), day 12 (embargo) and days 13–14 (temporal test), with Azure 2019 owners hashed 80/10/10 into development, validation and application-test.
+- TEST tiers: TEST-A (temporal), TEST-B application, TEST-B compositional (up to two hash-ranked (intensity, shape) cells removed from TRAIN/VALIDATION for every source), and TEST-C (source holdout).
+- Taxonomy: seven mean-intensity strata relative to 50 rps/replica and a 500 rps fleet, and eight minute-resolution shape labels.
+- Sampler: Azure 2019 0.75 / synthetic 0.25, then uniform intensity, shape and window, using a seeded PCG64 stream.
+- Selection: within one family on VALIDATION. Feasible = per-window SLA ≤ Threshold + 0.05 and per-(source, intensity) SLA ≤ Threshold + 0.02; then minimum balanced normalized cost.
+- Seeds and reporting: training seeds 0–4, all reported; group-clustered bootstrap intervals; no winner score.
+
+The concrete `benchmark-v2-workloads-v1` manifest is materialized by #117 and must be committed before #118 trains anything.
 
 Planned sequence:
 

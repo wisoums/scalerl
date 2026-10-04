@@ -139,6 +139,8 @@ The main question becomes:
 
 > **If DQN/PPO are trained across a much broader, predeclared workload distribution, do they learn a more general cost/SLA scaling policy?**
 
+The methodology is frozen in [`benchmarks/v2/README.md`](benchmarks/v2/README.md) (#115). No generalist model has been trained yet, and no benchmark-v2 TEST data has been opened.
+
 The critical path is:
 
 ~~~text

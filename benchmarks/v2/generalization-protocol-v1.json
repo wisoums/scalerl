@@ -1,0 +1,660 @@
+{
+  "aggregation": {
+    "grand_mean": "secondary only; never hides a tier, source or stratum",
+    "hierarchy": "window -> shape -> intensity -> source (equal weights)",
+    "learned_family": "equal training-seed mean per window, all five seeds retained",
+    "paired_deltas": "controller - threshold-v1 per matched window; equal-window mean with group-clustered percentile bootstrap 95% interval, 10000 resamples, SeedSequence(0, spawn_key=(0x626F6F74,))",
+    "raw_unit": "controller (and training seed) x window x condition",
+    "report_separately": [
+      "each TEST tier",
+      "source",
+      "intensity stratum",
+      "shape",
+      "low-load strata (near-idle, low, single-replica)",
+      "high-load strata (multi-replica-high, near-saturation, overload)"
+    ],
+    "statistics": [
+      "mean",
+      "median",
+      "sample_sd",
+      "q1",
+      "q3",
+      "min",
+      "max",
+      "count"
+    ]
+  },
+  "caveats": [
+    "all evidence remains simulator evidence; no real-cloud claim",
+    "TEST-C is a same-provider source shift, not a cross-provider domain shift",
+    "Azure 2019 minute counts bin completions, a proxy for arrivals",
+    "real traces are not rescaled, so intensity coverage depends on what the sampled apps contain; empty cells are reported, not filled from TEST",
+    "baselines are not re-tuned for benchmark-v2",
+    "taxonomy thresholds are heuristic strata fixed before data inspection"
+  ],
+  "comparators": {
+    "baseline_caveat": "baselines keep their v1 tuning, so they are not re-optimized for benchmark-v2 while RL is retrained on it",
+    "baselines": {
+      "predictive-seasonal-v1": "only where the same app has a prior day in its source: profile = median of the same hour on up to 7 previous days of that app (demand history only); reported as a separate subset; not applicable to synthetic",
+      "predictive-v1": "frozen predictive-baseline-v1",
+      "static-v1, random-v1": "sanity references only",
+      "threshold-v1": "frozen #78 reference params, not re-tuned on benchmark-v2"
+    },
+    "baselines_retuned": false,
+    "matched_conditions": "identical window, config, dynamics seed and evaluation seed"
+  },
+  "datasets": {
+    "eligibility_rule": "a Stage-A source needs request/call-rate semantics, a stable leakage group, deterministic preparation and a verified license; decided from documentation only, never from controller outcomes",
+    "raw_data_committed": false,
+    "sources": [
+      {
+        "caveats": [
+          "counts are recorded after functions execute: minutes bin completions, not arrivals",
+          "no sub-minute arrival pattern exists; none is invented",
+          "a small unspecified per-application random sample of Azure Functions",
+          "per-app rates are not rescaled to the simulator (amplitude as recorded)",
+          "cross-day hash consistency is stated for file types; #116 must verify it across days and record the result",
+          "duration/memory tables are auxiliary analysis metadata, never request rate; memory exists only for days 1-12",
+          "trigger group is recorded per app for analysis only"
+        ],
+        "citation": "Shahrad et al., 'Serverless in the Wild: Characterizing and Optimizing the Serverless Workload at a Large Cloud Provider', USENIX ATC 2020",
+        "leakage_group": "HashOwner (groups possibly related applications)",
+        "license": "CC-BY-4.0 (AzurePublicDataset LICENSE; the dataset page says 'CC-BY Attribution')",
+        "mapping": "rate = per-minute count / 60 rps, repeated for both contained 30 s ticks; window (day d, hour h) = minutes 60h+1..60h+60 of day file d; an app absent from a day file has zero requests that day",
+        "official_url": "https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsDataset2019.md",
+        "semantics": "per-function invocation counts per minute (request-rate proxy)",
+        "source_id": "azure-functions-2019",
+        "stage_a_role": "TRAIN, VALIDATION, TEST-A, TEST-B",
+        "version": "revision 2, 2020-06-18; files invocations_per_function_md.anon.d01-d14.csv",
+        "workload_unit": "HashApp (sum over its functions and triggers)"
+      },
+      {
+        "caveats": [
+          "timestamps were modified by Microsoft: trace-relative seconds only",
+          "same provider/platform as Azure 2019: TEST-C is a cross-dataset, cross-year, different-sampling shift, not a cross-provider domain shift",
+          "per-app demand is expected to be mostly low; TEST-C is reported per intensity",
+          "windows overlapping any v1 Azure hour (including both #46 TEST hours) are excluded from benchmark-v2"
+        ],
+        "citation": "Zhang et al., 'Faster and Cheaper Serverless Computing on Harvested Resources', SOSP 2021",
+        "leakage_group": "app (the trace has no owner field)",
+        "license": "CC-BY-4.0 (AzurePublicDataset LICENSE; the dataset page says 'CC-BY Attribution')",
+        "mapping": "arrival = end_timestamp - duration, binned into half-open 30 s ticks of window k = [3600k, 3600(k+1)) trace-relative seconds, k in 0..335; arrivals outside [0, 1209600) are dropped",
+        "official_url": "https://github.com/Azure/AzurePublicDataset/blob/master/AzureFunctionsInvocationTrace2021.md",
+        "semantics": "individual invocations: end timestamp and duration in seconds",
+        "source_id": "azure-functions-2021",
+        "stage_a_role": "TEST-C source holdout only (never TRAIN or VALIDATION)",
+        "version": "revision 1, 2021-11-30; AzureFunctionsInvocationTraceForTwoWeeksJan2021",
+        "workload_unit": "app (sum over its functions)"
+      },
+      {
+        "caveats": [
+          "never described or reported as real traffic"
+        ],
+        "leakage_group": "generator family + parameter set (all seeds of a set share a group)",
+        "license": "generated by ScaleRL code under the repository MIT license",
+        "semantics": "seeded generated request rates (scalerl.workloads generators)",
+        "source_id": "synthetic-v2",
+        "stage_a_role": "TRAIN and VALIDATION coverage supplement; never TEST",
+        "workload_unit": "one generated window"
+      },
+      {
+        "citation": "Luo et al., 'Characterizing Microservice Dependency and Performance: Alibaba Trace Analysis', SoCC 2021",
+        "license": "none found: the repository has no LICENSE file and neither its README nor the trace README states usage terms (checked 2026-10-02)",
+        "official_url": "https://github.com/alibaba/clusterdata/tree/master/cluster-trace-microservices-v2021",
+        "reason": "unverified usage terms; additionally only 12 hours, per-container MCR at 60 s with provider/consumer double-counting risk. Adding it later needs a new protocol version before any #118 training, never a silent addition",
+        "source_id": "alibaba-microservices-2021",
+        "stage_a_role": "excluded from Stage A"
+      },
+      {
+        "license": "CC-BY-4.0 (stated in ClusterData2019.md)",
+        "official_url": "https://github.com/google/cluster-data/blob/master/ClusterData2019.md",
+        "reason": "resource requests/usage of Borg jobs, not a request trace; never converted",
+        "source_id": "google-clusterdata-2019",
+        "stage_a_role": "excluded from Stage A (possible #120 environment evidence)"
+      },
+      {
+        "license": "BSD-3-Clause (repository LICENSE.md)",
+        "official_url": "https://github.com/spcl/serverless-benchmarks",
+        "reason": "serverless application benchmark suite, not a workload trace",
+        "source_id": "sebs",
+        "stage_a_role": "excluded from Stage A (possible sim-to-real-v2 calibration)"
+      }
+    ]
+  },
+  "evaluation_sets": {
+    "method": "per role and (source, intensity, shape) cell, SHA-256(salt|evaluation-sample|role|window_id) rank order, at most one window per group per cell",
+    "order": "source, intensity order, shape order, window_id (validation iterator)",
+    "test_cap_per_cell": 8,
+    "train": "the full train role; no cap (sampled by the episode sampler)",
+    "validation_cap_per_cell": 4
+  },
+  "fixed_environment": {
+    "action_semantics": "desired-replicas-v1",
+    "changed_from_v1": [],
+    "episode_ticks": 120,
+    "fleet_capacity_rps": 500.0,
+    "observation_contains_source_or_domain": false,
+    "observation_features": [
+      "demand_pressure_t-0",
+      "demand_pressure_t-1",
+      "demand_pressure_t-2",
+      "demand_pressure_t-3",
+      "utilization",
+      "queue_pressure",
+      "latency_pressure",
+      "active_replicas_fraction",
+      "tick_cost_fraction",
+      "episode_progress",
+      "pending_ready_in_1",
+      "pending_ready_in_2"
+    ],
+    "observation_version": "scalerl-observation-v1",
+    "simulator_config": {
+      "action": {
+        "semantics": "desired-replicas-v1"
+      },
+      "dynamics": {
+        "capacity_jitter_fraction": 0.0,
+        "dynamics_seed": 0,
+        "telemetry_delay_ticks": 0
+      },
+      "observation": {
+        "traffic_history_ticks": 4
+      },
+      "replicas": {
+        "cost_per_hour": 0.1,
+        "initial_replicas": 1,
+        "max_replicas": 10,
+        "min_replicas": 1,
+        "service_capacity_rps": 50.0,
+        "startup_delay_seconds": 60.0
+      },
+      "sla": {
+        "latency_target_seconds": 0.5
+      },
+      "timing": {
+        "control_interval_seconds": 30.0,
+        "episode_duration_seconds": 3600.0
+      }
+    },
+    "startup_delay_model": "fixed-v1",
+    "training_and_selection_condition": "nominal (robustness-v1 'nominal', dynamics seed 0)"
+  },
+  "generalization_terms": {
+    "application": "TEST-B application",
+    "compositional": "TEST-B compositional",
+    "in-distribution": "validation: unseen owners, train time span, train cells",
+    "source": "TEST-C; not called a cross-provider domain shift",
+    "temporal": "TEST-A"
+  },
+  "heldout_v1_relationship": {
+    "issue_46": "frozen v1 evidence; not rerun, overwritten or reinterpreted",
+    "low_load_coverage_source": "Azure 2019 near-idle/low strata and synthetic windows",
+    "reporting": "#119 may show #46 v1 results next to benchmark-v2 results, labelled as v1 evidence; benchmark-v2 is not a rerun of #46",
+    "v1_outcomes_used_to_choose_items": false,
+    "v1_test_hours_in_benchmark_v2": false
+  },
+  "leakage": {
+    "benchmark_v2_test_opened": false,
+    "controller_outcomes_used_for_split_or_taxonomy": false,
+    "generalist_model_trained": false,
+    "held_out_test_used_for_design": false,
+    "held_out_test_used_for_selection": false,
+    "held_out_test_used_for_training": false
+  },
+  "manifest_gate": {
+    "contingency": "if a Stage-A source cannot be prepared or a tier is empty, record it; the fix is a new protocol version before #118, never substituting other data",
+    "immutable_after": "#118 first training run",
+    "manifest_version": "benchmark-v2-workloads-v1",
+    "must_include": [
+      "protocol_id",
+      "source file fingerprints and preparation versions",
+      "every window id, group id, role, reason, statistics, intensity, shape, tags",
+      "chosen compositional cells or the not-materialized reason",
+      "validation and TEST sample membership",
+      "excluded/reserved counts by reason",
+      "coverage audit by source x intensity x shape x role"
+    ],
+    "order": [
+      "catalog both Azure sources with workload statistics only",
+      "assign roles without compositional cells",
+      "choose compositional cells from candidate-train counts",
+      "re-assign roles with the chosen cells",
+      "generate synthetic-v2 from the train gap audit",
+      "sample validation and TEST sets with the frozen caps",
+      "write coverage audit and leakage checks",
+      "commit the content-addressed manifest"
+    ],
+    "owner": "#117 (after #116 prepares azure-functions-2019 and azure-functions-2021)",
+    "required_before": "#118 first training run"
+  },
+  "metrics": {
+    "diagnostic_flags": "heldout-descriptive-v1 flags (full_fleet, never_scaled, ...)",
+    "new_diagnostics": {
+      "fraction_ticks_at_max_fleet": "ticks with active + pending == 10, / 120",
+      "fraction_ticks_at_min_fleet": "ticks with active + pending == 1, / 120",
+      "overprovision_ratio": "sum over ticks of (active + pending) / sum of max(1, ceil(request_rate / 50))"
+    },
+    "overall_winner_score": null,
+    "primary": [
+      "sla_violation_rate",
+      "sla_violation_count",
+      "normalized_cost",
+      "infrastructure_cost",
+      "replica_seconds",
+      "mean_p95_latency_seconds",
+      "max_p95_latency_seconds",
+      "queue_pressure",
+      "mean_queue_depth",
+      "max_queue_depth",
+      "processed_requests",
+      "dropped_requests",
+      "final_queued_requests",
+      "scaling_actions",
+      "churn_rate",
+      "action.total_absolute_replica_change",
+      "action.max_absolute_replica_change_in_one_tick"
+    ],
+    "secondary": [
+      "episode_reward"
+    ],
+    "workload_descriptors": [
+      "request_count",
+      "mean_rps",
+      "peak_tick_rps",
+      "mean_rps/50",
+      "mean_rps/500",
+      "intensity",
+      "peak_pressure",
+      "shape",
+      "shape_tags"
+    ]
+  },
+  "project_scope": {
+    "cross_algorithm_winner": false,
+    "production_autoscaler_claim": false,
+    "rl_required_to_win": false,
+    "student_learning_project": true,
+    "universal_cloud_claim": false
+  },
+  "protocol_id": "f8eb4bfa9c42",
+  "protocol_version": "benchmark-v2-generalization-protocol-v1",
+  "research_question": "Within ScaleRL's simplified simulator and the unchanged v1 system contract, does training DQN/PPO over a broader, predeclared workload distribution improve cost/SLA generalization to unseen windows, applications, taxonomy combinations and a held-out trace source, relative to fixed reactive and predictive baselines?",
+  "reward": {
+    "contract_id": "37158c261364",
+    "contract_version": "reward-contract-v1",
+    "reopened_by_stage_a": false,
+    "used_for_selection": false,
+    "variant": "full-cost-low-v1",
+    "weights": {
+      "churn": 0.1,
+      "cost": 0.5,
+      "latency": 1.0,
+      "queue": 1.0,
+      "sla": 1.0
+    }
+  },
+  "robustness_boundary": {
+    "historical_robustness_artifacts_changed": false,
+    "issue_21": {
+      "scenarios": "separately versioned benchmark-v2 scenarios; robustness-v1 unchanged",
+      "test_role": "a separate stress tier applied only to frozen TEST windows, materialized only if #21 commits scenario specs and seeds before #118's first training run; otherwise #119 runs no stress tier",
+      "train_role": "none in Stage A",
+      "validation_role": "diagnostic only; never part of selection"
+    },
+    "stage_a_training": "nominal only; diversity comes from workloads"
+  },
+  "sampler": {
+    "episode_sequence_reproducible": true,
+    "levels": [
+      "source by frozen weight (renormalized over present sources)",
+      "intensity uniform over non-empty strata",
+      "shape uniform over non-empty cells",
+      "window uniform"
+    ],
+    "per_episode_record": [
+      "training_seed",
+      "episode_index",
+      "window_id"
+    ],
+    "rl_library_seed": "the training seed, passed separately to Stable-Baselines3",
+    "rng": "PCG64(SeedSequence(training_seed, spawn_key=(0x73616D70,))); one draw per level",
+    "scope": "train role only; validation/test windows cannot enter the tree",
+    "source_order": [
+      "azure-functions-2019",
+      "synthetic-v2"
+    ],
+    "source_weight_rationale": "real data dominates; synthetic is a coverage supplement that still guarantees rare regimes appear",
+    "source_weights": {
+      "azure-functions-2019": 0.75,
+      "synthetic-v2": 0.25
+    },
+    "version": "hierarchical-balanced-sampler-v1"
+  },
+  "seeds": {
+    "dynamics_seed": 0,
+    "evaluation_seed": 0,
+    "screening_training_seed": 0,
+    "selected_config_members": "training seeds 0-4 with the screening run reused as the seed-0 member",
+    "training_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "selection": {
+    "adaptation_from_78": "#78 required per-workload SLA no worse than Threshold on 3 validation workloads; with hundreds of heterogeneous windows an exact per-window rule makes feasibility hinge on single noisy windows, so v2 keeps SLA as a constraint with a small per-window allowance plus a tighter per-stratum allowance, and keeps cost as the objective. Fixed before any v2 outcome.",
+    "canonical_seed": "same rule over the five selected-config seeds, lowest seed on a full tie; for later deployment only; #119 reports all five seeds",
+    "evidence": "validation role only, nominal condition, screening seed 0",
+    "feasibility": {
+      "group": "(source, intensity) balanced SLA <= Threshold's + 0.02",
+      "tolerance": 1e-12,
+      "window": "SLA violation rate <= Threshold's + 0.05"
+    },
+    "no_feasible_candidate": "select nothing; report the diagnostic fallback (min max group excess, min max window excess, objective); never relax the constraint after outcomes",
+    "objective": "balanced normalized_cost (equal source > intensity > shape > window)",
+    "reference": {
+      "params": {
+        "cooldown_ticks": 3,
+        "high_threshold": 0.6,
+        "low_threshold": 0.2
+      },
+      "variant_id": "threshold-v1"
+    },
+    "reward_used": false,
+    "scope": "within one algorithm family; DQN and PPO are never ranked against each other",
+    "search_gate": "#118 commits DQN/PPO candidate spaces, trial counts and timesteps before the first candidate result; no rescue budget",
+    "tie_breaks": [
+      "queue_pressure",
+      "churn_rate",
+      "sla_violation_rate",
+      "candidate_id"
+    ],
+    "version": "benchmark-v2-cost-under-sla-v1"
+  },
+  "source_issue": "#115",
+  "split": {
+    "azure_2019_groups": {
+      "application-test": [
+        9000,
+        9999
+      ],
+      "development": [
+        0,
+        7999
+      ],
+      "fields": [
+        "group",
+        "azure-functions-2019",
+        "<HashOwner>"
+      ],
+      "modulus": 10000,
+      "validation": [
+        8000,
+        8999
+      ]
+    },
+    "hash": "SHA-256 of UTF-8 pipe-joined fields; bucket = first 64 bits mod modulus",
+    "leakage_guarantees": [
+      "no Azure 2019 owner group has windows in more than one of train, validation, TEST-B application",
+      "TEST-A shares owners with train but is separated by the one-day embargo; neighbouring hours never straddle train and TEST-A",
+      "TEST-B compositional cells are absent from train and validation for every source",
+      "TEST-C source never appears in train or validation",
+      "no synthetic parameter set appears in both train and validation; synthetic is never TEST"
+    ],
+    "no_reassignment": "a window removed by a rule is excluded or reserved, never moved to another role",
+    "periods": {
+      "development": [
+        0,
+        263
+      ],
+      "embargo": [
+        264,
+        287
+      ],
+      "meaning": "window indices: days 1-11 | day 12 | days 13-14",
+      "temporal-test": [
+        288,
+        335
+      ]
+    },
+    "reserved_windows": "never opened, sampled or evaluated in benchmark-v2-workloads-v1",
+    "role_table": {
+      "azure-2019 application-test group": "development period -> TEST-B application; otherwise reserved",
+      "azure-2019 development group": "development period -> train; embargo -> reserved; temporal-test -> TEST-A; compositional cell (non-embargo) -> TEST-B compositional",
+      "azure-2019 validation group": "development period -> validation (compositional cell -> excluded); otherwise reserved",
+      "azure-2021": "TEST-C unless excluded (v1 overlap)",
+      "synthetic-v2": "group hash -> train/validation; compositional cell -> excluded"
+    },
+    "salt": "scalerl-benchmark-v2-v1",
+    "synthetic_groups": {
+      "fields": [
+        "synthetic",
+        "synthetic-v2",
+        "<family:parameter_set>"
+      ],
+      "train": [
+        0,
+        8999
+      ],
+      "validation": [
+        9000,
+        9999
+      ]
+    },
+    "version": "grouped-temporal-split-v1"
+  },
+  "stage": "generalist-workload-v1",
+  "stage_boundary": {
+    "correctness_blocker_rule": "a Stage-A contract change is allowed only for a demonstrated correctness bug, requires a new protocol version, and must happen before #118 training",
+    "stage_a_changes": [
+      "training workload distribution"
+    ],
+    "stage_a_fixed": [
+      "simulator dynamics and replica lifecycle",
+      "min/max/initial replicas 1/10/1",
+      "service capacity 50 rps/replica",
+      "startup delay 60 s (fixed-v1)",
+      "control interval 30 s",
+      "SLA target 0.5 s",
+      "desired-replicas-v1",
+      "scalerl-observation-v1",
+      "reward-contract-v1 / full-cost-low-v1"
+    ],
+    "stage_b_owner": "#120 (observation-v2/action-v2/environment context); never mixed in"
+  },
+  "synthetic_generation": {
+    "classification": "the same taxonomy; instances in compositional cells are dropped",
+    "frozen_by": "#117 in the manifest, before #118; never tuned after any outcome",
+    "gap_audit_input": "Azure 2019 train-role catalog counts only (no TEST, no outcomes)",
+    "purpose": "fill train/validation taxonomy cells with < 20 Azure 2019 train windows",
+    "seed": "SeedSequence(instance_index, spawn_key=(0x73796E74,))",
+    "version": "synthetic-v2"
+  },
+  "taxonomy": {
+    "intensity": {
+      "beyond_scope_rule": "mean above the overload bound is excluded",
+      "fleet_capacity_rps": 500.0,
+      "metric": "mean rps over the 120 ticks",
+      "peak_pressure_above": "fleet-overload",
+      "peak_pressure_role": "analysis only",
+      "peak_pressure_upper_bounds_inclusive": [
+        {
+          "label": "within-one-replica",
+          "max_peak_tick_rps": 50.0
+        },
+        {
+          "label": "multi-replica",
+          "max_peak_tick_rps": 400.0
+        },
+        {
+          "label": "near-saturation",
+          "max_peak_tick_rps": 500.0
+        }
+      ],
+      "service_capacity_rps": 50.0,
+      "upper_bounds_inclusive": [
+        {
+          "label": "near-idle",
+          "max_mean_rps": 5.0
+        },
+        {
+          "label": "low",
+          "max_mean_rps": 25.0
+        },
+        {
+          "label": "single-replica",
+          "max_mean_rps": 50.0
+        },
+        {
+          "label": "multi-replica-moderate",
+          "max_mean_rps": 150.0
+        },
+        {
+          "label": "multi-replica-high",
+          "max_mean_rps": 400.0
+        },
+        {
+          "label": "near-saturation",
+          "max_mean_rps": 500.0
+        },
+        {
+          "label": "overload",
+          "max_mean_rps": 1000.0
+        }
+      ]
+    },
+    "labels_in_observation": false,
+    "labels_role": "sampling, stratified selection and reporting only",
+    "traffic_shape": {
+      "auxiliary_tag_role": "analysis only; never a sampler or split key",
+      "auxiliary_tags": [
+        "quiet-to-spike",
+        "flash-crowd",
+        "repeated-wave",
+        "fleet-overload"
+      ],
+      "classifier_version": "traffic-shape-minute-v1",
+      "interpretation": "deterministic strata, not semantic ground truth",
+      "labels": [
+        "steady",
+        "ramp-up",
+        "ramp-down",
+        "periodic",
+        "spike",
+        "bursty",
+        "regime-switch",
+        "noisy-other"
+      ],
+      "ordered_rules": [
+        "steady: CV <= 0.15 and peak/mean <= 1.5",
+        "ramp-up: quarter means strictly increasing and q4 >= 2.0 * max(q1, 1.0)",
+        "ramp-down: quarter means strictly decreasing and q1 >= 2.0 * max(q4, 1.0)",
+        "periodic: some lag in [3, n/2] minutes has a local ACF peak >= 0.5 and a smaller lag has ACF <= that peak - 0.3",
+        "spike: with m = max(median, 1.0), peak >= 3.0 m, exactly one contiguous run of minutes above 2m, and at most 0.15 of minutes above 2m",
+        "regime-switch: the best single change point (each side >= n/8 minutes, earliest on ties) explains >= 0.6 of the variance and the segment-mean ratio (low floored at 1.0 rps) is >= 2.0",
+        "bursty: CV >= 0.75 or peak/mean >= 2.5",
+        "noisy-other: otherwise"
+      ],
+      "resolution": "one-minute means of consecutive 30 s tick pairs (60 samples)"
+    },
+    "version": "workload-taxonomy-v1"
+  },
+  "test_tiers": [
+    {
+      "id": "TEST-A",
+      "kind": "in-domain temporal",
+      "meaning": "unseen future time (days 13-14) of development owners after an embargo",
+      "role": "test-a-temporal"
+    },
+    {
+      "id": "TEST-B-application",
+      "kind": "in-domain application holdout",
+      "meaning": "owners/apps never seen in train or validation, same time span as train",
+      "role": "test-b-application"
+    },
+    {
+      "id": "TEST-B-compositional",
+      "kind": "compositional / OOD regime",
+      "meaning": "known intensity and shape, predeclared unseen joint (intensity, shape)",
+      "role": "test-b-compositional",
+      "rule": {
+        "counted_over": "Azure 2019 candidate-train windows (development owners, development period, non-empty, in scope), from workload statistics only",
+        "max_cells": 2,
+        "min_groups": 5,
+        "min_windows": 20,
+        "none_eligible": "tier not materialized; reason recorded in the manifest",
+        "ranking": "SHA-256(salt|compositional|intensity|shape) ascending",
+        "second_cell": "differs in both intensity and shape; support kept",
+        "support_windows": 20
+      }
+    },
+    {
+      "id": "TEST-C",
+      "kind": "source holdout (same-provider cross-dataset shift)",
+      "meaning": "a whole trace source absent from train and validation",
+      "role": "test-c-source",
+      "source": "azure-functions-2021"
+    }
+  ],
+  "upstream": {
+    "action_decision_id": "0eb5562b01e6",
+    "action_experiment_spec_id": "899dfbb64217",
+    "heldout_v1_results_id": "d9d3fb985f2d",
+    "heldout_v1_spec_id": "b32b2f3d3dd6",
+    "reward_ablation_spec_id": "f5aff8f1e8c2",
+    "reward_contract_id": "37158c261364",
+    "selection_spec_id": "418876d6c8e9"
+  },
+  "workload_unit": {
+    "amplitude_rescaled": false,
+    "control_interval_seconds": 30.0,
+    "excluded_windows": {
+      "beyond-scope-overload": "mean > 1000.0 rps (2x fleet capacity)",
+      "empty-window": "zero requests (counted in the catalog, used nowhere)",
+      "v1-benchmark-overlap": "Azure 2021 window overlapping any v1 Azure window"
+    },
+    "grid": "aligned, non-overlapping one-hour windows; 336 per Azure source",
+    "ticks": 120,
+    "v1_azure_intervals_seconds": {
+      "test": [
+        [
+          993600.0,
+          997200.0
+        ],
+        [
+          1166400.0,
+          1170000.0
+        ]
+      ],
+      "train": [
+        [
+          129600.0,
+          133200.0
+        ],
+        [
+          302400.0,
+          306000.0
+        ],
+        [
+          475200.0,
+          478800.0
+        ]
+      ],
+      "validation": [
+        [
+          734400.0,
+          738000.0
+        ]
+      ]
+    },
+    "window_ids": {
+      "azure-functions-2019": "az19:<HashOwner>:<HashApp>:d<DD>h<HH>",
+      "azure-functions-2021": "az21:<app>:<start_seconds>",
+      "synthetic-v2": "syn2:<family>:<parameter_set>:<instance>"
+    },
+    "window_seconds": 3600.0
+  }
+}
